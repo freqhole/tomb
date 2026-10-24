@@ -209,6 +209,33 @@ pub async fn remove(station_id: &str, request_id: &str) -> bool {
     q.items.len() != before
 }
 
+/// move one specific queued request to a new position, identified by id
+/// (not its current index - the client's last-known position may be
+/// stale by the time this call lands, e.g. another member just removed
+/// an earlier entry; targeting by id means the move always lands on the
+/// right item regardless). `new_index` is clamped to the queue's length
+/// after the item is lifted out, so "move to the end" is always
+/// expressible as a large index without the caller needing to know the
+/// exact count. returns true if a matching request was found and moved.
+/// any authenticated member (not just admins) may call this, same as
+/// `remove`/`clear` above.
+pub async fn reorder(station_id: &str, request_id: &str, new_index: usize) -> bool {
+    let mut reg = registry().write().await;
+    let Some(q) = reg.get_mut(station_id) else {
+        return false;
+    };
+    let Some(pos) = q.items.iter().position(|r| r.id == request_id) else {
+        return false;
+    };
+    let item = q
+        .items
+        .remove(pos)
+        .expect("pos came from iter().position() on this same deque");
+    let clamped = new_index.min(q.items.len());
+    q.items.insert(clamped, item);
+    true
+}
+
 /// clear every queued request for a station at once. returns the number
 /// of requests removed.
 pub async fn clear(station_id: &str) -> usize {
@@ -483,6 +510,95 @@ mod tests {
         assert!(!remove("station-never-seen", "not-a-real-id").await);
         // the real item must still be there - a failed removal is a no-op.
         assert_eq!(list(station_id).await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn reorder_moves_an_item_to_a_new_position_by_id() {
+        let station_id = "station-reorder-test";
+        submit(
+            station_id,
+            RadioItemKind::Song,
+            "song-1".to_string(),
+            "user-a".to_string(),
+            None,
+        )
+        .await;
+        submit(
+            station_id,
+            RadioItemKind::Song,
+            "song-2".to_string(),
+            "user-a".to_string(),
+            None,
+        )
+        .await;
+        submit(
+            station_id,
+            RadioItemKind::Song,
+            "song-3".to_string(),
+            "user-a".to_string(),
+            None,
+        )
+        .await;
+
+        // move the last item ("song-3") to the front.
+        let last_id = list(station_id).await[2].id.clone();
+        assert!(reorder(station_id, &last_id, 0).await);
+
+        let reordered = list(station_id).await;
+        assert_eq!(
+            reordered.iter().map(|r| r.item_id.as_str()).collect::<Vec<_>>(),
+            vec!["song-3", "song-1", "song-2"]
+        );
+    }
+
+    #[tokio::test]
+    async fn reorder_clamps_an_out_of_range_index_to_the_end() {
+        let station_id = "station-reorder-clamp-test";
+        submit(
+            station_id,
+            RadioItemKind::Song,
+            "song-1".to_string(),
+            "user-a".to_string(),
+            None,
+        )
+        .await;
+        submit(
+            station_id,
+            RadioItemKind::Song,
+            "song-2".to_string(),
+            "user-a".to_string(),
+            None,
+        )
+        .await;
+
+        let first_id = list(station_id).await[0].id.clone();
+        // wildly out-of-range - must clamp to "end of queue", not panic
+        // or silently no-op.
+        assert!(reorder(station_id, &first_id, 999).await);
+
+        let reordered = list(station_id).await;
+        assert_eq!(
+            reordered.iter().map(|r| r.item_id.as_str()).collect::<Vec<_>>(),
+            vec!["song-2", "song-1"]
+        );
+    }
+
+    #[tokio::test]
+    async fn reorder_returns_false_for_an_unknown_id_or_station() {
+        let station_id = "station-reorder-miss-test";
+        submit(
+            station_id,
+            RadioItemKind::Song,
+            "song-1".to_string(),
+            "user-a".to_string(),
+            None,
+        )
+        .await;
+        assert!(!reorder(station_id, "not-a-real-id", 0).await);
+        assert!(!reorder("station-never-seen", "not-a-real-id", 0).await);
+        // the real item must still be in its original position - a
+        // failed reorder is a no-op.
+        assert_eq!(list(station_id).await[0].item_id, "song-1");
     }
 
     #[tokio::test]

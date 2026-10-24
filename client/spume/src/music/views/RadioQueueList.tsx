@@ -6,27 +6,16 @@
 // `index` overlay, same as the player queue/playlist rows) instead of a
 // played-at timestamp. any authenticated user (not just admins) may
 // remove a single request or clear the whole queue.
-
-import { createEffect, createSignal, For, on, Show } from "solid-js";
-import { getClientForRemote } from "../../app/api/client";
+//
+// the actual list/remove/clear logic lives in
+// components/radio/useRadioRequestQueue.ts, shared with the sidebar's own
+// live request-queue section - this file is purely the rendering for
+// this specific tab's layout.
+import { createSignal, For, Show } from "solid-js";
 import type { RemoteRef } from "../../app/services/storage/types";
-import { resolveBlobUrl } from "../services/storage/blobResolver";
+import { useRadioRequestQueue } from "../../components/radio/useRadioRequestQueue";
 import { MediaThumbnail } from "../../components/media/MediaThumbnail";
 import { Icon } from "../../components/icons/registry";
-import { toast } from "../../components/feedback/Toast";
-import { debug, warn } from "../../utils/logger";
-
-interface QueuedRequestRow {
-  id: string;
-  kind: string;
-  itemId: string;
-  requestedBy: string;
-  title: string;
-  artist: string | null;
-  album: string | null;
-  durationMs: number | null;
-  artBlobId: string | null;
-}
 
 interface RadioQueueListProps {
   stationId: string;
@@ -44,137 +33,21 @@ interface RadioQueueListProps {
 }
 
 export function RadioQueueList(props: RadioQueueListProps) {
-  const [rows, setRows] = createSignal<QueuedRequestRow[]>([]);
-  const [loading, setLoading] = createSignal(false);
+  const queue = useRadioRequestQueue({
+    stationId: () => props.stationId,
+    remoteRef: () => props.remoteRef,
+    remoteId: () => props.remoteId,
+  });
   const [confirmingClear, setConfirmingClear] = createSignal(false);
-  const [thumbUrls, setThumbUrls] = createSignal<Record<string, string>>({});
-  const resolvingThumbIds = new Set<string>();
 
-  const load = async () => {
-    if (!props.stationId) {
-      setRows([]);
-      return;
-    }
-    setLoading(true);
-    try {
-      const client = await getClientForRemote(props.remoteRef);
-      const result = await client.app.radioListRequests({ station_id: props.stationId });
-      if (!result.success) {
-        warn("radio-queue", "failed to list requests:", result.error.issues[0]?.message);
-        setRows([]);
-        return;
-      }
-      setRows(
-        result.data.requests.map((r) => ({
-          id: r.id,
-          kind: r.kind,
-          itemId: r.item_id,
-          requestedBy: r.requested_by,
-          title: r.title,
-          artist: r.artist ?? null,
-          album: r.album ?? null,
-          durationMs: r.duration_ms ?? null,
-          artBlobId: r.art_blob_id ?? null,
-        }))
-      );
-    } catch (err) {
-      debug("radio-queue", "failed to load queue:", err);
-      setRows([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // guarded against `props.remoteRef` being reactively re-derived to an
-  // EQUAL-BY-VALUE but freshly-allocated object upstream (e.g. a station-
-  // list refresh recomputing the station this panel is for) - without
-  // this, every such incidental re-render refetches the whole queue from
-  // the server and replaces every row's object identity, which `<For>`
-  // then treats as an entirely new list - a "queue blinks" symptom with
-  // nothing actually having changed.
-  createEffect(
-    on(
-      () =>
-        [
-          props.stationId,
-          props.remoteRef.remote_id,
-          props.remoteRef.peer_addr,
-          props.remoteRef.base_url,
-          props.remoteRef.is_charnel_managed,
-        ] as const,
-      (deps, prevDeps) => {
-        if (prevDeps && deps.every((v, i) => v === prevDeps[i])) return;
-        void load();
-      },
-      { defer: false }
-    )
-  );
-
-  createEffect(
-    on(
-      rows,
-      (currentRows) => {
-        const remoteId = props.remoteId;
-        if (!remoteId) return;
-        for (const row of currentRows) {
-          if (!row.artBlobId || thumbUrls()[row.id] || resolvingThumbIds.has(row.id)) continue;
-          resolvingThumbIds.add(row.id);
-          void (async () => {
-            try {
-              const url = await resolveBlobUrl(row.artBlobId!, remoteId, "image", undefined, 50);
-              setThumbUrls((prev) => ({ ...prev, [row.id]: url }));
-            } catch (err) {
-              debug("radio-queue", "failed to resolve queue art blob:", err);
-            } finally {
-              resolvingThumbIds.delete(row.id);
-            }
-          })();
-        }
-      },
-      { defer: true }
-    )
-  );
-
-  const handleRemove = async (row: QueuedRequestRow) => {
-    // optimistic removal - queue management should feel instant.
-    const previous = rows();
-    setRows(previous.filter((r) => r.id !== row.id));
-    try {
-      const client = await getClientForRemote(props.remoteRef);
-      const result = await client.app.radioRemoveRequest({
-        station_id: props.stationId,
-        request_id: row.id,
-      });
-      if (!result.success) {
-        setRows(previous);
-        toast.error(result.error.issues[0]?.message || "failed to remove request");
-      }
-    } catch (err) {
-      setRows(previous);
-      toast.error(`failed to remove request: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  };
-
-  const handleClear = async () => {
+  const handleClearClick = () => {
     if (!confirmingClear()) {
       setConfirmingClear(true);
       setTimeout(() => setConfirmingClear(false), 4000);
       return;
     }
     setConfirmingClear(false);
-    const previous = rows();
-    setRows([]);
-    try {
-      const client = await getClientForRemote(props.remoteRef);
-      const result = await client.app.radioClearRequests({ station_id: props.stationId });
-      if (!result.success) {
-        setRows(previous);
-        toast.error(result.error.issues[0]?.message || "failed to clear queue");
-      }
-    } catch (err) {
-      setRows(previous);
-      toast.error(`failed to clear queue: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    void queue.handleClear();
   };
 
   const formatDuration = (ms: number | null) => {
@@ -190,15 +63,15 @@ export function RadioQueueList(props: RadioQueueListProps) {
       <header class="flex items-center justify-between px-1">
         <div class="text-xs uppercase tracking-wide text-neutral-500">
           queue
-          <Show when={rows().length > 0}>
-            <span class="ml-2 text-neutral-600 normal-case">{rows().length}</span>
+          <Show when={queue.rows().length > 0}>
+            <span class="ml-2 text-neutral-600 normal-case">{queue.rows().length}</span>
           </Show>
         </div>
-        <Show when={rows().length > 0}>
+        <Show when={queue.rows().length > 0}>
           <button
             class="text-xs px-2 py-0.5 rounded border border-neutral-700 hover:border-neutral-500 hover:bg-neutral-800"
             classList={{ "border-red-600 text-red-400": confirmingClear() }}
-            onClick={() => void handleClear()}
+            onClick={handleClearClick}
           >
             {confirmingClear() ? "click again to confirm" : "clear all"}
           </button>
@@ -206,21 +79,21 @@ export function RadioQueueList(props: RadioQueueListProps) {
       </header>
 
       <Show
-        when={rows().length > 0}
+        when={queue.rows().length > 0}
         fallback={
           <div class="text-sm text-neutral-500 px-1 py-4">
-            <Show when={!loading()} fallback={<span>loading…</span>}>
+            <Show when={!queue.loading()} fallback={<span>loading…</span>}>
               no requests queued yet.
             </Show>
           </div>
         }
       >
         <ul class="flex flex-col gap-1">
-          <For each={rows()}>
+          <For each={queue.rows()}>
             {(row, i) => (
               <li class="flex items-center gap-3 p-2 rounded hover:bg-neutral-900/50">
                 <MediaThumbnail
-                  thumbnailUrl={thumbUrls()[row.id] ?? null}
+                  thumbnailUrl={queue.thumbUrls()[row.id] ?? null}
                   index={i()}
                   showPlayIcon={false}
                   enablePlayClick={false}
@@ -239,7 +112,7 @@ export function RadioQueueList(props: RadioQueueListProps) {
                 </div>
                 <button
                   class="flex-shrink-0 p-1.5 text-neutral-500 hover:text-red-400 hover:bg-red-500/20 rounded transition-colors"
-                  onClick={() => void handleRemove(row)}
+                  onClick={() => void queue.handleRemove(row.id)}
                   title="remove from queue"
                   aria-label="remove from queue"
                 >

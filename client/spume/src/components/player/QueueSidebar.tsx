@@ -15,6 +15,7 @@ import { mediaItemKey } from "../../app/services/storage/mediaItem";
 import { QueueSongRow } from "./QueueSongRow";
 import { VideoQueueRow } from "./VideoQueueRow";
 import { RemoteQueueRow } from "./RemoteQueueRow";
+import { RadioRequestQueueRow } from "./RadioRequestQueueRow";
 import { QueuePlayerTargetRow } from "./QueuePlayerTargetRow";
 import type { HistoryDisplayEntry, RadioStationRef } from "../../app/services/storage/types";
 import type { ImageMetadata } from "../../music/services/storage/types";
@@ -49,6 +50,7 @@ import { MediaThumbnail } from "../media/MediaThumbnail";
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { MarqueeText } from "../text/MarqueeText";
 import { getBackgroundConfig } from "../../app/services/backgroundImage";
+import type { RadioRequestRow } from "../radio/useRadioRequestQueue";
 
 type QueueTab = "queue" | "history";
 
@@ -170,6 +172,25 @@ export interface QueueSidebarProps {
   onRadioQueueEntryClick?: (station: RadioStationRef) => void;
   /** callback to get context menu actions for the radio queue entry */
   getRadioQueueContextMenuActions?: (station: RadioStationRef) => MenuAction[];
+  /** the currently-tuned station's own live, member-submitted request
+   *  queue - a DIFFERENT concept from `currentRadioStation` above (that's
+   *  a "resume into this station" card; this is the station's own
+   *  request backlog, manageable by any listener - see
+   *  components/radio/useRadioRequestQueue.ts). only rendered when the
+   *  tuned station actually accepts requests; omit/undefined hides the
+   *  whole section. */
+  radioRequestQueue?: {
+    stationName: string;
+    rows: Accessor<RadioRequestRow[]>;
+    loading: Accessor<boolean>;
+    /** resolved thumbnail object-URLs per request id, keyed the same way
+     *  useRadioRequestQueue.ts's own `thumbUrls` signal is. */
+    thumbUrls: Accessor<Record<string, string>>;
+    onRemove: (requestId: string) => void;
+    onClear: () => void;
+    onReorder: (requestId: string, newIndex: number) => void;
+    onClearRange: (requestId: string, direction: "before" | "after") => void;
+  };
   /** callback to get context menu actions for a history entry - an
    *  Accessor (not a plain array), since a video entry's "stream on X"
    *  entry is spliced in reactively once its async station lookup
@@ -197,6 +218,7 @@ export interface QueueSidebarProps {
 export function QueueSidebar(props: QueueSidebarProps) {
   let scrollElementRef: HTMLDivElement | undefined;
   let historyScrollRef: HTMLDivElement | undefined;
+  let radioSectionRef: HTMLDivElement | undefined;
 
   // track which item we've scrolled to (plain var, not reactive)
   let lastScrolledItemKey: string | null = null;
@@ -212,6 +234,12 @@ export function QueueSidebar(props: QueueSidebarProps) {
   // exclusive, see the render's outer `<Show when={!isRemoteTargetActive()}>`).
   const [remoteDraggedIndex, setRemoteDraggedIndex] = createSignal<number | null>(null);
   const [remoteDropTargetIndex, setRemoteDropTargetIndex] = createSignal<number | null>(null);
+  // same reasoning as the remote-queue drag state above - isolated so a
+  // drag in the radio request queue can't interfere with the local or
+  // remote queue's own drag state, even though all three lists are
+  // mutually exclusive in the UI at any one time.
+  const [radioDraggedIndex, setRadioDraggedIndex] = createSignal<number | null>(null);
+  const [radioDropTargetIndex, setRadioDropTargetIndex] = createSignal<number | null>(null);
   const hasRadioQueueEntry = () => !!props.currentRadioStation;
   const queueEntryCount = () => props.items.length + (hasRadioQueueEntry() ? 1 : 0);
 
@@ -251,6 +279,8 @@ export function QueueSidebar(props: QueueSidebarProps) {
   // queue pointer-dragging can't interfere with a local-queue drag still
   // mid-flight, even though the two lists are mutually exclusive in the UI.
   const [remotePointerDragIndex, setRemotePointerDragIndex] = createSignal<number | null>(null);
+  // same, for the radio request queue's own row list.
+  const [radioPointerDragIndex, setRadioPointerDragIndex] = createSignal<number | null>(null);
   // pending pointer drag - waiting for movement threshold before activating.
   // `list` picks which signals/reorder-callback activation targets once the
   // threshold is crossed (see handlePointerMove/handlePointerUp below).
@@ -259,7 +289,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
     startY: number;
     pointerId: number;
     target: HTMLElement;
-    list: "local" | "remote";
+    list: "local" | "remote" | "radio";
   } | null = null;
   const DRAG_THRESHOLD = 8; // pixels of movement before drag activates
 
@@ -268,6 +298,8 @@ export function QueueSidebar(props: QueueSidebarProps) {
     const handleGlobalDragEnd = () => {
       setDraggedIndex(null);
       setDropTargetIndex(null);
+      setRadioDraggedIndex(null);
+      setRadioDropTargetIndex(null);
     };
     document.addEventListener("dragend", handleGlobalDragEnd);
     onCleanup(() => {
@@ -299,12 +331,32 @@ export function QueueSidebar(props: QueueSidebarProps) {
           // drag started on (see onPointerDown handlers below).
           if (pendingPointerDrag.list === "remote") {
             setRemotePointerDragIndex(pendingPointerDrag.index);
+          } else if (pendingPointerDrag.list === "radio") {
+            setRadioPointerDragIndex(pendingPointerDrag.index);
           } else {
             setPointerDragIndex(pendingPointerDrag.index);
           }
           pendingPointerDrag.target.setPointerCapture(pendingPointerDrag.pointerId);
           pendingPointerDrag = null;
         }
+        return;
+      }
+
+      const radioIdx = radioPointerDragIndex();
+      if (radioIdx !== null) {
+        // own bounding rect, not the shared scrollEl's - the radio
+        // section sits above the local queue's own rows inside the same
+        // scroll container, so reusing scrollEl's rect would need to
+        // subtract the radio section's own height first; anchoring to
+        // its own container sidesteps that entirely.
+        const sectionEl = radioSectionRef;
+        if (!sectionEl) return;
+        const rect = sectionEl.getBoundingClientRect();
+        const relativeY = e.clientY - rect.top;
+        const targetIndex = Math.floor(relativeY / 68);
+        const rowCount = props.radioRequestQueue?.rows().length ?? 0;
+        const clampedTarget = Math.max(0, Math.min(targetIndex, rowCount - 1));
+        setRadioDropTargetIndex(clampedTarget !== radioIdx ? clampedTarget : null);
         return;
       }
 
@@ -336,6 +388,19 @@ export function QueueSidebar(props: QueueSidebarProps) {
     const handlePointerUp = () => {
       // cancel pending drag if not yet activated
       pendingPointerDrag = null;
+
+      const radioFromIndex = radioPointerDragIndex();
+      if (radioFromIndex !== null) {
+        const toIndex = radioDropTargetIndex();
+        const rows = props.radioRequestQueue?.rows();
+        if (toIndex !== null && radioFromIndex !== toIndex && rows) {
+          const requestId = rows[radioFromIndex]?.id;
+          if (requestId) props.radioRequestQueue?.onReorder(requestId, toIndex);
+        }
+        setRadioPointerDragIndex(null);
+        setRadioDropTargetIndex(null);
+        return;
+      }
 
       const remoteFromIndex = remotePointerDragIndex();
       if (remoteFromIndex !== null) {
@@ -490,6 +555,42 @@ export function QueueSidebar(props: QueueSidebarProps) {
 
     setDraggedIndex(null);
     setDropTargetIndex(null);
+  };
+
+  // same shape as the local/remote handlers above, but resolves a
+  // request id (not a raw index) from the queue's own current rows at
+  // drag-start, since `useRadioRequestQueue.handleReorder` targets by id
+  // (a plain index would go stale the instant another listener's own
+  // remove/reorder lands mid-drag).
+  const handleRadioDragStart = (index: number) => (e: DragEvent) => {
+    setRadioDraggedIndex(index);
+    setupDragImage(e, index);
+  };
+
+  const handleRadioDragOver = (index: number) => (e: DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer) {
+      e.dataTransfer.dropEffect = "move";
+    }
+    setRadioDropTargetIndex(index);
+  };
+
+  const handleRadioDragLeave = () => {
+    setRadioDropTargetIndex(null);
+  };
+
+  const handleRadioDragEnd = () => {
+    setRadioDraggedIndex(null);
+    setRadioDropTargetIndex(null);
+  };
+
+  const handleRadioDrop = (targetIndex: number) => {
+    const fromIndex = radioDraggedIndex();
+    setRadioDraggedIndex(null);
+    setRadioDropTargetIndex(null);
+    if (fromIndex === null || fromIndex === targetIndex) return;
+    const requestId = props.radioRequestQueue?.rows()[fromIndex]?.id;
+    if (requestId) props.radioRequestQueue?.onReorder(requestId, targetIndex);
   };
 
   const isOverlay = () => props.variant !== "inline";
@@ -853,6 +954,103 @@ export function QueueSidebar(props: QueueSidebarProps) {
               </Show>
             }
           >
+            {/* the currently-tuned station's own live request queue -
+                sits above the local playback queue, inside the same
+                scroll container (so it scrolls away naturally once
+                there's a lot queued, rather than permanently eating
+                screen space the way the pinned resume-card above does).
+                a DIFFERENT concept from the resume-card above - see
+                `radioRequestQueue` prop's own doc comment. */}
+            <Show when={props.radioRequestQueue}>
+              {(queue) => (
+                <div ref={radioSectionRef} class="px-2 pt-1">
+                  <div class="flex items-center justify-between px-1 pb-1">
+                    <div class="text-xs uppercase tracking-wide text-[var(--color-text-muted)] truncate">
+                      {queue().stationName} queue
+                      <Show when={queue().rows().length > 0}>
+                        <span class="ml-2 normal-case">{queue().rows().length}</span>
+                      </Show>
+                    </div>
+                    <Show when={queue().rows().length > 0}>
+                      <button
+                        class="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] hover:border-red-500 hover:text-red-400 flex-shrink-0"
+                        onClick={() => queue().onClear()}
+                        title="clear this station's whole request queue"
+                      >
+                        clear
+                      </button>
+                    </Show>
+                  </div>
+                  <Show
+                    when={queue().rows().length > 0}
+                    fallback={
+                      <Show when={!queue().loading()}>
+                        <div class="text-xs text-[var(--color-text-muted)] px-1 pb-2">
+                          no requests queued yet.
+                        </div>
+                      </Show>
+                    }
+                  >
+                    <div
+                      class="relative"
+                      style={{ height: `${queue().rows().length * 68}px` }}
+                    >
+                      <For each={queue().rows()}>
+                        {(row, i) => (
+                          <ContextMenu
+                            actions={[
+                              {
+                                label: "clear requests above",
+                                icon: "close",
+                                onClick: () => queue().onClearRange(row.id, "before"),
+                              },
+                              {
+                                label: "clear requests below",
+                                icon: "close",
+                                onClick: () => queue().onClearRange(row.id, "after"),
+                              },
+                            ]}
+                          >
+                            <RadioRequestQueueRow
+                              row={row}
+                              index={i()}
+                              thumbnailUrl={queue().thumbUrls()[row.id] ?? null}
+                              isDragging={
+                                radioDraggedIndex() === i() || radioPointerDragIndex() === i()
+                              }
+                              isDropTarget={radioDropTargetIndex() === i()}
+                              top={i() * 68}
+                              draggableEnabled={!isCharnelMode()}
+                              onRemove={(e) => {
+                                e.stopPropagation();
+                                queue().onRemove(row.id);
+                              }}
+                              onDragStart={handleRadioDragStart(i())}
+                              onDragOver={handleRadioDragOver(i())}
+                              onDragLeave={handleRadioDragLeave}
+                              onDragEnd={handleRadioDragEnd}
+                              onDrop={() => handleRadioDrop(i())}
+                              onPointerDown={(e) => {
+                                if (isCharnelMode() && e.button === 0) {
+                                  pendingPointerDrag = {
+                                    index: i(),
+                                    startY: e.clientY,
+                                    pointerId: e.pointerId,
+                                    target: e.currentTarget as HTMLElement,
+                                    list: "radio",
+                                  };
+                                }
+                              }}
+                            />
+                          </ContextMenu>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                </div>
+              )}
+            </Show>
+
             <Show when={props.items.length === 0}>
               <Show when={!hasRadioQueueEntry()}>
                 <div class="flex flex-col items-center justify-center h-full text-center px-8">

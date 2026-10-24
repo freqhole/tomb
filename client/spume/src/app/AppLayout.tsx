@@ -131,6 +131,8 @@ import {
 import { useSongContextMenu } from "../music/hooks/contextMenu";
 import { useVideoContextMenu } from "../video/hooks/contextMenu";
 import { useStreamFlyoutActions } from "../components/radio/useStreamFlyoutActions";
+import { useCurrentTunedStation } from "../components/radio/useCurrentTunedStation";
+import { useRadioRequestQueue } from "../components/radio/useRadioRequestQueue";
 import type { RequestQueueItem } from "../components/radio/requestStation";
 import { spliceStreamMenuActions } from "../video/hooks/useVideoStreamContextMenuActions";
 import { createShareSourceRemote } from "./services/remotes/shareSource";
@@ -1304,6 +1306,27 @@ export function AppLayout(props: AppLayoutProps) {
     });
   };
 
+  // the live, member-submitted request queue for whichever station is
+  // actually tuned in right now (a DIFFERENT concept from the resume-card
+  // `currentRadioStation` prop above) - see useCurrentTunedStation.ts/
+  // useRadioRequestQueue.ts's own doc comments. called unconditionally
+  // (not gated behind an `if`) so this stays a stable, single hook call
+  // per AppLayout instance; `stationId` below being `null` when the
+  // tuned station doesn't accept requests (or nothing's tuned in at all)
+  // is what actually disables it internally, same "call once, let props
+  // decide" pattern used elsewhere in this file (e.g.
+  // useStreamFlyoutActions above).
+  const tunedStation = useCurrentTunedStation();
+  const tunedStationAcceptsRequests = createMemo(
+    () => tunedStation.stationInfo()?.accepts_requests ?? false
+  );
+  const radioRequestQueueState = useRadioRequestQueue({
+    stationId: () =>
+      tunedStationAcceptsRequests() ? (tunedStation.stationInfo()?.station_id ?? null) : null,
+    remoteRef: () => tunedStation.remote() ?? {},
+    remoteId: () => tunedStation.remote()?.remote_id,
+  });
+
   const getRadioQueueContextMenuActions = (station: RadioStationRef): MenuAction[] => [
     {
       label: "resume",
@@ -1772,6 +1795,22 @@ export function AppLayout(props: AppLayoutProps) {
               });
             }}
             getRadioQueueContextMenuActions={getRadioQueueContextMenuActions}
+            radioRequestQueue={
+              tunedStationAcceptsRequests()
+                ? {
+                    stationName: tunedStation.stationInfo()?.name ?? "station",
+                    rows: radioRequestQueueState.rows,
+                    loading: radioRequestQueueState.loading,
+                    thumbUrls: radioRequestQueueState.thumbUrls,
+                    onRemove: (requestId) => void radioRequestQueueState.handleRemove(requestId),
+                    onClear: () => void radioRequestQueueState.handleClear(),
+                    onReorder: (requestId, newIndex) =>
+                      void radioRequestQueueState.handleReorder(requestId, newIndex),
+                    onClearRange: (requestId, direction) =>
+                      void radioRequestQueueState.handleClearRange(requestId, direction),
+                  }
+                : undefined
+            }
             onResumeDownloads={() => {
               resumeAutoDownload();
             }}

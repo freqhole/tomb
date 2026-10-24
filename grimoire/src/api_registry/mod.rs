@@ -343,7 +343,7 @@ pub mod type_registry {
     // radio member-request type (authenticated, non-admin)
     use crate::offal::music::radio::{
         RadioQueuedRequestInfo, RadioRequestsListResponse, RadioStationRequestsRequest,
-        RemoveRadioRequestRequest, SubmitRadioRequestRequest,
+        RemoveRadioRequestRequest, ReorderRadioRequestRequest, SubmitRadioRequestRequest,
     };
 
     // radio admin types
@@ -522,6 +522,8 @@ pub mod type_registry {
         registered.insert("RadioStationRequestsRequest".to_string());
         gen.add_schema::<RemoveRadioRequestRequest>("RemoveRadioRequestRequest");
         registered.insert("RemoveRadioRequestRequest".to_string());
+        gen.add_schema::<ReorderRadioRequestRequest>("ReorderRadioRequestRequest");
+        registered.insert("ReorderRadioRequestRequest".to_string());
         gen.add_schema::<RadioQueuedRequestInfo>("RadioQueuedRequestInfo");
         registered.insert("RadioQueuedRequestInfo".to_string());
         gen.add_schema::<RadioRequestsListResponse>("RadioRequestsListResponse");

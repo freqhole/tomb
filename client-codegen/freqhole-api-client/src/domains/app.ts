@@ -110,6 +110,27 @@ export function createAppMethods(call: CallFn) {
       );
     },
 
+    // move one queued request to a new position, identified by id (not
+    // its current index - see grimoire's radio::requests::reorder doc
+    // comment for why). new_index is clamped server-side, so "move to
+    // the end" is just a large number. same permission model as
+    // radioRemoveRequest.
+    radioReorderRequest: (params: {
+      station_id: string;
+      request_id: string;
+      new_index: number;
+    }) => {
+      return call(
+        "app",
+        "radio_reorder_request",
+        routes.app.radio_reorder_request.resp,
+        routes.app.radio_reorder_request.req,
+        routes.app.radio_reorder_request.method,
+        routes.app.radio_reorder_request.path,
+        params,
+      );
+    },
+
     // clear every queued request for a station at once
     radioClearRequests: (params: { station_id: string }) => {
       return call(

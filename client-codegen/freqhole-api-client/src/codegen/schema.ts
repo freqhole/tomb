@@ -5685,6 +5685,7 @@ export const RadioQueuedRequestInfoSchema = z.object({
   kind: z.string(),
   item_id: z.string(),
   requested_by: z.string(),
+  requested_by_username: z.string().nullish(),
   title: z.string(),
   artist: z.string().nullish(),
   album: z.string().nullish(),
@@ -5699,6 +5700,7 @@ export const RadioRequestsListResponseSchema = z.object({
   kind: z.string(),
   item_id: z.string(),
   requested_by: z.string(),
+  requested_by_username: z.string().nullish(),
   title: z.string(),
   artist: z.string().nullish(),
   album: z.string().nullish(),
@@ -6224,6 +6226,13 @@ export const ReorderPlaylistSongsRequestSchema = z.object({
   new_position: z.number()
 });
 export type ReorderPlaylistSongsRequest = z.infer<typeof ReorderPlaylistSongsRequestSchema>;
+
+export const ReorderRadioRequestRequestSchema = z.object({
+  station_id: z.string(),
+  request_id: z.string(),
+  new_index: z.number()
+});
+export type ReorderRadioRequestRequest = z.infer<typeof ReorderRadioRequestRequestSchema>;
 
 export const RepairLibraryImagesJobResultSchema = z.object({
   totals: z.object({

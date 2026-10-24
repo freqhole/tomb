@@ -43,6 +43,17 @@ pub struct RemoveRadioRequestRequest {
     pub request_id: String,
 }
 
+/// request for `radio_reorder_request` - moves one specific queued
+/// request (identified by id, not its current index - see
+/// `radio::requests::reorder`'s doc comment for why) to `new_index`,
+/// clamped server-side to the queue's own length.
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct ReorderRadioRequestRequest {
+    pub station_id: String,
+    pub request_id: String,
+    pub new_index: i64,
+}
+
 /// one queued request, resolved with enough display metadata for the
 /// client's "queue" tab to render a row identical in shape to a history
 /// row.
@@ -53,6 +64,11 @@ pub struct RadioQueuedRequestInfo {
     pub kind: String,
     pub item_id: String,
     pub requested_by: String,
+    /// resolved display name for `requested_by` - `None` only if the
+    /// requesting user's account has since been deleted (the request
+    /// itself still lists; there's no reason to hide it just because its
+    /// requester is gone).
+    pub requested_by_username: Option<String>,
     pub title: String,
     pub artist: Option<String>,
     pub album: Option<String>,
@@ -104,6 +120,15 @@ pub const ROUTES: &[RouteInfo] = &[
         method: Method::POST,
         domain: Domain::App,
         request_type: "RemoveRadioRequestRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "radio_reorder_request",
+        path: "/api/radio/requests/reorder",
+        method: Method::POST,
+        domain: Domain::App,
+        request_type: "ReorderRadioRequestRequest",
         response_type: "EmptyResponse",
         auth: RouteAuth::Authenticated,
     },
@@ -239,6 +264,12 @@ pub async fn list_requests(_caller: &Caller, body: JsonValue) -> GrimoireRespons
 
     let queued = crate::radio::requests::list(&req.station_id).await;
     let mut requests = Vec::with_capacity(queued.len());
+    // one user often has several requests queued at once - resolve each
+    // distinct `requested_by` id at most once per call instead of once
+    // per request row.
+    let mut username_cache: std::collections::HashMap<String, Option<String>> =
+        std::collections::HashMap::new();
+    let user_repo = crate::users::repository::UserRepository::new();
     for r in queued {
         // best-effort metadata resolution: an item that's since become
         // unfetchable (deleted, etc.) still needs to be listed so it can
@@ -254,11 +285,25 @@ pub async fn list_requests(_caller: &Caller, body: JsonValue) -> GrimoireRespons
                 ),
                 Err(_) => ("(unavailable)".to_string(), None, None, None, None),
             };
+        let requested_by_username = match username_cache.get(&r.requested_by) {
+            Some(cached) => cached.clone(),
+            None => {
+                let resolved = user_repo
+                    .find_user_by_id(&r.requested_by)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|u| u.username);
+                username_cache.insert(r.requested_by.clone(), resolved.clone());
+                resolved
+            }
+        };
         requests.push(RadioQueuedRequestInfo {
             id: r.id,
             kind: r.kind.as_str().to_string(),
             item_id: r.item_id,
             requested_by: r.requested_by,
+            requested_by_username,
             title,
             artist,
             album,
@@ -314,6 +359,46 @@ pub async fn remove_request(_caller: &Caller, body: JsonValue) -> GrimoireRespon
         );
     }
     GrimoireResponse::success("request removed", JsonValue::Null)
+}
+
+/// move one specific queued request to a new position. same permission
+/// model as `remove_request`/`clear_requests` - any authenticated caller
+/// may reorder any station's queue. `new_index` is clamped server-side
+/// (see `radio::requests::reorder`), so a negative or out-of-range value
+/// from the client is simply clamped to the nearest valid position rather
+/// than rejected.
+pub async fn reorder_request(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: ReorderRadioRequestRequest = match serde_json::from_value(body) {
+        Ok(v) => v,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let new_index = req.new_index.max(0) as usize;
+    let moved =
+        crate::radio::requests::reorder(&req.station_id, &req.request_id, new_index).await;
+    if !moved {
+        return GrimoireResponse::failure(
+            "request not found",
+            vec![ErrorDetail::new(
+                "not_found",
+                "request not found",
+                format!(
+                    "no queued request {} for station {}",
+                    req.request_id, req.station_id
+                ),
+            )],
+        );
+    }
+    GrimoireResponse::success("request reordered", JsonValue::Null)
 }
 
 /// clear every queued request for a station at once. same permission
