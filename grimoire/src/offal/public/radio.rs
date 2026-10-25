@@ -133,11 +133,23 @@ pub struct PublicStation {
     /// practice (request-taking stations are never public).
     #[serde(default)]
     pub accepts_requests: bool,
+    /// see `RadioStation::content_mode` - lets an authenticated client
+    /// filter the request-taking station list by media-type compatibility
+    /// (e.g. a video request should never target an `audio_only`
+    /// station) without a second round trip. defaults to `"audio_only"`
+    /// for backward compatibility with any pre-existing serialized
+    /// snapshot that predates this field.
+    #[serde(default = "default_content_mode")]
+    pub content_mode: String,
     pub now_playing: PublicNowPlaying,
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_content_mode() -> String {
+    "audio_only".to_string()
 }
 
 /// the now-playing card without the binary art payload (clients fetch
@@ -327,15 +339,22 @@ async fn snapshot_station(
     // the row vanished. private (is_public = 0) defaults to true on
     // the orphan-row path because the iroh handler can no longer find
     // the row to gate on either, so we err toward visible-but-private.
-    let (name, description, is_public, accepts_requests) =
+    let (name, description, is_public, accepts_requests, content_mode) =
         match crate::radio::stations::get_station(bc.station_id()).await {
             Ok(Some(s)) => (
                 s.name,
                 s.description,
                 s.is_public != 0,
                 s.accepts_requests != 0,
+                s.content_mode,
             ),
-            _ => (bc.station_id().to_string(), None, false, false),
+            _ => (
+                bc.station_id().to_string(),
+                None,
+                false,
+                false,
+                default_content_mode(),
+            ),
         };
     let (art_thumb_b64, art_thumb_mime) = np
         .art
@@ -352,6 +371,7 @@ async fn snapshot_station(
         is_public,
         is_running: true,
         accepts_requests,
+        content_mode,
         now_playing: PublicNowPlaying {
             kind: np.kind.as_str().to_string(),
             song_id: np.song_id.clone(),
@@ -622,6 +642,7 @@ async fn build_stations_response(include_private: bool) -> GrimoireResponse<Json
                 is_public: s.is_public != 0,
                 is_running: false,
                 accepts_requests: s.accepts_requests != 0,
+                content_mode: s.content_mode,
                 now_playing: PublicNowPlaying::default(),
             });
         }

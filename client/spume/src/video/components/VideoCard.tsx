@@ -26,6 +26,9 @@ import { useVideoEntityTagsQuery } from "../queries/tags";
 import { formatSeasonLabel } from "../../components/forms/VideoSeasonAutocomplete";
 import type { VideoSummary } from "../data/types";
 import { contentTypeLabel as formatContentType } from "../utils/contentType";
+import { ClickDropdownMenu } from "../../components/overlays/ContextMenu";
+import { createShareSourceRemote } from "../../app/services/remotes/shareSource";
+import { useVideoStreamContextMenuActions } from "../hooks/useVideoStreamContextMenuActions";
 
 // video-only taxon kinds; music-only kinds (genre/mood/style/era/label)
 // don't apply to video and are excluded everywhere video renders taxons.
@@ -147,6 +150,10 @@ export function VideoCard(props: VideoCardProps): JSX.Element {
     e.stopPropagation();
     if (!props.video.is_offline) props.onPlay?.(props.video);
   };
+  // self-contained "stream to a radio station" flyout for this card's
+  // own hover play button - mirrors VideoListRow.tsx's identical pattern.
+  const streamRemote = createShareSourceRemote();
+  const playFlyout = useVideoStreamContextMenuActions(props.video, streamRemote);
 
   return (
     <div
@@ -225,14 +232,36 @@ export function VideoCard(props: VideoCardProps): JSX.Element {
             on the container (with pointer-events-auto on the button itself) keeps its
             empty inset-0 area from swallowing clicks meant for the heart above (z-50). */}
         <div class="absolute inset-0 z-40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
-          <button
-            class="w-12 h-12 rounded-full bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] flex items-center justify-center transition-colors pointer-events-auto"
-            onClick={handlePlay}
-            disabled={props.video.is_offline}
-            title={props.video.is_offline ? "media is on offline storage" : "play video"}
+          <Show
+            when={!props.video.is_offline && playFlyout.showCaret()}
+            fallback={
+              <button
+                class="w-12 h-12 rounded-full bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] flex items-center justify-center transition-colors pointer-events-auto"
+                onClick={handlePlay}
+                disabled={props.video.is_offline}
+                title={props.video.is_offline ? "media is on offline storage" : "play video"}
+              >
+                <PlayIcon size={24} className="ml-1" />
+              </button>
+            }
           >
-            <PlayIcon size={24} className="ml-1" />
-          </button>
+            <div class="pointer-events-auto" onClick={(e) => e.stopPropagation()}>
+              <ClickDropdownMenu
+                trigger={
+                  <button
+                    class="w-12 h-12 rounded-full bg-[var(--color-accent-500)] hover:bg-[var(--color-accent-400)] text-[var(--color-text-on-accent)] flex items-center justify-center transition-colors"
+                    title="play video"
+                  >
+                    <PlayIcon size={24} className="ml-1" />
+                  </button>
+                }
+                actions={[
+                  { label: "play", icon: "play", onClick: () => props.onPlay?.(props.video) },
+                  ...playFlyout.menuActions(),
+                ]}
+              />
+            </div>
+          </Show>
         </div>
       </div>
 

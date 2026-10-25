@@ -34,7 +34,8 @@ pub use repair_library_images::{
     RepairLibraryImagesResult, WaveformBatchOutcome, DIRECTORY_BATCH_SIZE, WAVEFORM_BATCH_SIZE,
 };
 pub use repair_video_images::{
-    repair_video_thumbnails_batch, repair_video_waveforms_batch, VIDEO_THUMBNAIL_BATCH_SIZE,
+    regenerate_video_thumbnails_batch, repair_video_thumbnails_batch, repair_video_waveforms_batch,
+    VIDEO_THUMBNAIL_BATCH_SIZE,
 };
 pub use video_hard_delete::{
     hard_delete_old_videos, HardDeleteVideoOptions, HardDeleteVideoSummary,

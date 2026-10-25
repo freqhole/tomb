@@ -5,7 +5,7 @@
 // instead of re-implementing a time readout from scratch.
 import { createSignal, Show, type JSX } from "solid-js";
 import MediaImage from "../media/MediaImage";
-import { formatDuration } from "../../utils/formatDuration";
+import { formatDuration, formatRemainingDuration } from "../../utils/formatDuration";
 import type { ImageMetadata } from "../../music/services/storage/types";
 
 export interface PlaybackProgressBarProps {
@@ -41,7 +41,12 @@ export interface PlaybackProgressBarProps {
   statusBadgeClass?: string;
   /** hides the bar + total-duration label, keeping only the current-time
    *  label - mirrors PlayerBar's live-stream ("listening time", no
-   *  seekable duration) mode. default false. */
+   *  seekable duration) mode. default false. when `duration` is still
+   *  known in this mode (a live radio stream reporting the current
+   *  track's real length), a "-H:MM:SS"/"-M:SS" countdown is shown in
+   *  the total-duration label's place instead of hiding it outright -
+   *  a live stream still isn't seekable, but knowing how much of the
+   *  current track is left is useful on its own. */
   hideBarAndDuration?: boolean;
   /** tailwind gap class between time labels/badge/bar. default "gap-3". */
   gapClass?: string;
@@ -187,6 +192,15 @@ export function PlaybackProgressBar(props: PlaybackProgressBarProps) {
             {formatDuration(props.duration)}
           </span>
         </>
+      </Show>
+
+      <Show when={props.hideBarAndDuration && props.duration > 0}>
+        <span
+          class={`text-xs text-[var(--color-accent-500)] font-light min-w-[2rem] tabular-nums ${props.timeClass ?? ""}`}
+          title="time remaining in this track"
+        >
+          {formatRemainingDuration(props.currentTime, props.duration)}
+        </span>
       </Show>
     </div>
   );

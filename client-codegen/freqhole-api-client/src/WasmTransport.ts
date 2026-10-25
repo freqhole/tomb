@@ -12,7 +12,8 @@ import type {
 } from "./transport.js";
 import { snapshotJobEventsViaRequest } from "./transport.js";
 import type { CloseReason, EventFilter, JobEvent, JobStateSnapshot } from "./codegen/schema.js";
-import { JobEventsStreamClosed } from "./CharnelLocalTransport.js";
+import type { RadioQueueEvent, RadioQueueEventFilter } from "./codegen/schema.js";
+import { JobEventsStreamClosed, RadioQueueEventsStreamClosed } from "./CharnelLocalTransport.js";
 
 /**
  * interface matching midden's BlobResult WASM class
@@ -137,6 +138,11 @@ export interface MiddenNodeLike {
   // `args` is a json-encoded string (use "null" for commands with no payload).
   proxy_admin?(peer_addr: string, command: string, args: string): Promise<unknown>;
   // tune into a freqhole radio broadcaster (freqhole-radio/1 ALPN).
+  // resume_hint, when provided, is a pre-serialized JSON object matching
+  // grimoire's `ResumeHint` (`{"kind":"song"|"video","item_id":"...",
+  // "position_seconds":12.3}`) - only honored server-side when the
+  // broadcaster happens to be idle at the moment this tune arrives (see
+  // `TuneMessage::resume_hint`'s doc comment for the full picture).
   // callbacks:
   //   on_hello(json: string)   — HelloMessage as JSON, fires once on connect
   //   on_meta(json: string)    — MetaMessage as JSON, fires on each track change
@@ -145,6 +151,7 @@ export interface MiddenNodeLike {
   tune_radio?(
     peer_addr: string,
     station_id: string | undefined,
+    resume_hint: string | undefined,
     on_hello: (json: string) => void,
     on_meta: (json: string) => void,
     on_chunk: (seq: number, is_init: boolean, bytes: Uint8Array) => void,
@@ -188,6 +195,20 @@ export interface ActiveTransferLike {
   blake3: string;
   bytesSent: number;
   totalSize: number;
+}
+
+/**
+ * resume hint passed to `tune_radio`/`radio_tune`/`radio_tune_local` when
+ * resuming a radio session after an explicit pause - mirrors grimoire's
+ * `ResumeHint` (`TuneMessage::resume_hint`). only ever honored server-side
+ * when the broadcaster happens to be idle at the moment the tune arrives;
+ * ignored otherwise (the listener just joins wherever the station
+ * already is, same as any other tune).
+ */
+export interface RadioResumeHint {
+  kind: "song" | "video";
+  item_id: string;
+  position_seconds: number;
 }
 
 /**
@@ -1198,6 +1219,25 @@ export class WasmTransport implements Transport {
     }
     return wasmSubscribeJobEventsIterable(this.node, this.peerAddr, filter, signal);
   }
+
+  // -----------------------------------------------------------------
+  // radio queue events (freqhole-events/1 ALPN over midden bi-stream).
+  //
+  // same shape as job events above - `SubscribeRadioQueue` instead of
+  // `Subscribe`, `RadioQueueSnapshot`/`RadioQueueEvent` instead of
+  // `Snapshot`/`Event`. falls back to the polling-diff iterator (not
+  // `pollingJobEvents`) when midden lacks `open_bi`.
+  // -----------------------------------------------------------------
+
+  subscribeRadioQueueEvents(
+    filter: RadioQueueEventFilter,
+    signal?: AbortSignal,
+  ): AsyncIterable<RadioQueueEvent> {
+    if (!this.node.open_bi) {
+      return wasmFallbackPollingRadioQueueIterable(this, filter, signal);
+    }
+    return wasmSubscribeRadioQueueEventsIterable(this.node, this.peerAddr, filter, signal);
+  }
 }
 
 // fallback when midden lacks open_bi (older build): same polling iterator
@@ -1211,6 +1251,17 @@ async function* wasmFallbackPollingIterable(
   yield* pollingJobEvents(transport, filter, signal);
 }
 
+// fallback when midden lacks open_bi, for radio queue events - same
+// precedent as `wasmFallbackPollingIterable` above.
+async function* wasmFallbackPollingRadioQueueIterable(
+  transport: Transport,
+  filter: RadioQueueEventFilter,
+  signal: AbortSignal | undefined,
+): AsyncGenerator<RadioQueueEvent, void, void> {
+  const { pollingRadioQueueEvents } = await import("./transport.js");
+  yield* pollingRadioQueueEvents(transport, filter, signal);
+}
+
 // ---------------------------------------------------------------------
 // wire types for the freqhole-events/1 ndjson protocol
 // (mirrors grimoire/src/federation/transport/events_protocol.rs)
@@ -1221,7 +1272,15 @@ const EVENTS_ALPN = "freqhole-events/1";
 type EventsServerWire =
   | { type: "snapshot"; id: number; items: JobStateSnapshot[] }
   | { type: "event"; id: number; evt: JobEvent }
+  | { type: "radio_queue_snapshot"; id: number; items: RadioQueuedRequestInfoWire[] }
+  | { type: "radio_queue_event"; id: number; evt: RadioQueueEvent }
   | { type: "close"; id: number; reason: CloseReason };
+
+// placeholder alias - `RadioQueueSnapshot`'s `items` field is unused by
+// the subscribe iterator (snapshot frames are skipped, same as job
+// events), so a structural `unknown`-ish shape is enough here without
+// importing `RadioQueuedRequestInfo` just for this one unread field.
+type RadioQueuedRequestInfoWire = unknown;
 
 /**
  * async-iterable subscribe over a midden bi-stream. opens once, writes
@@ -1283,6 +1342,73 @@ async function* wasmSubscribeJobEventsIterable(
         const reasonKind = (frame.reason as { kind: string }).kind ?? "internal";
         if (reasonKind === "client_unsubscribed") return;
         throw new JobEventsStreamClosed(frame.reason);
+      }
+    }
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+    try {
+      stream.close();
+    } catch {
+      /* noop */
+    }
+  }
+}
+
+/**
+ * async-iterable subscribe over a midden bi-stream for radio-queue
+ * events - same shape as `wasmSubscribeJobEventsIterable`, just with
+ * `SubscribeRadioQueue`/`RadioQueueSnapshot`/`RadioQueueEvent` wire
+ * messages instead of `Subscribe`/`Snapshot`/`Event`.
+ */
+async function* wasmSubscribeRadioQueueEventsIterable(
+  node: MiddenNodeLike,
+  peerAddr: string,
+  filter: RadioQueueEventFilter,
+  signal: AbortSignal | undefined,
+): AsyncGenerator<RadioQueueEvent, void, void> {
+  if (!node.open_bi) {
+    throw new Error("midden node has no open_bi method (rebuild midden)");
+  }
+  const stream = await node.open_bi(peerAddr, EVENTS_ALPN);
+  const id = 1;
+
+  const onAbort = () => {
+    stream
+      .write_line(JSON.stringify({ type: "unsubscribe", id }))
+      .catch(() => {})
+      .finally(() => {
+        try {
+          stream.close();
+        } catch {
+          /* noop */
+        }
+      });
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
+
+  try {
+    await stream.write_line(JSON.stringify({ type: "subscribe_radio_queue", id, filter }));
+
+    while (true) {
+      if (signal?.aborted) return;
+      const line = await stream.read_line();
+      if (line === null) {
+        throw new RadioQueueEventsStreamClosed({ kind: "internal" } as CloseReason);
+      }
+      const frame = JSON.parse(line) as EventsServerWire;
+      if (frame.type === "radio_queue_snapshot") {
+        // server always sends the snapshot first; we just skip it here
+        // (same contract as job events' `snapshot`).
+        continue;
+      }
+      if (frame.type === "radio_queue_event") {
+        yield frame.evt;
+        continue;
+      }
+      if (frame.type === "close") {
+        const reasonKind = (frame.reason as { kind: string }).kind ?? "internal";
+        if (reasonKind === "client_unsubscribed") return;
+        throw new RadioQueueEventsStreamClosed(frame.reason);
       }
     }
   } finally {

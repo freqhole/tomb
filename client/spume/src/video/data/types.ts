@@ -154,6 +154,15 @@ export interface VideoDataSource {
     description?: string | null;
     poster_blob_id?: string | null;
   }): Promise<void>;
+  /** merge every video in `source_season_id` into `target_season_id`
+   *  (both must belong to the same series), then clean up the now-empty
+   *  source season. used by the season-title autocomplete in
+   *  `EditVideoSeriesModal.tsx` - picking an EXISTING season's name for
+   *  a different season means "merge into that one", not "rename". */
+  mergeVideoSeason?(params: {
+    source_season_id: string;
+    target_season_id: string;
+  }): Promise<void>;
 
   // image operations — generic entity_imagez routes (mirrors
   // music/data/types.ts's MusicDataSource image methods)

@@ -226,7 +226,19 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         max_retries: Some(3),
         scheduled_at: None,
         created_by: Some(caller.user_id.clone()),
-        priority: None,
+        // a webp conversion is quick (a single image, not a whole
+        // file/album/video) - bumped above the default priority (0,
+        // what every "heavy" media-add/transcode job also submits at)
+        // so it's always picked first among PENDING jobs the moment any
+        // worker slot frees up, rather than sitting wherever it happened
+        // to land in a same-priority FIFO queue behind a big import's
+        // worth of file-processing jobs submitted earlier. matches the
+        // existing `priority: Some(10)` precedent set by the cross-remote
+        // sync jobs (`offal::sync::song`/`video`). paired with
+        // `runner.rs`'s `JobClass::Heavy` cap for the OTHER half of this
+        // starvation bug (worker-pool saturation itself, which no
+        // priority value can fix once every slot is already claimed).
+        priority: Some(10),
     })
     .await;
 

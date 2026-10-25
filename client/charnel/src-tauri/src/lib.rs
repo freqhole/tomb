@@ -92,6 +92,7 @@ mod player_pairing_accept;
 mod radio_commands;
 #[cfg(unix)]
 mod radio_mpv;
+mod radio_queue_events_commands;
 mod remotez_commands;
 mod server_controls;
 mod spume_bridge;
@@ -1797,6 +1798,9 @@ pub fn run() {
             jobs_events_commands::jobs_events_snapshot,
             jobs_events_commands::jobs_events_subscribe,
             jobs_events_commands::jobs_events_unsubscribe,
+            // radio-queue events broker bridge (local in-process + remote via freqhole-events/1)
+            radio_queue_events_commands::radio_queue_events_subscribe,
+            radio_queue_events_commands::radio_queue_events_unsubscribe,
             // augur "nearby peerz" browse feed (add-remote flow)
             augur_commands::nearby_peers_subscribe,
             augur_commands::nearby_peers_unsubscribe,
@@ -1894,6 +1898,18 @@ pub fn run() {
                 // staying open after charnel itself quit.
                 video_window::shutdown();
                 tracing::info!("shutdown: video window closed");
+
+                // same reasoning, separate subprocess: a radio session's
+                // own `mpv --idle=yes` (video-capable stations, native
+                // player config on) is owned by a spawned async task, not
+                // anything this exit handler itself holds a drop-time
+                // handle to - relying on that task's cooperative
+                // cancellation getting scheduled before the tokio runtime
+                // tears down is not guaranteed, unlike a plain Drop. force
+                // kill directly instead.
+                #[cfg(unix)]
+                radio_mpv::kill_all_now();
+                tracing::info!("shutdown: radio mpv subprocess(es) killed");
 
                 // cancel all background tasks first
                 let shutdown_token = app.state::<ShutdownToken>().inner().clone();

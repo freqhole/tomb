@@ -20,6 +20,16 @@ pub fn insert_str(buf: &mut String, cursor: &mut usize, s: &str) {
     }
 }
 
+/// like [`insert_str`], but preserves embedded `\n` - for the rare
+/// multi-line fields (`FieldState::LongText`) where Enter already
+/// inserts a literal newline rather than submitting/advancing, so a
+/// pasted newline should behave the same way a typed one would.
+pub fn insert_str_multiline(buf: &mut String, cursor: &mut usize, s: &str) {
+    for c in s.chars().filter(|c| !c.is_control() || *c == '\n') {
+        insert_char(buf, cursor, c);
+    }
+}
+
 /// delete the char before the caret (backspace).
 pub fn backspace(buf: &mut String, cursor: &mut usize) {
     if *cursor == 0 {
@@ -74,4 +84,36 @@ fn char_to_byte(s: &str, char_idx: usize) -> usize {
         .nth(char_idx)
         .map(|(b, _)| b)
         .unwrap_or(s.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn insert_str_strips_newlines_and_other_control_chars() {
+        let mut buf = String::new();
+        let mut cursor = 0;
+        insert_str(&mut buf, &mut cursor, "a\nb\tc\0d");
+        assert_eq!(buf, "abcd");
+        assert_eq!(cursor, 4);
+    }
+
+    #[test]
+    fn insert_str_multiline_preserves_newlines_but_strips_other_control_chars() {
+        let mut buf = String::new();
+        let mut cursor = 0;
+        insert_str_multiline(&mut buf, &mut cursor, "a\nb\tc\0d");
+        assert_eq!(buf, "a\nbcd");
+        assert_eq!(cursor, 5);
+    }
+
+    #[test]
+    fn insert_str_multiline_inserts_at_the_caret_not_just_appended() {
+        let mut buf = "ad".to_string();
+        let mut cursor = 1;
+        insert_str_multiline(&mut buf, &mut cursor, "b\nc");
+        assert_eq!(buf, "ab\ncd");
+        assert_eq!(cursor, 4);
+    }
 }

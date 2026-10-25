@@ -40,6 +40,21 @@ export function formatLongDuration(seconds: number | null | undefined): string {
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
+// format seconds to -MM:SS or -H:MM:SS - a countdown readout, for a
+// position where a full seekable duration/progress bar doesn't make
+// sense to show (e.g. a live stream) but a remaining-time estimate still
+// does, given a known total duration. clamps negative remainders (a
+// position slightly past the reported duration, e.g. clock drift) to
+// "-0:00" rather than flipping sign.
+export function formatRemainingDuration(
+  currentTime: number | null | undefined,
+  duration: number | null | undefined
+): string {
+  if (duration == null || !isFinite(duration) || duration <= 0) return "";
+  const remaining = duration - (currentTime ?? 0);
+  return `-${formatDuration(remaining)}`;
+}
+
 // format seconds to human readable (e.g., "2h 30m", "3d 5h", "2w 1d")
 // scales up to larger units only when needed
 export function formatHumanDuration(seconds: number | null | undefined): string {

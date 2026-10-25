@@ -11,8 +11,9 @@ use crate::response::GrimoireResponse;
 use crate::users::UserRole;
 use crate::video::{
     create_video_season, delete_video_season as grimoire_delete_video_season, get_video_season,
-    list_video_seasons, update_video_season as grimoire_update_video_season,
-    CreateVideoSeasonRequest, UpdateVideoSeasonRequest,
+    list_video_seasons, merge_video_season as grimoire_merge_video_season,
+    update_video_season as grimoire_update_video_season, CreateVideoSeasonRequest,
+    UpdateVideoSeasonRequest,
 };
 
 /// request for getting a video season by id
@@ -33,6 +34,16 @@ pub struct ListVideoSeasonsRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
 pub struct DeleteVideoSeasonRequest {
     pub id: String,
+}
+
+/// request for merging one season's videos into another, within the
+/// same series - see `merge_video_season`'s own doc comment for the full
+/// behavior (bulk-reassigns every video, then cleans up the now-empty
+/// source season).
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct MergeVideoSeasonRequest {
+    pub source_season_id: String,
+    pub target_season_id: String,
 }
 
 /// route metadata for video seasons
@@ -79,6 +90,15 @@ pub const ROUTES: &[RouteInfo] = &[
         method: Method::POST,
         domain: Domain::Video,
         request_type: "DeleteVideoSeasonRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Role(UserRole::Admin),
+    },
+    RouteInfo {
+        name: "merge_video_season",
+        path: "/api/video/seasons/merge",
+        method: Method::POST,
+        domain: Domain::Video,
+        request_type: "MergeVideoSeasonRequest",
         response_type: "EmptyResponse",
         auth: RouteAuth::Role(UserRole::Admin),
     },
@@ -205,5 +225,38 @@ pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
     };
 
     let response = grimoire_delete_video_season(&req.id, Some(caller.user_id.clone())).await;
+    response.map(|_| JsonValue::Null)
+}
+
+/// merge one season's videos into another season within the same series
+/// (e.g. collapsing a duplicate/misnumbered season into the real one),
+/// then clean up the now-empty source season.
+///
+/// path: POST /api/video/seasons/merge
+pub async fn merge(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    if let Err(resp) = crate::acl_bridge::require_scope(caller, "merge_video_season").await {
+        return resp;
+    }
+
+    let req: MergeVideoSeasonRequest = match serde_json::from_value(body) {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+
+    let response = grimoire_merge_video_season(
+        &req.source_season_id,
+        &req.target_season_id,
+        Some(&caller.user_id),
+    )
+    .await;
     response.map(|_| JsonValue::Null)
 }

@@ -1,8 +1,8 @@
 // entities domain methods for FreqholeClient
 //
-// domain-neutral routes for entity_taxonz/playlist_itemz - any TaggableEntity
-// (video today; other domains reuse the same routes as they're added, see
-// docs/video-domain-plan.md's "add a domain" recipe).
+// domain-neutral routes for entity_taxonz/playlist_itemz/playback_progressz -
+// any TaggableEntity (video today; other domains reuse the same routes as
+// they're added, see docs/video-domain-plan.md's "add a domain" recipe).
 
 import { routes } from "../codegen/routes.js";
 import type * as s from "../codegen/schema.js";
@@ -295,6 +295,44 @@ export function createEntitiesMethods(call: CallFn) {
         routes.entities.get_rating_status_bulk.req,
         routes.entities.get_rating_status_bulk.method,
         routes.entities.get_rating_status_bulk.path,
+        params,
+      );
+    },
+
+    // playback/resume progress - domain-neutral (video and song entity
+    // types both use this; see grimoire's playback_progress.rs)
+    upsertPlaybackProgress: (params: s.UpsertPlaybackProgressRequest) => {
+      return call(
+        "entities",
+        "upsert_playback_progress",
+        routes.entities.upsert_playback_progress.resp,
+        routes.entities.upsert_playback_progress.req,
+        routes.entities.upsert_playback_progress.method,
+        routes.entities.upsert_playback_progress.path,
+        params,
+      );
+    },
+
+    getPlaybackProgress: (params: s.GetPlaybackProgressRequest) => {
+      return call(
+        "entities",
+        "get_playback_progress",
+        routes.entities.get_playback_progress.resp,
+        routes.entities.get_playback_progress.req,
+        routes.entities.get_playback_progress.method,
+        routes.entities.get_playback_progress.path,
+        params,
+      );
+    },
+
+    listPlaybackProgress: (params: s.ListPlaybackProgressRequest) => {
+      return call(
+        "entities",
+        "list_playback_progress",
+        routes.entities.list_playback_progress.resp,
+        routes.entities.list_playback_progress.req,
+        routes.entities.list_playback_progress.method,
+        routes.entities.list_playback_progress.path,
         params,
       );
     },

@@ -22,7 +22,7 @@ use std::rc::Rc;
 use wasm_bindgen::{JsError, JsValue};
 use web_sys::console;
 
-use crate::ratcore::app::DispatchResponse;
+use crate::ratcore::app::{combine_message_with_details, DispatchResponse};
 use crate::ratcore::transport::Transport;
 
 pub struct NoopTransport;
@@ -230,6 +230,26 @@ impl Transport for MiddenTransport {
             .unwrap_or("")
             .to_string();
         let data = resp_json.get("data").cloned().filter(|v| !v.is_null());
+        // mirrors `tty::transport::LocalTransport::admin_dispatch` -
+        // the raw json `"errors"` array (RFC-9457-style `ErrorDetail`
+        // objects from `grimoire::response::GrimoireResponse`) carries
+        // the actual underlying cause; `message` alone is frequently
+        // just a generic fixed string.
+        let message = if success {
+            message
+        } else {
+            let details = resp_json
+                .get("errors")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|e| e.get("detail").and_then(|d| d.as_str()))
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            combine_message_with_details(&message, details)
+        };
 
         DispatchResponse {
             success,

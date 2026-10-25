@@ -1,5 +1,5 @@
 // local read/write helpers for video seasons
-import { getVideoDB, STORE_VIDEO_SEASONS } from "./init";
+import { getVideoDB, STORE_VIDEOS, STORE_VIDEO_SEASONS } from "./init";
 import { singleFlight } from "../../../../utils/singleFlight";
 import type { VideoSeason } from "../../../data/types";
 import type { ImageMetadata } from "../../../../music/services/storage/types";
@@ -101,4 +101,28 @@ export async function updateLocalVideoSeason(
   }
   const updated: VideoSeason = { ...existing, ...updates, updated_at: Date.now() };
   await db.put(STORE_VIDEO_SEASONS, updated);
+}
+
+/** move every video in `sourceSeasonId` into `targetSeasonId`, then
+ *  hard-delete the now-empty source season row - local mirror of
+ *  grimoire's `merge_video_season` (see its own doc comment for why
+ *  this exists: picking an EXISTING season's name via the autocomplete
+ *  for a DIFFERENT season means "merge into that one", not "rename").
+ *  no-op (not an error) when the two ids are identical. */
+export async function mergeLocalVideoSeason(
+  sourceSeasonId: string,
+  targetSeasonId: string
+): Promise<void> {
+  if (sourceSeasonId === targetSeasonId) return;
+  const db = await getVideoDB();
+  const videos = await db.getAllFromIndex(STORE_VIDEOS, "by_season_id", sourceSeasonId);
+  const now = Date.now();
+  const tx = db.transaction([STORE_VIDEOS, STORE_VIDEO_SEASONS], "readwrite");
+  await Promise.all(
+    videos.map((video) =>
+      tx.objectStore(STORE_VIDEOS).put({ ...video, season_id: targetSeasonId, updated_at: now })
+    )
+  );
+  await tx.objectStore(STORE_VIDEO_SEASONS).delete(sourceSeasonId);
+  await tx.done;
 }

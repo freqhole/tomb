@@ -1,49 +1,82 @@
-//! `freqhole-events/1` ALPN protocol — bi-directional job event streaming
+//! `freqhole-events/1` ALPN protocol — bi-directional event streaming,
+//! shared across every typed event domain (job progress, radio request
+//! queues, and whatever comes next)
 //!
-//! dedicated channel for typed job-lifecycle event subscriptions. one
-//! subscription per bi-stream; the wire format is newline-delimited JSON
-//! (matches the existing json-over-bistream convention in this crate, but
-//! framed by `\n` so reader and writer can both progress concurrently).
+//! one subscription per bi-stream; the wire format is newline-delimited
+//! JSON (matches the existing json-over-bistream convention in this
+//! crate, but framed by `\n` so reader and writer can both progress
+//! concurrently).
 //!
 //! the plan in `docs/bidirectional-job-progress-plan.md` (p4) describes
-//! the flow:
+//! the original (job-events-only) flow, generalized here to cover any
+//! domain:
 //!
 //! 1. peer dials this ALPN and opens a bi-stream
 //! 2. server resolves `Caller` via `get_caller_for_peer(peer_id)`; if
 //!    unresolved -> `Close { Unauthorized }` and exit
-//! 3. peer writes `Subscribe { id, filter }` (one line of JSON)
-//! 4. server replies with `Snapshot { id, items }`
-//! 5. server forwards each `Event { id, evt }` from
-//!    `job_events::subscribe_filtered` until stream end / lag / unsubscribe
+//! 3. peer writes `Subscribe { id, filter }` or
+//!    `SubscribeRadioQueue { id, filter }` (one line of JSON)
+//! 4. server replies with `Snapshot { id, items }` or
+//!    `RadioQueueSnapshot { id, items }`
+//! 5. server forwards each `Event { id, evt }`/`RadioQueueEvent { id, evt }`
+//!    from the matching domain's own `subscribe_filtered` until stream
+//!    end / lag / unsubscribe - `forward_events` below is the one shared
+//!    implementation of this loop, generic over which domain's typed
+//!    event stream it's forwarding, so the fiddly concurrent
+//!    read-vs-forward logic is written once rather than duplicated per
+//!    domain behind a second near-identical protocol.
 //! 6. peer may write `Unsubscribe { id }` at any time; server replies
 //!    `Close { ClientUnsubscribed }` and finishes
 //!
-//! visibility is per-event via `caller_can_see` (already baked into
-//! `subscribe_filtered`). this layer only authenticates the subscriber.
+//! job-events visibility is per-event via `caller_can_see` (already
+//! baked into `job_events::subscribe_filtered`). radio-queue events have
+//! no per-caller visibility check - any authenticated member may already
+//! list/remove/clear/reorder any station's queue (see
+//! `offal::music::radio`'s route doc comments), so there's nothing extra
+//! to enforce here beyond the connection-level authentication every
+//! subscription already gets.
 
 use crate::federation::transport::handler::get_caller_for_peer;
 use crate::jobs::job_events::{self, CloseReason, EventFilter, JobEvent, JobStateSnapshot};
+use crate::offal::music::radio::RadioQueuedRequestInfo;
 use crate::offal::Caller;
-use futures_util::StreamExt;
+use crate::radio::queue_events::{self, RadioQueueEvent, RadioQueueEventFilter};
+use futures_util::{Stream, StreamExt};
 use iroh::endpoint::Connection;
 use iroh::protocol::{AcceptError, ProtocolHandler};
 use iroh::PublicKey;
 use serde::{Deserialize, Serialize};
+use std::pin::Pin;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tracing::{debug, info, warn};
 
-/// ALPN protocol identifier for the bi-directional job event channel.
+/// ALPN protocol identifier for the bi-directional event channel -
+/// shared by every event domain (job progress, radio request queues,
+/// and whatever comes next), not one-ALPN-per-domain: the hard,
+/// domain-agnostic part (iroh bi-stream handling, caller auth,
+/// newline-delimited JSON framing, the subscribe/snapshot/event/close
+/// state machine) is identical regardless of what's actually flowing
+/// through it, so it's written once in `handle_stream`/`forward_events`
+/// below and reused, rather than duplicated per domain behind a second
+/// near-identical ALPN registration.
 pub const EVENTS_ALPN: &[u8] = b"freqhole-events/1";
 
 /// messages a subscriber sends on the events channel.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EventsClientMsg {
-    /// open a subscription with the given filter. server must reply
-    /// with `Snapshot` then 0..N `Event` messages.
+    /// open a job-events subscription with the given filter. server must
+    /// reply with `Snapshot` then 0..N `Event` messages.
     Subscribe { id: u64, filter: EventFilter },
-    /// tear down the subscription. server replies with
+    /// open a radio-queue-events subscription for one station. server
+    /// must reply with `RadioQueueSnapshot` then 0..N `RadioQueueEvent`
+    /// messages.
+    SubscribeRadioQueue {
+        id: u64,
+        filter: RadioQueueEventFilter,
+    },
+    /// tear down the subscription (either kind). server replies with
     /// `Close { ClientUnsubscribed }` and finishes the stream.
     Unsubscribe { id: u64 },
 }
@@ -58,10 +91,32 @@ pub enum EventsServerMsg {
         id: u64,
         items: Vec<JobStateSnapshot>,
     },
-    /// a single live event matching the filter.
+    /// a single live job event matching the filter.
     Event { id: u64, evt: JobEvent },
+    /// one-shot hydration of a station's current request queue.
+    RadioQueueSnapshot {
+        id: u64,
+        items: Vec<RadioQueuedRequestInfo>,
+    },
+    /// a single live radio-queue event matching the filter.
+    RadioQueueEvent { id: u64, evt: RadioQueueEvent },
     /// terminal frame; no more events on this stream.
     Close { id: u64, reason: CloseReason },
+}
+
+impl EventsServerMsg {
+    /// constructs the `Event` variant - a plain fn (not a closure) so
+    /// `forward_events`'s generic `wrap_event: fn(u64, T) -> EventsServerMsg`
+    /// parameter can take it directly by name.
+    fn event(id: u64, evt: JobEvent) -> Self {
+        EventsServerMsg::Event { id, evt }
+    }
+
+    /// constructs the `RadioQueueEvent` variant - same reasoning as
+    /// `event` above.
+    fn radio_queue_event(id: u64, evt: RadioQueueEvent) -> Self {
+        EventsServerMsg::RadioQueueEvent { id, evt }
+    }
 }
 
 /// ProtocolHandler wrapper so the events ALPN can be registered on the
@@ -148,8 +203,10 @@ pub async fn handle_incoming(peer_node_id: PublicKey, conn: iroh::endpoint::Conn
     }
 }
 
-/// handle one bi-stream: read `Subscribe`, send `Snapshot`, forward live
-/// events, watch for `Unsubscribe`, terminate with `Close`.
+/// handle one bi-stream: read `Subscribe`/`SubscribeRadioQueue`, send the
+/// matching `Snapshot`/`RadioQueueSnapshot`, forward live events via
+/// `forward_events` (shared across both domains), watch for
+/// `Unsubscribe`, terminate with `Close`.
 async fn handle_stream(
     mut send: iroh::endpoint::SendStream,
     recv: iroh::endpoint::RecvStream,
@@ -158,7 +215,7 @@ async fn handle_stream(
 ) -> Result<(), String> {
     let mut reader = BufReader::new(recv);
 
-    // read the first line (Subscribe).
+    // read the first line (Subscribe/SubscribeRadioQueue/Unsubscribe).
     let mut line = String::new();
     let n = reader
         .read_line(&mut line)
@@ -171,8 +228,53 @@ async fn handle_stream(
     let req: EventsClientMsg = serde_json::from_str(line.trim_end())
         .map_err(|e| format!("failed to parse subscribe frame: {}", e))?;
 
-    let (id, filter) = match req {
-        EventsClientMsg::Subscribe { id, filter } => (id, filter),
+    match req {
+        EventsClientMsg::Subscribe { id, filter } => {
+            info!(
+                "[events-p2p] subscribe id={} from {} (user={})",
+                id, node_id_short, caller.username
+            );
+            let items = job_events::snapshot(&filter, &caller).await;
+            write_msg(&mut send, &EventsServerMsg::Snapshot { id, items }).await?;
+
+            let live = job_events::subscribe_filtered(filter, caller.clone());
+            let live: Pin<Box<dyn Stream<Item = Result<JobEvent, CloseReason>> + Send>> =
+                Box::pin(live);
+            forward_events(
+                id,
+                &mut send,
+                &mut reader,
+                live,
+                EventsServerMsg::event,
+                node_id_short,
+            )
+            .await?;
+        }
+        EventsClientMsg::SubscribeRadioQueue { id, filter } => {
+            info!(
+                "[events-p2p] subscribe (radio queue) id={} station={} from {} (user={})",
+                id, filter.station_id, node_id_short, caller.username
+            );
+            let items = crate::offal::music::radio::snapshot_for_station(&filter.station_id).await;
+            write_msg(
+                &mut send,
+                &EventsServerMsg::RadioQueueSnapshot { id, items },
+            )
+            .await?;
+
+            let live = queue_events::subscribe_filtered(filter);
+            let live: Pin<Box<dyn Stream<Item = Result<RadioQueueEvent, CloseReason>> + Send>> =
+                Box::pin(live);
+            forward_events(
+                id,
+                &mut send,
+                &mut reader,
+                live,
+                EventsServerMsg::radio_queue_event,
+                node_id_short,
+            )
+            .await?;
+        }
         EventsClientMsg::Unsubscribe { id } => {
             // peer sent unsubscribe without subscribing — echo a close and
             // finish so they don't hang waiting for a frame.
@@ -184,25 +286,31 @@ async fn handle_stream(
                 },
             )
             .await?;
-            send.finish()
-                .map_err(|e| format!("failed to finish stream: {}", e))?;
-            return Ok(());
         }
-    };
+    }
 
-    info!(
-        "[events-p2p] subscribe id={} from {} (user={})",
-        id, node_id_short, caller.username
-    );
+    send.finish()
+        .map_err(|e| format!("failed to finish stream: {}", e))?;
+    Ok(())
+}
 
-    // 1. send the snapshot first.
-    let items = job_events::snapshot(&filter, &caller).await;
-    write_msg(&mut send, &EventsServerMsg::Snapshot { id, items }).await?;
-
-    // 2. open the live event stream and forward.
-    let live = job_events::subscribe_filtered(filter, caller.clone());
-    let mut live = Box::pin(live);
-
+/// shared body of `handle_stream` once the specific subscription (job vs
+/// radio-queue) has been resolved to a concrete typed live stream - the
+/// concurrent unsubscribe-vs-event select! loop is identical regardless
+/// of which domain's events are flowing, so it's written once here and
+/// reused by both call sites above, rather than duplicated per domain.
+/// `wrap_event` turns one typed event (`JobEvent`/`RadioQueueEvent`) into
+/// the right `EventsServerMsg` variant - a plain fn pointer
+/// (`EventsServerMsg::event`/`EventsServerMsg::radio_queue_event` below),
+/// not a closure, since neither needs to capture anything.
+async fn forward_events<T>(
+    id: u64,
+    send: &mut iroh::endpoint::SendStream,
+    reader: &mut BufReader<iroh::endpoint::RecvStream>,
+    mut live: Pin<Box<dyn Stream<Item = Result<T, CloseReason>> + Send>>,
+    wrap_event: fn(u64, T) -> EventsServerMsg,
+    node_id_short: &str,
+) -> Result<(), String> {
     // persistent buffer for inbound client frames. select! may cancel an
     // in-flight read_line; reset the buffer at the top of each iteration
     // so a partial read on a cancelled future doesn't contaminate the
@@ -225,7 +333,7 @@ async fn handle_stream(
                         );
                         // best-effort close frame; peer may already be gone.
                         let _ = write_msg(
-                            &mut send,
+                            send,
                             &EventsServerMsg::Close {
                                 id,
                                 reason: CloseReason::ClientUnsubscribed,
@@ -244,7 +352,7 @@ async fn handle_stream(
                             id, node_id_short
                         );
                         write_msg(
-                            &mut send,
+                            send,
                             &EventsServerMsg::Close {
                                 id,
                                 reason: CloseReason::ClientUnsubscribed,
@@ -262,7 +370,7 @@ async fn handle_stream(
                             id, node_id_short, e, e
                         );
                         let _ = write_msg(
-                            &mut send,
+                            send,
                             &EventsServerMsg::Close {
                                 id,
                                 reason: CloseReason::Internal(format!("read error: {}", e)),
@@ -277,7 +385,7 @@ async fn handle_stream(
             evt = live.next() => {
                 match evt {
                     Some(Ok(evt)) => {
-                        if let Err(e) = write_msg(&mut send, &EventsServerMsg::Event { id, evt }).await {
+                        if let Err(e) = write_msg(send, &wrap_event(id, evt)).await {
                             warn!(
                                 "[events-p2p] write error on stream id={} peer={}: {}",
                                 id, node_id_short, e
@@ -288,7 +396,7 @@ async fn handle_stream(
                     Some(Err(reason)) => {
                         // broker signaled a terminal close (lag, etc).
                         let _ = write_msg(
-                            &mut send,
+                            send,
                             &EventsServerMsg::Close { id, reason },
                         )
                         .await;
@@ -297,7 +405,7 @@ async fn handle_stream(
                     None => {
                         // broker stream ended (sender dropped).
                         let _ = write_msg(
-                            &mut send,
+                            send,
                             &EventsServerMsg::Close {
                                 id,
                                 reason: CloseReason::Internal(
@@ -313,8 +421,6 @@ async fn handle_stream(
         }
     }
 
-    send.finish()
-        .map_err(|e| format!("failed to finish stream: {}", e))?;
     Ok(())
 }
 
@@ -400,6 +506,66 @@ mod tests {
                 assert!(items.is_empty());
             }
             _ => panic!("expected Snapshot"),
+        }
+    }
+
+    #[test]
+    fn subscribe_radio_queue_message_roundtrip() {
+        let msg = EventsClientMsg::SubscribeRadioQueue {
+            id: 5,
+            filter: RadioQueueEventFilter {
+                station_id: "station-1".to_string(),
+            },
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        let back: EventsClientMsg = serde_json::from_str(&s).unwrap();
+        match back {
+            EventsClientMsg::SubscribeRadioQueue { id, filter } => {
+                assert_eq!(id, 5);
+                assert_eq!(filter.station_id, "station-1");
+            }
+            _ => panic!("expected SubscribeRadioQueue"),
+        }
+    }
+
+    #[test]
+    fn server_radio_queue_snapshot_message_roundtrip() {
+        let msg = EventsServerMsg::RadioQueueSnapshot {
+            id: 3,
+            items: vec![],
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        let back: EventsServerMsg = serde_json::from_str(&s).unwrap();
+        match back {
+            EventsServerMsg::RadioQueueSnapshot { id, items } => {
+                assert_eq!(id, 3);
+                assert!(items.is_empty());
+            }
+            _ => panic!("expected RadioQueueSnapshot"),
+        }
+    }
+
+    #[test]
+    fn server_radio_queue_event_message_roundtrip() {
+        let msg = EventsServerMsg::RadioQueueEvent {
+            id: 4,
+            evt: RadioQueueEvent::Cleared {
+                station_id: "station-2".to_string(),
+            },
+        };
+        let s = serde_json::to_string(&msg).unwrap();
+        let back: EventsServerMsg = serde_json::from_str(&s).unwrap();
+        match back {
+            EventsServerMsg::RadioQueueEvent { id, evt } => {
+                assert_eq!(id, 4);
+                match evt {
+                    RadioQueueEvent::Cleared { station_id } => {
+                        assert_eq!(station_id, "station-2");
+                    }
+                    other => panic!("unexpected event: {other:?}"),
+                }
+            }
+            _ => panic!("expected RadioQueueEvent"),
         }
     }
 

@@ -372,6 +372,12 @@ export default function LibraryView() {
   const [maintCleanupContentlessBlobs, setMaintCleanupContentlessBlobs] = createSignal(false);
   const [maintHardDeleteOldRecords, setMaintHardDeleteOldRecords] = createSignal(false);
   const [maintHardDeleteOldVideos, setMaintHardDeleteOldVideos] = createSignal(false);
+  // one-off "redo every existing poster" run (e.g. after a seek-
+  // percentage change) - deliberately separate from the repair-library
+  // checklist's own "backfill missing poster" toggle above, since this
+  // regenerates posters that ALREADY exist, not just fills gaps. off by
+  // default like the other non-routine/heavier operations here.
+  const [maintRegenerateVideoThumbnails, setMaintRegenerateVideoThumbnails] = createSignal(false);
   const anyMaintenanceTaskChecked = () =>
     maintCleanupOrphanedData() ||
     maintBackfillThumbnails() ||
@@ -380,7 +386,8 @@ export default function LibraryView() {
     maintCleanupOrphanedBlobs() ||
     maintCleanupContentlessBlobs() ||
     maintHardDeleteOldRecords() ||
-    maintHardDeleteOldVideos();
+    maintHardDeleteOldVideos() ||
+    maintRegenerateVideoThumbnails();
   const [maintenanceRunning, setMaintenanceRunning] = createSignal(false);
   const [maintenanceResults, setMaintenanceResults] = createSignal<string[]>([]);
   const [maintenanceError, setMaintenanceError] = createSignal("");
@@ -1522,6 +1529,9 @@ export default function LibraryView() {
         if (maintHardDeleteOldVideos()) {
           await run("maintenance_hard_delete_old_videos");
         }
+        if (maintRegenerateVideoThumbnails()) {
+          await run("maintenance_regenerate_library_video_thumbnails");
+        }
         setMaintenanceResults(results);
         await loadDirectories();
         await refreshMaintenancePreviews(true);
@@ -1550,6 +1560,7 @@ export default function LibraryView() {
         cleanupContentlessBlobs: maintCleanupContentlessBlobs(),
         hardDeleteOldRecords: maintHardDeleteOldRecords(),
         hardDeleteOldVideos: maintHardDeleteOldVideos(),
+        regenerateVideoThumbnails: maintRegenerateVideoThumbnails(),
       });
       if (!result.success || !result.session_id) {
         setMaintenanceError(result.message);
@@ -1572,6 +1583,7 @@ export default function LibraryView() {
     "contentless_blobs",
     "hard_delete_records",
     "hard_delete_videos",
+    "regenerate_video_thumbnails",
     "repair_waveforms",
     "repair_art",
     "repair_remove_overapplied",
@@ -1687,6 +1699,19 @@ export default function LibraryView() {
         );
         return {
           hard_delete_videos: n === 0 ? "nothing past retention" : `${n} video(s) past retention`,
+        };
+      },
+    },
+    {
+      keys: ["regenerate_video_thumbnails"],
+      run: async () => {
+        const n = await dryRunCount(
+          "maintenance_regenerate_library_video_thumbnails",
+          "videos_posters_regenerated",
+        );
+        return {
+          regenerate_video_thumbnails:
+            n === 0 ? "no videos with an existing poster" : `${n} video poster(s) to regenerate`,
         };
       },
     },
@@ -2305,6 +2330,31 @@ export default function LibraryView() {
                   <Show when={maintenancePreviewText("hard_delete_videos")}>
                     <span class="checkbox-count">
                       {maintenancePreviewText("hard_delete_videos")}
+                    </span>
+                  </Show>
+                </span>
+              </label>
+              <label class="checkbox-toggle">
+                <input
+                  type="checkbox"
+                  checked={maintRegenerateVideoThumbnails()}
+                  onChange={(e) => setMaintRegenerateVideoThumbnails(e.currentTarget.checked)}
+                />
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 14 14">
+                    <polyline points="2.5 7 5.5 10 11.5 4" />
+                  </svg>
+                </span>
+                <span class="checkbox-content">
+                  <span class="checkbox-label">regenerate every existing video poster</span>
+                  <span class="checkbox-hint">
+                    one-off: re-extracts a fresh poster for every video that already has one (not
+                    just ones missing one) - for after a change to the extraction logic itself,
+                    like the screenshot seek percentage. off by default.
+                  </span>
+                  <Show when={maintenancePreviewText("regenerate_video_thumbnails")}>
+                    <span class="checkbox-count">
+                      {maintenancePreviewText("regenerate_video_thumbnails")}
                     </span>
                   </Show>
                 </span>

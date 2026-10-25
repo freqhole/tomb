@@ -34,6 +34,11 @@ export interface VideoSeasonAutocompleteProps {
   placeholder?: string;
   disabled?: boolean;
   class?: string;
+  /** omit this season from the dropdown/exact-match candidates - for
+   *  editing a season's OWN title (see `EditVideoSeriesModal.tsx`),
+   *  where offering the season itself as a selectable "merge target"
+   *  would be nonsensical. doesn't affect the "create new" path. */
+  excludeSeasonId?: string;
   hint?: string;
 }
 
@@ -103,11 +108,13 @@ export function VideoSeasonAutocomplete(props: VideoSeasonAutocompleteProps) {
   const seasonsQuery = useVideoSeasonsQuery(() => props.seriesId);
 
   const allSeasons = createMemo<SeasonOption[]>(() =>
-    (seasonsQuery.data ?? []).map((s) => ({
-      id: s.id,
-      season_number: s.season_number,
-      title: s.title ?? null,
-    }))
+    (seasonsQuery.data ?? [])
+      .filter((s) => s.id !== props.excludeSeasonId)
+      .map((s) => ({
+        id: s.id,
+        season_number: s.season_number,
+        title: s.title ?? null,
+      }))
   );
 
   const options = createMemo<SeasonOption[]>(() => {

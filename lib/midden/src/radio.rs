@@ -67,18 +67,36 @@ impl MiddenNode {
     ///   fires per audio chunk. `is_init = true` marks the start of a new
     ///   track; the JS side should append it to the same SourceBuffer.
     ///
+    /// `resume_hint`, when provided, is a pre-serialized JSON object
+    /// matching grimoire's `ResumeHint` (`{"kind":"song"|"video",
+    /// "item_id":"...","position_seconds":12.3}`) - forwarded into the
+    /// Tune message's own `resume_hint` field as-is (same "JS builds the
+    /// JSON, Rust just relays it" convention this module already uses
+    /// elsewhere - see the module doc comment). only meaningful when the
+    /// broadcaster happens to be idle at the moment this tune arrives;
+    /// see `TuneMessage::resume_hint`'s own doc comment for the full
+    /// picture. malformed JSON here is a caller bug, not a wire/protocol
+    /// concern, so it's rejected locally rather than forwarded broken.
+    ///
     /// returns a [`RadioHandle`] — keep a reference to it; dropping it stops
     /// playback and closes the iroh connection.
     pub async fn tune_radio(
         &self,
         peer_addr: &str,
         station_id: Option<String>,
+        resume_hint: Option<String>,
         on_hello: &JsFunction,
         on_meta: &JsFunction,
         on_chunk: &JsFunction,
     ) -> Result<RadioHandle, JsError> {
         let addr =
             parse_peer_addr(peer_addr, &self.own_relay_urls).map_err(|e| JsError::new(&e))?;
+
+        let resume_hint_value = resume_hint
+            .as_deref()
+            .map(serde_json::from_str::<JsonValue>)
+            .transpose()
+            .map_err(|e| JsError::new(&format!("malformed resume_hint: {e}")))?;
 
         info!("[radio] connecting to broadcaster...");
         // bounded dial, matching `open_bi`'s reasoning in lib.rs: without
@@ -106,6 +124,7 @@ impl MiddenNode {
         let tune_body = serde_json::to_vec(&json!({
             "type": "tune",
             "station_id": station_id,
+            "resume_hint": resume_hint_value,
         }))
         .map_err(|e| JsError::new(&format!("serialize tune: {e}")))?;
         debug!("[radio] sent tune station_id={:?}", station_id);

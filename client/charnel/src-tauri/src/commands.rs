@@ -2356,6 +2356,7 @@ pub async fn maintenance_run(
     cleanup_contentless_blobs: bool,
     hard_delete_old_records: bool,
     hard_delete_old_videos: bool,
+    regenerate_video_thumbnails: bool,
 ) -> MaintenanceRunResult {
     if let Err(e) = ensure_initialized(&app_handle).await {
         return MaintenanceRunResult {
@@ -2407,6 +2408,9 @@ pub async fn maintenance_run(
     }
     if hard_delete_old_videos {
         commands.push("maintenance_hard_delete_old_videos");
+    }
+    if regenerate_video_thumbnails {
+        commands.push("maintenance_regenerate_library_video_thumbnails");
     }
 
     let session_id = new_maintenance_session_id();

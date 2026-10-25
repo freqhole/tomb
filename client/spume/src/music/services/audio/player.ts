@@ -274,6 +274,26 @@ let autoAdvanceUnsubscribe: (() => void) | null = null;
 // exactly one network retry before falling back to advancing the
 // queue.
 let networkRetriedKey: string | null = null;
+
+/** true if `key` is still present in the live queue right now - checked
+ * immediately before every DELAYED retry attempt below actually calls
+ * playMediaItem/playSong/playVideo, never once at the start of the
+ * delay. a network-error retry, a libmpv sync-failure retry, and
+ * `playNext()`'s own per-item retry all capture their target item via
+ * closure *before* waiting out a fixed delay (NETWORK_RETRY_DELAY_MS) -
+ * the load-guard generation counters (loadGuard.ts) only protect an
+ * *in-flight* load from a *newer* one superseding it; they do nothing
+ * for a retry that hasn't started loading yet and is simply waiting to
+ * begin. without this check, removing the retried item from the queue
+ * during that wait (a completely ordinary thing to do - the user
+ * changed their mind) does not stop it: the delayed retry still fires,
+ * starts a brand new, otherwise-unguarded load, and the item begins
+ * playing again a moment later despite having been cleared from the
+ * queue in the meantime. */
+function isStillQueued(key: string): boolean {
+  return (appState()?.queue ?? []).some((i) => mediaItemKey(i) === key);
+}
+
 function bindAutoAdvance(backend: PlayerBackend): void {
   if (autoAdvanceUnsubscribe) {
     try {
@@ -332,6 +352,13 @@ function bindAutoAdvance(backend: PlayerBackend): void {
             `backend "${backend.kind}" network error — retrying current track once before advancing: ${reason}`
           );
           setTimeout(() => {
+            if (!isStillQueued(current)) {
+              debug(
+                "player",
+                `backend "${backend.kind}" network-error retry skipped - item left the queue during the retry delay`
+              );
+              return;
+            }
             void playMediaItem(item, { userInitiated: false }).catch((err) => {
               warn(
                 "player",
@@ -601,6 +628,13 @@ export async function playSong(
         );
         setPendingUpNextItemKey(null);
         setTimeout(() => {
+          if (!isStillQueued(retryKey)) {
+            debug(
+              "player",
+              `libmpv retry skipped for "${song.title}" - item left the queue during the retry delay`
+            );
+            return;
+          }
           void playSong(song, { ...options, userInitiated: false }).catch((retryErr) => {
             warn(
               "player",
@@ -1017,6 +1051,18 @@ export async function playNext(): Promise<void> {
     for (let attempt = 0; attempt < 2 && !played; attempt++) {
       if (attempt > 0) {
         await new Promise((resolve) => setTimeout(resolve, NETWORK_RETRY_DELAY_MS));
+        // mirrors bindAutoAdvance's network-error retry guard above -
+        // `nextItem` was captured before this delay; if it left the
+        // queue while we waited (the user removed it), don't blindly
+        // start playing it anyway. treat it the same as a failed
+        // attempt so the outer loop moves on to whatever's now next.
+        if (!isStillQueued(mediaItemKey(nextItem))) {
+          debug(
+            "player",
+            `playNext: retry skipped for "${nextTitle}" - item left the queue during the retry delay`
+          );
+          break;
+        }
       }
       try {
         await Promise.race([

@@ -10,7 +10,9 @@ use grimoire::offal::Caller;
 use grimoire::users::UserService;
 use serde_json::Value as JsonValue;
 
-use crate::ratcore::app::{DispatchResponse, RenditionRow, SeriesRow, SongRow, VideoRow};
+use crate::ratcore::app::{
+    combine_message_with_details, DispatchResponse, RenditionRow, SeriesRow, SongRow, VideoRow,
+};
 use crate::ratcore::transport::Transport;
 
 pub struct LocalTransport {
@@ -43,9 +45,17 @@ impl LocalTransport {
 impl Transport for LocalTransport {
     async fn admin_dispatch(&self, cmd: &str, args: JsonValue) -> DispatchResponse {
         let resp = grimoire::admin_dispatch::handle(cmd, args, &self.caller).await;
+        let message = if resp.success {
+            resp.message
+        } else {
+            combine_message_with_details(
+                &resp.message,
+                resp.errors.iter().map(|e| e.detail.clone()),
+            )
+        };
         DispatchResponse {
             success: resp.success,
-            message: resp.message,
+            message,
             data: resp.data,
         }
     }
@@ -53,7 +63,10 @@ impl Transport for LocalTransport {
     async fn search_songs(&self, query: &str, limit: u32) -> Result<Vec<SongRow>, String> {
         let resp = grimoire::music::search_songs(query, Some(limit), Some(0)).await;
         if !resp.success {
-            return Err(resp.message);
+            return Err(combine_message_with_details(
+                &resp.message,
+                resp.errors.iter().map(|e| e.detail.clone()),
+            ));
         }
         let Some(result) = resp.data else {
             return Ok(vec![]);
@@ -64,7 +77,10 @@ impl Transport for LocalTransport {
     async fn list_local_songs(&self, limit: u32) -> Result<Vec<SongRow>, String> {
         let resp = grimoire::music::list_recent_songs(Some(limit)).await;
         if !resp.success {
-            return Err(resp.message);
+            return Err(combine_message_with_details(
+                &resp.message,
+                resp.errors.iter().map(|e| e.detail.clone()),
+            ));
         }
         let Some(result) = resp.data else {
             return Ok(vec![]);
@@ -80,7 +96,10 @@ impl Transport for LocalTransport {
             .toggle_favorite(&self.caller.user_id, target, target_id)
             .await;
         if !resp.success {
-            return Err(resp.message);
+            return Err(combine_message_with_details(
+                &resp.message,
+                resp.errors.iter().map(|e| e.detail.clone()),
+            ));
         }
         resp.data
             .ok_or_else(|| "favorites toggle returned no data".to_string())
@@ -94,7 +113,10 @@ impl Transport for LocalTransport {
             .is_favorited(&self.caller.user_id, target, target_id)
             .await;
         if !resp.success {
-            return Err(resp.message);
+            return Err(combine_message_with_details(
+                &resp.message,
+                resp.errors.iter().map(|e| e.detail.clone()),
+            ));
         }
         Ok(resp.data.unwrap_or(false))
     }
@@ -133,7 +155,10 @@ impl Transport for LocalTransport {
                 };
                 let resp = query_songs(params).await;
                 if !resp.success {
-                    return Err(resp.message);
+                    return Err(combine_message_with_details(
+                        &resp.message,
+                        resp.errors.iter().map(|e| e.detail.clone()),
+                    ));
                 }
                 let item = resp
                     .data
@@ -158,7 +183,10 @@ impl Transport for LocalTransport {
                 };
                 let resp = query_albums(params).await;
                 if !resp.success {
-                    return Err(resp.message);
+                    return Err(combine_message_with_details(
+                        &resp.message,
+                        resp.errors.iter().map(|e| e.detail.clone()),
+                    ));
                 }
                 let item = resp
                     .data
@@ -188,7 +216,10 @@ impl Transport for LocalTransport {
         };
         let resp = query_playlist_songs(playlist_id, params).await;
         if !resp.success {
-            return Err(resp.message);
+            return Err(combine_message_with_details(
+                &resp.message,
+                resp.errors.iter().map(|e| e.detail.clone()),
+            ));
         }
         let Some(result) = resp.data else {
             return Ok(vec![]);
@@ -217,7 +248,10 @@ impl Transport for LocalTransport {
         };
         let resp = query_songs(params).await;
         if !resp.success {
-            return Err(resp.message);
+            return Err(combine_message_with_details(
+                &resp.message,
+                resp.errors.iter().map(|e| e.detail.clone()),
+            ));
         }
         let Some(result) = resp.data else {
             return Ok(vec![]);
@@ -251,7 +285,10 @@ impl Transport for LocalTransport {
         )
         .await;
         if !resp.success {
-            return Err(resp.message);
+            return Err(combine_message_with_details(
+                &resp.message,
+                resp.errors.iter().map(|e| e.detail.clone()),
+            ));
         }
         let Some(result) = resp.data else {
             return Ok(vec![]);
@@ -263,7 +300,10 @@ impl Transport for LocalTransport {
         use grimoire::video::get_video;
         let resp = get_video(id).await;
         if !resp.success {
-            return Err(resp.message);
+            return Err(combine_message_with_details(
+                &resp.message,
+                resp.errors.iter().map(|e| e.detail.clone()),
+            ));
         }
         resp.data
             .map(video_to_row)
@@ -298,7 +338,10 @@ impl Transport for LocalTransport {
         };
         let resp = update_videos(req).await;
         if !resp.success {
-            return Err(resp.message);
+            return Err(combine_message_with_details(
+                &resp.message,
+                resp.errors.iter().map(|e| e.detail.clone()),
+            ));
         }
         // update_videos returns only counts, so refetch the video
         if let Some(result) = resp.data {
@@ -314,7 +357,10 @@ impl Transport for LocalTransport {
         let deleted_by = Some(self.caller.username.clone());
         let resp = delete_video(id, deleted_by).await;
         if !resp.success {
-            return Err(resp.message);
+            return Err(combine_message_with_details(
+                &resp.message,
+                resp.errors.iter().map(|e| e.detail.clone()),
+            ));
         }
         Ok(())
     }
@@ -323,7 +369,10 @@ impl Transport for LocalTransport {
         use grimoire::video::list_video_seriez;
         let resp = list_video_seriez(Some(limit), Some(0)).await;
         if !resp.success {
-            return Err(resp.message);
+            return Err(combine_message_with_details(
+                &resp.message,
+                resp.errors.iter().map(|e| e.detail.clone()),
+            ));
         }
         let Some(series_list) = resp.data else {
             return Ok(vec![]);
@@ -575,7 +624,10 @@ async fn unified_search_impl(t: &LocalTransport, query: &str) -> DispatchRespons
     if !resp.success {
         return DispatchResponse {
             success: false,
-            message: resp.message,
+            message: combine_message_with_details(
+                &resp.message,
+                resp.errors.iter().map(|e| e.detail.clone()),
+            ),
             data: None,
         };
     }
@@ -732,7 +784,10 @@ fn wrap_grimoire_simple<T: serde::Serialize>(
     if !resp.success {
         return DispatchResponse {
             success: false,
-            message: resp.message,
+            message: combine_message_with_details(
+                &resp.message,
+                resp.errors.iter().map(|e| e.detail.clone()),
+            ),
             data: None,
         };
     }
@@ -759,7 +814,10 @@ fn wrap_grimoire_paged<T: serde::Serialize>(
     if !resp.success {
         return DispatchResponse {
             success: false,
-            message: resp.message,
+            message: combine_message_with_details(
+                &resp.message,
+                resp.errors.iter().map(|e| e.detail.clone()),
+            ),
             data: None,
         };
     }

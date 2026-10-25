@@ -6,7 +6,7 @@
 // progress, and per explicit product direction it must stay much less
 // chatty than the local tracker: a periodic ~60s tick while actively
 // playing, plus one best-effort attempt on `beforeunload`. never call
-// `client.video.upsertPlaybackProgress` from a timeupdate/5s-flush
+// `client.entities.upsertPlaybackProgress` from a timeupdate/5s-flush
 // cadence — that would be excessive network traffic for no user-visible
 // benefit.
 
@@ -51,7 +51,7 @@ async function syncCurrentVideoProgress(): Promise<void> {
     const remote = await getRemoteById(video.remote_server_id);
     if (!remote) return;
     const client = await getClientForRemote(remote);
-    await client.video.upsertPlaybackProgress({
+    await client.entities.upsertPlaybackProgress({
       entity_type: "video",
       entity_id: video.id,
       position_fraction: positionFraction,

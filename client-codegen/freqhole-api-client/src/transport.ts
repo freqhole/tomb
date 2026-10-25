@@ -10,6 +10,9 @@ import type {
   EventFilter,
   JobEvent,
   JobStateSnapshot,
+  RadioQueueEvent,
+  RadioQueueEventFilter,
+  RadioQueuedRequestInfo,
 } from "./codegen/schema.js";
 
 /**
@@ -202,6 +205,18 @@ export interface Transport {
    * override use the default polling fallback (see `pollingJobEvents`).
    */
   subscribeJobEvents?(filter?: EventFilter, signal?: AbortSignal): AsyncIterable<JobEvent>;
+
+  /**
+   * live subscription to one station's request-queue events
+   * (`Submitted`/`Removed`/`Reordered`/`Cleared` - PascalCase `kind`
+   * tags, see `RadioQueueEvent`'s doc comment for why). transports that
+   * don't override use the default polling-diff fallback (see
+   * `pollingRadioQueueEvents`) - same precedent as `subscribeJobEvents`.
+   */
+  subscribeRadioQueueEvents?(
+    filter: RadioQueueEventFilter,
+    signal?: AbortSignal,
+  ): AsyncIterable<RadioQueueEvent>;
 }
 
 /**
@@ -475,6 +490,111 @@ export async function* pollingJobEvents(
       first = false;
       prev = new Map(snaps.map((s) => [s.job_id, s] as const));
     }
+    await sleepOrAbort(POLL_INTERVAL_FALLBACK_MS, signal);
+  }
+}
+
+// ---------------------------------------------------------------------
+// radio-queue events (http impl: plain POST list + polling-diff
+// fallback for subscribe - same precedent as job events above, reusing
+// the already-existing `radio_list_requests` route rather than a
+// dedicated snapshot endpoint, since that route already works
+// transparently against local or remote stations through any transport.)
+// ---------------------------------------------------------------------
+
+/**
+ * one-shot snapshot of a station's current request queue via the plain
+ * `radio_list_requests` route. works for any http-backed transport
+ * (relies only on `transport.request()`).
+ */
+export async function snapshotRadioQueueEventsViaRequest(
+  transport: Transport,
+  filter: RadioQueueEventFilter,
+): Promise<RadioQueuedRequestInfo[]> {
+  const body = JSON.stringify({ station_id: filter.station_id });
+  const resp = await transport.request("POST", "/api/radio/requests/list", body);
+  if (resp.status >= 400 || resp.status === 0) {
+    throw new Error(`snapshotRadioQueueEvents failed: status ${resp.status}`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(resp.body);
+  } catch {
+    throw new Error("snapshotRadioQueueEvents: non-json response");
+  }
+  // unwrap GrimoireResponse { success, data, ... }
+  const root = parsed as { data?: { requests?: unknown } };
+  const requests = root?.data?.requests;
+  if (!Array.isArray(requests)) {
+    throw new Error("snapshotRadioQueueEvents: response data not an array");
+  }
+  return requests as RadioQueuedRequestInfo[];
+}
+
+/**
+ * polling-diff fallback iterator for transports that don't implement
+ * `subscribeRadioQueueEvents`. polls every `POLL_INTERVAL_FALLBACK_MS`
+ * and diffs the station's request list (which is already in queue
+ * order) against the previous tick to synthesize `RadioQueueEvent`s in
+ * the exact same shape a true push subscription would yield - so
+ * `useRadioRequestQueue`'s consumption code stays identical regardless
+ * of transport, matching `pollingJobEvents`'s precedent.
+ *
+ * the first tick only seeds the baseline (no synthetic events). on
+ * later ticks: ids missing from the new list -> `Removed`; ids new to
+ * the list -> `Submitted` (full metadata, straight from the list
+ * response); ids present in both but at a different index -> `Reordered`.
+ *
+ * NOTE: `kind` values are PascalCase ("Submitted"/"Removed"/etc.), not
+ * snake_case - `RadioQueueEvent` deliberately has no `rename_all` on
+ * its `#[serde(tag = "kind")]` (see `grimoire::radio::queue_events`'s
+ * doc comment), since the zod codegen doesn't honor `rename_all` and
+ * we'd rather match serde's real wire output than paper over the gap
+ * with a codegen rewrite.
+ */
+export async function* pollingRadioQueueEvents(
+  transport: Transport,
+  filter: RadioQueueEventFilter,
+  signal?: AbortSignal,
+): AsyncGenerator<RadioQueueEvent, void, void> {
+  let prev: RadioQueuedRequestInfo[] = [];
+  let first = true;
+  while (true) {
+    if (signal?.aborted) return;
+    let items: RadioQueuedRequestInfo[];
+    try {
+      items = await snapshotRadioQueueEventsViaRequest(transport, filter);
+    } catch {
+      // same reasoning as pollingJobEvents: a transient failure must not
+      // wipe `prev`, or every still-queued request looks "new" again
+      // next tick.
+      await sleepOrAbort(POLL_INTERVAL_FALLBACK_MS, signal);
+      continue;
+    }
+    if (!first) {
+      const prevIndex = new Map(prev.map((r, i) => [r.id, i] as const));
+      const nextIndex = new Map(items.map((r, i) => [r.id, i] as const));
+      for (const r of prev) {
+        if (!nextIndex.has(r.id)) {
+          yield { kind: "Removed", station_id: filter.station_id, request_id: r.id };
+        }
+      }
+      for (const [i, r] of items.entries()) {
+        const before = prevIndex.get(r.id);
+        if (before === undefined) {
+          yield { kind: "Submitted", station_id: filter.station_id, request: r };
+        } else if (before !== i) {
+          yield {
+            kind: "Reordered",
+            station_id: filter.station_id,
+            request_id: r.id,
+            new_index: i,
+          };
+        }
+      }
+    }
+    prev = items;
+    first = false;
     await sleepOrAbort(POLL_INTERVAL_FALLBACK_MS, signal);
   }
 }

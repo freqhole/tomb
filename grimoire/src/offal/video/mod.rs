@@ -3,7 +3,6 @@
 //! covers: video series, seasons, and videos (episodes/movies/clips).
 
 pub mod import_review;
-pub mod progress;
 pub mod relations;
 pub mod seasons;
 pub mod series;
@@ -20,7 +19,6 @@ pub fn routes() -> Vec<RouteInfo> {
     all.extend_from_slice(series::ROUTES);
     all.extend_from_slice(seasons::ROUTES);
     all.extend_from_slice(videos::ROUTES);
-    all.extend_from_slice(progress::ROUTES);
     all.extend_from_slice(relations::ROUTES);
     all.extend_from_slice(import_review::ROUTES);
     all
@@ -51,6 +49,7 @@ pub async fn dispatch(
         "/api/video/seasons/get" => Some(seasons::get(caller, body.clone()).await),
         "/api/video/seasons/update" => Some(seasons::update(caller, body.clone()).await),
         "/api/video/seasons/delete" => Some(seasons::delete(caller, body.clone()).await),
+        "/api/video/seasons/merge" => Some(seasons::merge(caller, body.clone()).await),
 
         // videos
         "/api/video/videos/query" => Some(videos::query(caller, body.clone()).await),
@@ -85,10 +84,9 @@ pub async fn dispatch(
         }
         "/api/video/videos/reprocess" => Some(videos::reprocess(caller, body.clone()).await),
 
-        // playback progress
-        "/api/video/progress/upsert" => Some(progress::upsert(caller, body.clone()).await),
-        "/api/video/progress/get" => Some(progress::get(caller, body.clone()).await),
-        "/api/video/progress/list" => Some(progress::list(caller, body.clone()).await),
+        // playback progress now lives at /api/entities/progress/* - see
+        // offal::entities::playback_progress (domain-neutral, since songs
+        // can have resume progress too, not just video entities).
 
         // universal-domain relation hubs (era/recently_added/unassigned +
         // generic categorical hubs like genre/mood/style)

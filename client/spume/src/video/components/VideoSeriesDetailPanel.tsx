@@ -7,14 +7,22 @@ import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import { LoadingState } from "../../components/feedback";
 import { MediaImage } from "../../components/media/MediaImage";
-import { ContextMenu } from "../../components/overlays/ContextMenu";
+import { ContextMenu, ClickDropdownMenu } from "../../components/overlays/ContextMenu";
 import { Button } from "../../components/buttons/Button";
+import { PlayWithStreamButton } from "../../components/buttons/PlayWithStreamButton";
+import type { RequestQueueItem } from "../../components/radio/requestStation";
+import { useStreamFlyoutActions } from "../../components/radio/useStreamFlyoutActions";
+import { isVideoAlreadyLocal } from "../services/syncState";
 import { Icon, IconNames } from "../../components/icons/registry";
 import { HeadingSection } from "../../components/layout/HeadingSection";
 import { MarqueeText } from "../../components/text/MarqueeText";
 import { TagChips } from "../../components/badges/TagChips";
 import { TaxonChips } from "../../components/badges/TaxonChips";
 import { ShareButton } from "../../components/buttons/ShareButton";
+import {
+  ResponsiveActionBar,
+  type ActionBarItem,
+} from "../../components/overlays/ResponsiveActionBar";
 import type { SendVideoPayload } from "../services/send/sendVideoToRemote";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
@@ -23,6 +31,12 @@ import { createShareSourceRemote } from "../../app/services/remotes/shareSource"
 import { useVideoSeriesDetailQuery } from "../queries/series";
 import { useVideoSeriesAggregateTagsQuery } from "../queries/tags";
 import { useVideoSeriesAggregateTaxonsQuery } from "../queries/taxons";
+import {
+  pickResumeTarget,
+  resumePositionFor,
+  useVideoProgressQuery,
+  type ResumeTarget,
+} from "../queries/progress";
 import { videoQueryKeys } from "../queries/queryKeys";
 import { useVideoSeriesFavoriteStatuses } from "../hooks/useVideoSeriesFavoriteStatuses";
 import { hasBackgroundImage } from "../../app/services/backgroundImage";
@@ -32,8 +46,10 @@ import { playVideoQueue } from "../services/queue/playVideoQueue";
 import { addVideosToQueue, shuffleVideos } from "../services/videoQueueActions";
 import { VideoListRow } from "./VideoListRow";
 import { showEditVideoSeries } from "../hooks/modals";
+import { showShareModal } from "../../music/hooks/modals";
 import { showStationSelector } from "../../music/hooks/stationSelectorState";
 import { useVideoSeriesContextMenu } from "../hooks/contextMenu";
+import { spliceStreamMenuActions } from "../hooks/useVideoStreamContextMenuActions";
 import { canUpdateVideo } from "../data/permissions";
 import { getVideoDataSource } from "../data";
 import {
@@ -52,6 +68,13 @@ import {
 import { getBlobObjectURL } from "../../music/services/storage/blobs";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import type { VideoSeason, VideoSummary } from "../data/types";
+
+/** the episode a series' header "continue $season-episode" action
+ *  should resume into - see VideoSeriesDetailPanel's `continueTarget`
+ *  memo. */
+interface ContinueTarget extends ResumeTarget {
+  label: string;
+}
 
 export interface VideoSeriesDetailPanelProps {
   seriesId: string;
@@ -224,6 +247,37 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     allVideoIds
   );
 
+  // playback progress for every episode in this series - drives each
+  // episode row's progress-fill background (VideoListRow's `progress`
+  // prop) and the header's "continue $season-episode" action below.
+  const progressQuery = useVideoProgressQuery(() => props.seriesId, allVideos);
+  const episodeProgress = (videoId: string): number | undefined =>
+    progressQuery.data?.get(videoId)?.position_fraction;
+
+  // the episode to resume into: whichever of this series' episodes has
+  // the most recently updated progress row (or the next one, if that
+  // episode is already finished) - see pickResumeTarget's doc comment.
+  // falls back to a plain "play all" header action when there's nothing
+  // to continue into.
+  const continueTarget = createMemo((): ContinueTarget | null => {
+    const videos = allVideos();
+    const target = pickResumeTarget(videos, progressQuery.data ?? new Map());
+    if (!target) return null;
+
+    const targetVideo = videos[target.index];
+    const season = targetVideo.season_id
+      ? seasons().find((s) => s.id === targetVideo.season_id)
+      : undefined;
+    const label =
+      season && targetVideo.episode_number != null
+        ? `continue s${season.season_number}e${targetVideo.episode_number}`
+        : targetVideo.episode_number != null
+          ? `continue episode ${targetVideo.episode_number}`
+          : "continue";
+
+    return { ...target, label };
+  });
+
   // seasons expanded/collapsed by id - all seasons expanded by default.
   // reset whenever the selected series changes so a stale season id from
   // the previous series doesn't linger in the expanded set.
@@ -263,42 +317,79 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     // tracking starts (without it, position never resumes on reload).
     // just this one video — queuing the whole season here was
     // surprising when a user clicked a single episode's play button.
-    await playVideoQueue([video], 0, {
-      type: "video",
-      label: video.title,
-      entity_id: video.id,
-    });
+    await playVideoQueue(
+      [video],
+      0,
+      { type: "video", label: video.title, entity_id: video.id },
+      resumePositionFor(video.id, progressQuery.data ?? new Map())
+    );
   };
 
   const handleUnassignedClick = async (index: number) => {
     const video = unassignedVideos()[index];
     if (!video) return;
-    await playVideoQueue([video], 0, {
-      type: "video",
-      label: video.title,
-      entity_id: video.id,
-    });
+    await playVideoQueue(
+      [video],
+      0,
+      { type: "video", label: video.title, entity_id: video.id },
+      resumePositionFor(video.id, progressQuery.data ?? new Map())
+    );
   };
 
   // tracks which of play-all/add-all-to-queue is currently fetching +
   // queueing videos, mirrors AlbumDetailView's albumActionPending pattern.
   const [seriesActionPending, setSeriesActionPending] = createSignal<"play" | "queue" | null>(null);
 
-  const handlePlayAll = async () => {
+  const handlePlayOrContinue = async () => {
     if (seriesActionPending()) return;
     const videos = allVideos();
     if (videos.length === 0) return;
     setSeriesActionPending("play");
     try {
       const series = detailQuery.data?.series;
-      await playVideoQueue(videos, 0, {
-        type: "series",
-        label: series?.title ?? "series",
-        entity_id: series?.id,
-      });
+      const target = continueTarget();
+      await playVideoQueue(
+        videos,
+        target?.index ?? 0,
+        {
+          type: "series",
+          label: series?.title ?? "series",
+          entity_id: series?.id,
+        },
+        target?.positionSeconds
+      );
     } finally {
       setSeriesActionPending(null);
     }
+  };
+
+  // item resolver for the series header's play/continue button's stream
+  // caret (see PlayWithStreamButton.tsx) - the full remaining episode
+  // list from wherever `continueTarget` would resume into, same ordering
+  // + resume-position source handlePlayOrContinue's own playVideoQueue
+  // call already uses (no second fetch needed - progressQuery is already
+  // a live reactive query by this point).
+  const resolveSeriesStreamItems = async (): Promise<RequestQueueItem[] | null> => {
+    const videos = allVideos();
+    if (videos.length === 0) return null;
+    const target = pickResumeTarget(videos, progressQuery.data ?? new Map());
+    const startIndex = target?.index ?? 0;
+    return videos.slice(startIndex).map((v, i) => ({
+      kind: "video" as const,
+      itemId: v.id,
+      startPositionSeconds: i === 0 ? target?.positionSeconds : undefined,
+    }));
+  };
+  // no file-access problem to solve once whichever episode would
+  // actually start playing (continueTarget's pick, or episode 1) is
+  // already available locally, or we're not even connected to a remote
+  // at all - hides the whole flyout, not just "download" (see
+  // isVideoAlreadyLocal's doc comment).
+  const isSeriesAlreadyLocal = () => {
+    const videos = allVideos();
+    if (videos.length === 0) return false;
+    const video = videos[continueTarget()?.index ?? 0];
+    return isVideoAlreadyLocal(video);
   };
 
   const handleAddAllToQueue = async () => {
@@ -318,6 +409,125 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     }
   };
 
+  // secondary actions for the narrow/mobile layout's responsive action
+  // bar - ordered by priority (first collapses last, into the "..."
+  // overflow menu, as the container runs out of horizontal room). the
+  // primary play/continue button and favorite toggle stay pinned (never
+  // collapse) - see the narrow layout's own JSX below.
+  const narrowActionItems = createMemo((): ActionBarItem[] => {
+    const series = detailQuery.data?.series;
+    if (!series) return [];
+    const items: ActionBarItem[] = [];
+
+    items.push({
+      key: "queue",
+      render: () => (
+        <Button
+          variant="ghost"
+          loading={seriesActionPending() === "queue"}
+          disabled={seriesActionPending() !== null || allVideos().length === 0}
+          onClick={handleAddAllToQueue}
+          title="add all episodes to queue"
+          aria-label="add all episodes to queue"
+        >
+          <Icon name={IconNames.queue} />
+        </Button>
+      ),
+      action: {
+        label: "add all episodes to queue",
+        icon: "queue",
+        onClick: () => void handleAddAllToQueue(),
+        disabled: seriesActionPending() !== null || allVideos().length === 0,
+      },
+    });
+
+    if (canUpdateVideo()) {
+      items.push({
+        key: "edit",
+        render: () => (
+          <button
+            onClick={() =>
+              showEditVideoSeries({
+                seriesId: series.id,
+                onDeleted: props.onDeleted,
+              })
+            }
+            class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+            title="edit series info"
+            aria-label="edit series info"
+          >
+            <Icon name={IconNames.edit} />
+          </button>
+        ),
+        action: {
+          label: "edit series info",
+          icon: "edit",
+          onClick: () =>
+            showEditVideoSeries({
+              seriesId: series.id,
+              onDeleted: props.onDeleted,
+            }),
+        },
+      });
+    }
+
+    const shareTarget = {
+      kind: "video_series" as const,
+      id: series.id,
+      displayTitle: series.title,
+    };
+    items.push({
+      key: "share",
+      render: () => (
+        <ShareButton
+          target={shareTarget}
+          source={currentRemoteFull}
+          buildSendPayload={buildSeriesSendPayload}
+        />
+      ),
+      action: {
+        label: "share",
+        icon: "share",
+        onClick: () =>
+          showShareModal({
+            target: shareTarget,
+            source: currentRemoteFull,
+            buildSendPayload: buildSeriesSendPayload,
+          }),
+      },
+    });
+
+    items.push({
+      key: "station",
+      render: () => (
+        <button
+          onClick={() =>
+            void showStationSelector(
+              { kind: "video_series", seriesId: series.id, seriesTitle: series.title },
+              series.remote_server_id ?? undefined
+            )
+          }
+          class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+          title="add to station..."
+          aria-label="add to station..."
+        >
+          <Icon name={IconNames.headphones} />
+        </button>
+      ),
+      action: {
+        label: "add to station...",
+        icon: "headphones",
+        onClick: () =>
+          void showStationSelector(
+            { kind: "video_series", seriesId: series.id, seriesTitle: series.title },
+            series.remote_server_id ?? undefined
+          ),
+      },
+    });
+
+    return items;
+  });
+
   // per-season play/queue/shuffle pending state, keyed by season id so
   // multiple seasons' buttons don't share a single loading flag.
   const [seasonActionPending, setSeasonActionPending] = createSignal<{
@@ -329,11 +539,17 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     if (seasonActionPending() || season.videos.length === 0) return;
     setSeasonActionPending({ seasonId: season.id, action: "play" });
     try {
-      await playVideoQueue(season.videos, 0, {
-        type: "season",
-        label: seasonLabel(season),
-        entity_id: season.id,
-      });
+      const target = pickResumeTarget(season.videos, progressQuery.data ?? new Map());
+      await playVideoQueue(
+        season.videos,
+        target?.index ?? 0,
+        {
+          type: "season",
+          label: seasonLabel(season),
+          entity_id: season.id,
+        },
+        target?.positionSeconds
+      );
     } finally {
       setSeasonActionPending(null);
     }
@@ -367,13 +583,26 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     }
   };
 
+  // same stream flyout config as the header's own PlayWithStreamButton
+  // above (resolveSeriesStreamItems/isSeriesAlreadyLocal) - reused here
+  // (rather than useSeriesStreamContextMenuActions, which is for callers
+  // without an already-loaded video list/progress) so the context menu's
+  // "stream on X" entry doesn't pay for a second progress fetch.
+  const seriesStreamFlyout = useStreamFlyoutActions({
+    remote: currentRemoteFull,
+    resolveStreamItems: resolveSeriesStreamItems,
+    streamLabel: () => `series "${detailQuery.data?.series.title ?? ""}"`,
+    alreadyLocal: isSeriesAlreadyLocal,
+  });
+
   const seriesContextMenuActions = createMemo(() => {
     const series = detailQuery.data?.series;
     if (!series) return [];
-    return useVideoSeriesContextMenu(series, allVideos(), {
+    const base = useVideoSeriesContextMenu(series, allVideos(), {
       isFavorite: isFavorite(),
       onDeleted: props.onDeleted,
     });
+    return spliceStreamMenuActions(base, seriesStreamFlyout.menuActions());
   });
 
   const seasonLabel = (season: VideoSeason) => season.title || `season ${season.season_number}`;
@@ -491,69 +720,31 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
 
                       <TagChips tags={aggregateTagsQuery.data} class="mt-2 justify-center" />
 
-                      <div class="mt-3 flex items-center justify-center flex-wrap gap-2">
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          loading={seriesActionPending() === "play"}
-                          disabled={seriesActionPending() !== null || allVideos().length === 0}
-                          onClick={handlePlayAll}
-                        >
-                          play
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          loading={seriesActionPending() === "queue"}
-                          disabled={seriesActionPending() !== null || allVideos().length === 0}
-                          onClick={handleAddAllToQueue}
-                          title="add all episodes to queue"
-                          aria-label="add all episodes to queue"
-                        >
-                          <Icon name={IconNames.queue} />
-                        </Button>
-                        <Show when={canUpdateVideo()}>
-                          <button
-                            onClick={() =>
-                              showEditVideoSeries({
-                                seriesId: data().series.id,
-                                onDeleted: props.onDeleted,
-                              })
-                            }
-                            class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
-                            title="edit series info"
-                            aria-label="edit series info"
-                          >
-                            <Icon name={IconNames.edit} />
-                          </button>
-                        </Show>
-                        <FavoriteHeart isFavorite={isFavorite()} onToggle={handleFavoriteToggle} />
-                        <ShareButton
-                          target={{
-                            kind: "video_series",
-                            id: data().series.id,
-                            displayTitle: data().series.title,
-                          }}
-                          source={currentRemoteFull}
-                          buildSendPayload={buildSeriesSendPayload}
+                      <div class="mt-3 flex items-center justify-center">
+                        <ResponsiveActionBar
+                          class="justify-center"
+                          items={narrowActionItems()}
+                          pinnedStart={() => (
+                            <>
+                              <PlayWithStreamButton
+                                label={continueTarget()?.label ?? "play"}
+                                loading={seriesActionPending() === "play"}
+                                disabled={
+                                  seriesActionPending() !== null || allVideos().length === 0
+                                }
+                                onClick={handlePlayOrContinue}
+                                remote={currentRemoteFull}
+                                resolveStreamItems={resolveSeriesStreamItems}
+                                streamLabel={`series "${detailQuery.data?.series.title ?? ""}"`}
+                                alreadyLocal={isSeriesAlreadyLocal}
+                              />
+                              <FavoriteHeart
+                                isFavorite={isFavorite()}
+                                onToggle={handleFavoriteToggle}
+                              />
+                            </>
+                          )}
                         />
-                        <button
-                          onClick={() =>
-                            void showStationSelector(
-                              {
-                                kind: "video_series",
-                                seriesId: data().series.id,
-                                seriesTitle: data().series.title,
-                              },
-                              data().series.remote_server_id ?? undefined
-                            )
-                          }
-                          class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
-                          title="add to station..."
-                          aria-label="add to station..."
-                        >
-                          <Icon name={IconNames.headphones} />
-                        </button>
                       </div>
                     </div>
                   </div>
@@ -618,14 +809,16 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                       <TagChips tags={aggregateTagsQuery.data} class="mt-2" />
 
                       <div class="mt-3 flex items-center gap-2">
-                        <Button
-                          variant="primary"
+                        <PlayWithStreamButton
+                          label={continueTarget()?.label ?? "play all"}
                           loading={seriesActionPending() === "play"}
                           disabled={seriesActionPending() !== null || allVideos().length === 0}
-                          onClick={handlePlayAll}
-                        >
-                          play all
-                        </Button>
+                          onClick={handlePlayOrContinue}
+                          remote={currentRemoteFull}
+                          resolveStreamItems={resolveSeriesStreamItems}
+                          streamLabel={`series "${detailQuery.data?.series.title ?? ""}"`}
+                          alreadyLocal={isSeriesAlreadyLocal}
+                        />
                         <Button
                           variant="ghost"
                           loading={seriesActionPending() === "queue"}
@@ -694,6 +887,32 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                         const isPending = (action: "play" | "queue" | "shuffle") =>
                           seasonActionPending()?.seasonId === season.id &&
                           seasonActionPending()?.action === action;
+                        // this season's own stream/save-to-local flyout -
+                        // same logic PlayWithStreamButton uses for the
+                        // header, just with this row's own compact icon-
+                        // button styling instead of a merged split button
+                        // (see useStreamFlyoutActions.ts).
+                        const seasonResumeTarget = () =>
+                          pickResumeTarget(season.videos, progressQuery.data ?? new Map());
+                        const seasonStream = useStreamFlyoutActions({
+                          remote: currentRemoteFull,
+                          resolveStreamItems: async () => {
+                            if (season.videos.length === 0) return null;
+                            const target = seasonResumeTarget();
+                            const startIndex = target?.index ?? 0;
+                            return season.videos.slice(startIndex).map((v, i) => ({
+                              kind: "video" as const,
+                              itemId: v.id,
+                              startPositionSeconds: i === 0 ? target?.positionSeconds : undefined,
+                            }));
+                          },
+                          streamLabel: () => `season "${seasonLabel(season)}"`,
+                          alreadyLocal: () => {
+                            if (season.videos.length === 0) return false;
+                            const video = season.videos[seasonResumeTarget()?.index ?? 0];
+                            return isVideoAlreadyLocal(video);
+                          },
+                        });
                         return (
                           <div>
                             <div
@@ -729,18 +948,46 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                                 {seasonLabel(season)}
                               </span>
                               <Show when={season.videos.length > 0}>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    void handleSeasonPlay(season);
-                                  }}
-                                  disabled={isPending("play")}
-                                  class="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors flex-shrink-0"
-                                  title="play season"
-                                  aria-label="play season"
+                                <Show
+                                  when={seasonStream.showCaret()}
+                                  fallback={
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        void handleSeasonPlay(season);
+                                      }}
+                                      disabled={isPending("play")}
+                                      class="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors flex-shrink-0"
+                                      title="play season"
+                                      aria-label="play season"
+                                    >
+                                      <Icon name={IconNames.play} size={14} />
+                                    </button>
+                                  }
                                 >
-                                  <Icon name={IconNames.play} size={14} />
-                                </button>
+                                  <ClickDropdownMenu
+                                    align="left"
+                                    trigger={
+                                      <button
+                                        disabled={isPending("play")}
+                                        class="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors flex-shrink-0"
+                                        title="play season"
+                                        aria-label="play season"
+                                      >
+                                        <Icon name={IconNames.play} size={14} />
+                                      </button>
+                                    }
+                                    actions={[
+                                      {
+                                        label: "play season",
+                                        icon: "play",
+                                        onClick: () => void handleSeasonPlay(season),
+                                        disabled: isPending("play"),
+                                      },
+                                      ...seasonStream.menuActions(),
+                                    ]}
+                                  />
+                                </Show>
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -787,6 +1034,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                                       index={index()}
                                       onPlay={() => handleEpisodeClick(season, index())}
                                       onTagsSaved={handleTagsSaved}
+                                      progress={episodeProgress(video.id)}
                                     />
                                   )}
                                 </For>
@@ -818,6 +1066,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                                 index={index()}
                                 onPlay={() => handleUnassignedClick(index())}
                                 onTagsSaved={handleTagsSaved}
+                                progress={episodeProgress(video.id)}
                               />
                             )}
                           </For>

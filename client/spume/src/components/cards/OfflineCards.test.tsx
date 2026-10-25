@@ -36,6 +36,12 @@ vi.mock("../../video/queries/series", () => ({
   useVideoSeasonsQuery: () => ({ data: [] }),
 }));
 vi.mock("../forms/VideoSeasonAutocomplete", () => ({ formatSeasonLabel: vi.fn() }));
+vi.mock("../../video/hooks/useVideoStreamContextMenuActions", () => ({
+  useVideoStreamContextMenuActions: () => ({
+    showCaret: () => false,
+    menuActions: () => [],
+  }),
+}));
 
 const video: VideoSummary = {
   id: "video",
@@ -90,7 +96,7 @@ describe("offline browse cards", () => {
     expect(host.textContent).not.toContain("offline");
   });
 
-  it.each(["album", "video", "series"])(
+  it.each(["album", "video"])(
     "%s keeps metadata and favorites usable but disables direct play until reconnect",
     (kind) => {
       const [offline, setOffline] = createSignal(true);
@@ -115,25 +121,9 @@ describe("offline browse cards", () => {
               onFavoriteToggle={favorite}
             />
           );
-        if (kind === "video")
-          return (
-            <VideoCard
-              video={{ ...video, is_offline: offline() }}
-              onClick={navigate}
-              onPlay={play}
-              isFavorite={false}
-              onFavoriteToggle={favorite}
-            />
-          );
         return (
-          <VideoSeriesCard
-            series={{
-              id: "series",
-              title: "a series",
-              created_at: 0,
-              updated_at: 0,
-              is_offline: offline(),
-            }}
+          <VideoCard
+            video={{ ...video, is_offline: offline() }}
             onClick={navigate}
             onPlay={play}
             isFavorite={false}
@@ -159,4 +149,42 @@ describe("offline browse cards", () => {
       expect(navigate).toHaveBeenCalledTimes(1);
     }
   );
+
+  // VideoSeriesCard has no play button of its own (removed - series-wide
+  // play lives in the context menu's "play all" instead, see
+  // contextMenu.ts), so it doesn't fit the shared play-button-disabling
+  // parameterization above - just its own offline badge/navigate/favorite
+  // behavior, none of which is gated by offline status.
+  it("series keeps navigation and favorites usable regardless of offline status", () => {
+    const [offline, setOffline] = createSignal(true);
+    const navigate = vi.fn();
+    const favorite = vi.fn();
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    dispose = render(
+      () => (
+        <VideoSeriesCard
+          series={{
+            id: "series",
+            title: "a series",
+            created_at: 0,
+            updated_at: 0,
+            is_offline: offline(),
+          }}
+          onClick={navigate}
+          isFavorite={false}
+          onFavoriteToggle={favorite}
+        />
+      ),
+      host
+    );
+    expect(host.querySelectorAll('[title="media is on offline storage"]')).toHaveLength(1);
+    host.firstElementChild!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(navigate).toHaveBeenCalledTimes(1);
+    host.querySelector<HTMLButtonElement>("button")!.click();
+    expect(favorite).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledTimes(1);
+    setOffline(false);
+    expect(host.querySelectorAll('[title="media is on offline storage"]')).toHaveLength(0);
+  });
 });

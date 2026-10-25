@@ -335,6 +335,7 @@ pub async fn dispatch(
         "/api/radio/requests/submit" => Some(radio::submit_request(caller, body.clone()).await),
         "/api/radio/requests/list" => Some(radio::list_requests(caller, body.clone()).await),
         "/api/radio/requests/remove" => Some(radio::remove_request(caller, body.clone()).await),
+        "/api/radio/requests/reorder" => Some(radio::reorder_request(caller, body.clone()).await),
         "/api/radio/requests/clear" => Some(radio::clear_requests(caller, body.clone()).await),
 
         // blob metadata

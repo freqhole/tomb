@@ -1,5 +1,5 @@
 // favorites layout - presentational component for displaying favorites with toggle filters
-import { createSignal, createMemo, For, Show, onMount, onCleanup } from "solid-js";
+import { createSignal, createMemo, For, Show, onMount, onCleanup, type Accessor } from "solid-js";
 import { Icon, type IconName } from "../icons/registry";
 import { IconButton } from "../buttons/IconButton";
 import { MediaThumbnail } from "../media/MediaThumbnail";
@@ -77,14 +77,13 @@ export interface FavoritesLayoutProps {
   /** video card callbacks */
   onVideoClick?: (video: VideoSummary) => void;
   onVideoPlay?: (video: VideoSummary) => void;
-  getVideoContextMenuActions?: (video: VideoSummary) => MenuAction[];
+  getVideoContextMenuActions?: (video: VideoSummary) => Accessor<MenuAction[]>;
   onVideoFavoriteToggle?: (videoId: string, isFavorite: boolean) => void;
   /** fallback image url resolver - see VideoCard's `imageUrl` prop */
   getVideoImageUrl?: (video: VideoSummary) => string | undefined;
   /** video series card callbacks */
   onSeriesClick?: (series: VideoSeries) => void;
-  onSeriesPlay?: (series: VideoSeries) => void;
-  getSeriesContextMenuActions?: (series: VideoSeries) => MenuAction[];
+  getSeriesContextMenuActions?: (series: VideoSeries) => Accessor<MenuAction[]>;
   onSeriesFavoriteToggle?: (seriesId: string, isFavorite: boolean) => void;
   /** fallback image url resolver - see VideoSeriesCard's `imageUrl` prop */
   getSeriesImageUrl?: (series: VideoSeries) => string | undefined;
@@ -404,7 +403,7 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
           />
         );
         return props.getVideoContextMenuActions ? (
-          <ContextMenu actions={props.getVideoContextMenuActions(video)}>{card}</ContextMenu>
+          <ContextMenu actions={props.getVideoContextMenuActions(video)()}>{card}</ContextMenu>
         ) : (
           card
         );
@@ -416,13 +415,12 @@ export function FavoritesLayout(props: FavoritesLayoutProps) {
             series={series}
             isFavorite={true}
             onClick={props.onSeriesClick}
-            onPlay={props.onSeriesPlay}
             imageUrl={props.getSeriesImageUrl?.(series)}
             onFavoriteToggle={props.onSeriesFavoriteToggle}
           />
         );
         return props.getSeriesContextMenuActions ? (
-          <ContextMenu actions={props.getSeriesContextMenuActions(series)}>{card}</ContextMenu>
+          <ContextMenu actions={props.getSeriesContextMenuActions(series)()}>{card}</ContextMenu>
         ) : (
           card
         );

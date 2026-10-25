@@ -19,6 +19,7 @@ use crate::federation::transport::events_protocol::{
     EventsClientMsg, EventsServerMsg, EVENTS_ALPN,
 };
 use crate::jobs::job_events::{EventFilter, JobStateSnapshot};
+use crate::radio::queue_events::RadioQueueEventFilter;
 
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -34,23 +35,20 @@ fn serialize_msg(msg: &EventsClientMsg) -> GrimoireResult<Vec<u8>> {
     Ok(bytes)
 }
 
-/// one-shot snapshot of currently-active jobs on a remote peer.
-///
-/// opens a connection on `EVENTS_ALPN`, subscribes, reads the snapshot
-/// frame, unsubscribes (best-effort), and returns the items.
-pub async fn snapshot_events_remote(
+/// dial `peer_addr` on `EVENTS_ALPN` and open a bi-stream - the
+/// connect/open_bi preamble every subscribe variant needs regardless of
+/// which domain's `Subscribe*` message it's about to write. shared so
+/// the iroh connection-setup boilerplate isn't duplicated per domain.
+async fn open_events_stream(
     peer_addr: &str,
-    filter: EventFilter,
-) -> GrimoireResult<Vec<JobStateSnapshot>> {
+) -> GrimoireResult<(
+    iroh::endpoint::SendStream,
+    iroh::endpoint::RecvStream,
+    String,
+)> {
     let endpoint = crate::federation::p2p_client::get_endpoint_arc()?;
     let addr = parse_peer_address(peer_addr)?;
     let node_id_short = addr.id.to_string()[..16.min(addr.id.to_string().len())].to_string();
-    let id = next_id();
-
-    debug!(
-        "[events-p2p-client] snapshot from {} (id={})",
-        node_id_short, id
-    );
 
     let conn = endpoint.connect(addr, EVENTS_ALPN).await.map_err(|e| {
         GrimoireError::FederationApiError {
@@ -61,12 +59,31 @@ pub async fn snapshot_events_remote(
         }
     })?;
 
-    let (mut send, recv) = conn
+    let (send, recv) = conn
         .open_bi()
         .await
         .map_err(|e| GrimoireError::FederationApiError {
             message: format!("failed to open events stream on {}: {}", node_id_short, e),
         })?;
+
+    Ok((send, recv, node_id_short))
+}
+
+/// one-shot snapshot of currently-active jobs on a remote peer.
+///
+/// opens a connection on `EVENTS_ALPN`, subscribes, reads the snapshot
+/// frame, unsubscribes (best-effort), and returns the items.
+pub async fn snapshot_events_remote(
+    peer_addr: &str,
+    filter: EventFilter,
+) -> GrimoireResult<Vec<JobStateSnapshot>> {
+    let id = next_id();
+    let (mut send, recv, node_id_short) = open_events_stream(peer_addr).await?;
+
+    debug!(
+        "[events-p2p-client] snapshot from {} (id={})",
+        node_id_short, id
+    );
 
     // write Subscribe
     let sub_bytes = serialize_msg(&EventsClientMsg::Subscribe {
@@ -126,33 +143,46 @@ pub async fn subscribe_events_remote(
     peer_addr: &str,
     filter: EventFilter,
 ) -> GrimoireResult<EventsRemoteStream> {
-    let endpoint = crate::federation::p2p_client::get_endpoint_arc()?;
-    let addr = parse_peer_address(peer_addr)?;
-    let node_id_short = addr.id.to_string()[..16.min(addr.id.to_string().len())].to_string();
     let id = next_id();
+    let (mut send, recv, node_id_short) = open_events_stream(peer_addr).await?;
 
     debug!(
         "[events-p2p-client] subscribe from {} (id={})",
         node_id_short, id
     );
 
-    let conn = endpoint.connect(addr, EVENTS_ALPN).await.map_err(|e| {
-        GrimoireError::FederationApiError {
-            message: format!(
-                "failed to connect to events endpoint on {}: {}",
-                node_id_short, e
-            ),
-        }
-    })?;
-
-    let (mut send, recv) = conn
-        .open_bi()
+    let sub_bytes = serialize_msg(&EventsClientMsg::Subscribe { id, filter })?;
+    send.write_all(&sub_bytes)
         .await
         .map_err(|e| GrimoireError::FederationApiError {
-            message: format!("failed to open events stream on {}: {}", node_id_short, e),
+            message: format!("failed to write subscribe frame: {}", e),
         })?;
 
-    let sub_bytes = serialize_msg(&EventsClientMsg::Subscribe { id, filter })?;
+    Ok(EventsRemoteStream {
+        id,
+        send,
+        reader: BufReader::new(recv),
+    })
+}
+
+/// long-lived radio-queue-events subscription to a remote peer - same
+/// shape as `subscribe_events_remote`, just writing `SubscribeRadioQueue`
+/// instead of `Subscribe`. returns the same `EventsRemoteStream` handle
+/// (it already yields the raw, un-narrowed `EventsServerMsg` enum, so no
+/// separate stream type is needed for this domain).
+pub async fn subscribe_radio_queue_events_remote(
+    peer_addr: &str,
+    filter: RadioQueueEventFilter,
+) -> GrimoireResult<EventsRemoteStream> {
+    let id = next_id();
+    let (mut send, recv, node_id_short) = open_events_stream(peer_addr).await?;
+
+    debug!(
+        "[events-p2p-client] subscribe (radio queue) from {} (id={}, station={})",
+        node_id_short, id, filter.station_id
+    );
+
+    let sub_bytes = serialize_msg(&EventsClientMsg::SubscribeRadioQueue { id, filter })?;
     send.write_all(&sub_bytes)
         .await
         .map_err(|e| GrimoireError::FederationApiError {

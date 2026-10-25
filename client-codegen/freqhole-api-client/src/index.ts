@@ -15,6 +15,8 @@ export {
   HttpTransport,
   pollingJobEvents,
   snapshotJobEventsViaRequest,
+  pollingRadioQueueEvents,
+  snapshotRadioQueueEventsViaRequest,
   POLL_INTERVAL_FALLBACK_MS,
 } from "./transport.js";
 export { WasmTransport } from "./WasmTransport.js";
@@ -31,6 +33,7 @@ export {
   CharnelLocalTransport,
   createCharnelLocalTransport,
   JobEventsStreamClosed,
+  RadioQueueEventsStreamClosed,
   resolveCharnelMediaSrc,
 } from "./CharnelLocalTransport.js";
 export type {
@@ -38,6 +41,7 @@ export type {
   BlobResultLike,
   BlobProgressCallback,
   RadioHandleLike,
+  RadioResumeHint,
   BiStreamLike,
   ActiveTransferLike,
 } from "./WasmTransport.js";

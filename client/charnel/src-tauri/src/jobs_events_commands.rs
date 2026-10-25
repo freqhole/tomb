@@ -123,6 +123,7 @@ pub async fn jobs_events_subscribe(
                 .await
                 .map_err(|e| e.to_string())?;
 
+        let task_session_id = session_id.clone();
         let handle = tokio::spawn(async move {
             loop {
                 match stream.next_frame().await {
@@ -137,6 +138,19 @@ pub async fn jobs_events_subscribe(
                     }
                     // consume the initial snapshot frame silently
                     Some(EventsServerMsg::Snapshot { .. }) => {}
+                    // this command only ever subscribes via
+                    // `EventsClientMsg::Subscribe` (job events) - a radio-
+                    // queue frame arriving here would mean something else
+                    // is wrong, not a normal case to silently ignore.
+                    Some(
+                        EventsServerMsg::RadioQueueSnapshot { .. }
+                        | EventsServerMsg::RadioQueueEvent { .. },
+                    ) => {
+                        tracing::warn!(
+                            session = %task_session_id,
+                            "[jobs-events-charnel] unexpected radio-queue frame on a job-events subscription"
+                        );
+                    }
                     None => {
                         let _ = events.send(JobsEventsFrame::Closed {
                             reason: CloseReason::Internal("remote stream ended".to_string()),

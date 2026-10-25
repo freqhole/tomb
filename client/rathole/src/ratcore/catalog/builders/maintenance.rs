@@ -392,6 +392,23 @@ pub(in crate::ratcore::catalog) fn repair_library_video_thumbnails() -> AdminCom
     }
 }
 
+/// re-extracts a poster for EVERY video that already has one (not just
+/// ones missing one) - for a one-off "redo everything because the
+/// extraction logic itself changed" run (e.g. a different seek
+/// percentage), deliberately separate from the backfill-only preset
+/// above. same args shape (dry_run/scan_directory only - no sub-job
+/// toggles, since there's only ever this one thing to regenerate).
+pub(in crate::ratcore::catalog) fn regenerate_library_video_thumbnails() -> AdminCommand {
+    AdminCommand {
+        name: "maintenance_regenerate_library_video_thumbnails".to_string(),
+        request_type: "MaintenanceRepairLibraryRequest".to_string(),
+        response_type: "serde_json::Value".to_string(),
+        auth: "Admin".to_string(),
+        kind: CommandKind::Admin,
+        args: repair_library_args(),
+    }
+}
+
 /// shared args for both the reorganize-library preview and enqueue
 /// commands - target directory (required) plus which domain(s) and
 /// which source dir(s) to scan (all optional, falling back server-side

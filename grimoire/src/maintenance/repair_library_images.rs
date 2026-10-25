@@ -204,6 +204,11 @@ pub struct RepairLibraryImagesResult {
     pub videos_waveforms_backfilled: u32,
     /// see `maintenance::repair_video_images::repair_video_thumbnails_batch`.
     pub videos_thumbnails_backfilled: u32,
+    /// see `maintenance::repair_video_images::regenerate_video_thumbnails_batch`:
+    /// a video that already HAD a poster, re-extracted fresh (e.g.
+    /// after a change to the extraction logic itself, like the seek
+    /// percentage) rather than one that was simply missing one.
+    pub videos_posters_regenerated: u32,
     pub errors: Vec<ErrorDetail>,
 }
 
@@ -217,6 +222,7 @@ impl RepairLibraryImagesResult {
         self.albums_left_ambiguous += other.albums_left_ambiguous;
         self.videos_waveforms_backfilled += other.videos_waveforms_backfilled;
         self.videos_thumbnails_backfilled += other.videos_thumbnails_backfilled;
+        self.videos_posters_regenerated += other.videos_posters_regenerated;
         self.errors.extend(other.errors);
     }
 }

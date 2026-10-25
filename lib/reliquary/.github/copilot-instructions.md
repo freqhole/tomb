@@ -63,7 +63,7 @@ never reference the extraction/porting process itself in a source comment. no "d
 configurable". write every comment as if the module had always existed standalone here -
 describe what the code does and why in domain terms, never where it came from or what it
 differs from elsewhere. provenance/rationale narration belongs in a phase doc under
-`tomb/docs/xl-refactor/`, never in source comments.
+`tomb/docs/xl-refactor/`, never in source comments. never reference docs in code comments.
 
 ## conventions
 
@@ -72,3 +72,4 @@ differs from elsewhere. provenance/rationale narration belongs in a phase doc un
   comments describe what the code does; plan-doc references belong in docs only.
 - **plan docs**: this repo doesn't hold its own copy of the xl-refactor plan - it lives in
   `tomb/docs/xl-refactor/`. link to it, don't duplicate it.
+- **never** use the word "native" in code, code comments, or documentation.

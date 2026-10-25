@@ -16,10 +16,10 @@ use crate::radio::art::resolve_track_art;
 use crate::radio::chunk::Chunk;
 use crate::radio::config as cfg;
 use crate::radio::encoder::BufferedEncoder;
-use crate::radio::messages::{ArtData, NowPlaying, RadioModeCapability};
+use crate::radio::messages::{ArtData, NowPlaying, RadioModeCapability, ResumeHint};
 use crate::radio::messages::{TimelineCurrentItem, TimelineMessage, TimelineUpcomingItem};
 use crate::radio::playlist::{
-    pick_for_station, pick_for_station_after, pick_for_station_force_new_album,
+    fetch_track, pick_for_station, pick_for_station_after, pick_for_station_force_new_album,
 };
 use crate::radio::stations;
 use std::collections::{HashMap, VecDeque};
@@ -180,6 +180,26 @@ impl State {
     }
 }
 
+/// sets an `AtomicBool` true for its lifetime, false again on drop -
+/// regardless of which of several early-return paths an async function
+/// exits through. used for `Broadcaster::awaiting_listener` (see its own
+/// doc comment) so `wait_for_listener`/`wait_for_request`'s several
+/// return points can't accidentally leave it stuck true.
+struct IdleGuard<'a>(&'a AtomicBool);
+
+impl<'a> IdleGuard<'a> {
+    fn new(flag: &'a AtomicBool) -> Self {
+        flag.store(true, Ordering::Relaxed);
+        Self(flag)
+    }
+}
+
+impl Drop for IdleGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Relaxed);
+    }
+}
+
 pub struct Broadcaster {
     station_id: String,
     /// station's `content_mode` at spawn time ('audio_only' |
@@ -235,6 +255,22 @@ pub struct Broadcaster {
     /// monotonic counter used when minting `timeline_item_id` values for
     /// planned items.
     plan_item_seq: AtomicU64,
+    /// a client-supplied resume hint (see `TuneMessage::resume_hint`),
+    /// set only when it arrives while the station is confirmed idle.
+    /// consumed (and cleared) by `run()`'s next track pick in place of
+    /// the normal planner/request/random pick - cleared unconditionally
+    /// once consumed, win or lose, so a stale hint can never be reused
+    /// for a later, unrelated idle period.
+    pending_resume: std::sync::Mutex<Option<ResumeHint>>,
+    /// true only while `run()`'s loop is genuinely blocked waiting for a
+    /// listener/request (inside `wait_for_listener`/`wait_for_request`) -
+    /// deliberately distinct from "`now_playing.song_id` is empty",
+    /// which is ALSO true for the brief `announce_interstitial`
+    /// ("switching tracks…") gap between two real, actively-listened-to
+    /// tracks. a resume hint arriving during that ordinary gap must NOT
+    /// be honored - there's a real track about to start normally, not a
+    /// station waiting idle for someone to reconnect.
+    awaiting_listener: AtomicBool,
 }
 
 impl Broadcaster {
@@ -263,6 +299,8 @@ impl Broadcaster {
             plan: RwLock::new(VecDeque::new()),
             plan_mode: RwLock::new(None),
             plan_item_seq: AtomicU64::new(0),
+            pending_resume: std::sync::Mutex::new(None),
+            awaiting_listener: AtomicBool::new(false),
         }
     }
 
@@ -522,6 +560,32 @@ impl Broadcaster {
         self.state.read().await.now_playing.clone()
     }
 
+    /// records a client's resume hint (see `TuneMessage::resume_hint`),
+    /// but only when `run()`'s loop is genuinely blocked waiting for a
+    /// listener/request right now (`awaiting_listener` - see its own doc
+    /// comment on why this can't just check `now_playing.song_id` being
+    /// empty: that's ALSO true during the brief `announce_interstitial`
+    /// gap between two ordinary, actively-listened-to tracks, which is
+    /// not an idle period at all). a hint arriving at any other
+    /// moment (frozen within its own short grace window, still playing
+    /// for other listeners, or mid-transition between two real tracks)
+    /// is simply dropped - that listener is just joining wherever the
+    /// station already is, same as any other tune, and the hint has
+    /// nothing to add there. called from the tune handler BEFORE
+    /// `join()`, so this always sees the pre-join state.
+    pub fn set_pending_resume_if_idle(&self, hint: ResumeHint) {
+        if self.awaiting_listener.load(Ordering::Relaxed) {
+            *self.pending_resume.lock().unwrap() = Some(hint);
+        }
+    }
+
+    /// consumes (clears) any pending resume hint. called once at the top
+    /// of `run()`'s loop, right after a fresh listener ends an idle wait -
+    /// the one and only place a hint can ever be used.
+    fn take_pending_resume(&self) -> Option<ResumeHint> {
+        self.pending_resume.lock().unwrap().take()
+    }
+
     /// take a live snapshot for a new listener.
     pub async fn subscribe(self: &Arc<Self>) -> Subscription {
         let state = self.state.read().await;
@@ -651,6 +715,39 @@ impl Broadcaster {
         loop {
             self.wait_for_listener().await;
 
+            // a client resuming after a pause may have arrived with a
+            // resume hint (only ever set when the station was genuinely
+            // idle - see `set_pending_resume_if_idle`'s doc comment).
+            // honor it ahead of the normal bumper/request/planner/random
+            // pick chain: fetch that exact track fresh and start it at
+            // the client's own remembered position via ffmpeg's existing
+            // `-ss` seek support (the same mechanism an already-queued
+            // request's own `start_position_seconds` uses). falls through
+            // to the normal pick below if the track can no longer be
+            // fetched (e.g. deleted since).
+            if let Some(hint) = self.take_pending_resume() {
+                match fetch_track(hint.kind, &hint.item_id).await {
+                    Ok(mut track) => {
+                        track.start_position_seconds = Some(hint.position_seconds);
+                        if let Err(e) = self.play_track(&track, /*is_bumper=*/ false).await {
+                            warn!(
+                                "[radio-broadcaster] station {} resume-hint play failed: {e}",
+                                self.station_id
+                            );
+                            self.announce_interstitial("switching tracks…").await;
+                        }
+                        continue;
+                    }
+                    Err(e) => {
+                        warn!(
+                            "[radio-broadcaster] station {} resume hint for {:?} {} could no \
+                             longer be fetched: {e}; falling back to a normal pick",
+                            self.station_id, hint.kind, hint.item_id
+                        );
+                    }
+                }
+            }
+
             // bumper interleave: when the per-station cadence has elapsed
             // since the last bumper play (and the station has any
             // bumpers), slot one in before the next regular pick.
@@ -743,6 +840,7 @@ impl Broadcaster {
         self.track_started_at_ms.store(0, Ordering::Relaxed);
         self.current_track_duration_ms.store(0, Ordering::Relaxed);
         self.current_track_is_bumper.store(false, Ordering::Relaxed);
+        let _idle_guard = IdleGuard::new(&self.awaiting_listener);
         self.announce_idle("waiting for listeners…").await;
         info!(
             "[radio-broadcaster] station {} idle; waiting for a listener",
@@ -774,6 +872,7 @@ impl Broadcaster {
     /// would otherwise silently start shuffling library content the
     /// moment the last queued request plays out.
     async fn wait_for_request(&self) {
+        let _idle_guard = IdleGuard::new(&self.awaiting_listener);
         self.announce_idle("waiting for requests…").await;
         info!(
             "[radio-broadcaster] station {} accepts requests but its queue is empty; waiting",
@@ -796,6 +895,23 @@ impl Broadcaster {
         }
     }
 
+    /// announces the idle/waiting placeholder AND, critically, clears the
+    /// catchup ring + current init chunk - without this, a listener
+    /// tuning into (or resuming on) a now-idle station gets served
+    /// whatever stale init/catchup chunks were left over from the
+    /// PREVIOUS track before anything new has actually started (`
+    /// subscribe()` hands `current_init`/`ring` straight to a fresh
+    /// listener, and `handler.rs` writes them to the audio stream
+    /// immediately, before any live chunk ever arrives) - the listener
+    /// would briefly hear/see that stale tail end, then abruptly cut to
+    /// whatever the real new track actually starts with. normally barely
+    /// noticeable (whatever random track picked next rarely lines up
+    /// with the old one's ending), but for a cold-started resume
+    /// specifically - where the real new track deliberately starts at
+    /// the EXACT position the stale ring already ends at (the freeze
+    /// fix keeps the ring frozen in place, not advancing, while nobody's
+    /// listening) - this reads as the stream visibly "looping back" to
+    /// the pause point right as the real resumed content kicks in.
     async fn announce_idle(&self, title: &str) {
         let init_seq = self.state.read().await.init_seq;
         let placeholder = Arc::new(NowPlaying {
@@ -806,6 +922,8 @@ impl Broadcaster {
         {
             let mut s = self.state.write().await;
             s.now_playing = placeholder.clone();
+            s.current_init = None;
+            s.ring.clear();
         }
         let _ = self.meta_tx.send(MetaUpdate::Meta {
             now_playing: placeholder,
@@ -993,7 +1111,11 @@ impl Broadcaster {
             let effective_args = synthesized_args
                 .as_deref()
                 .or(station_encode_args.as_deref());
-            BufferedEncoder::start(&track.local_path, effective_args)?
+            BufferedEncoder::start(
+                &track.local_path,
+                effective_args,
+                track.start_position_seconds,
+            )?
         };
         let skip_generation = self.skip_request_generation.load(Ordering::Relaxed);
 
@@ -1181,7 +1303,11 @@ impl Broadcaster {
         // (see its own doc comment) so the schedule keeps a permanent
         // cushion ahead of strict real time, not just this one-time
         // burst.
-        let pace_origin = started
+        // mutable: shifted forward by however long the track spends
+        // frozen (zero listeners - see the freeze/resume handling in the
+        // chunk loop below) so pacing resumes exactly where it was left
+        // off, not wherever real wall-clock time has since moved on to.
+        let mut pace_origin = started
             .checked_sub(Duration::from_millis(
                 warmup_chunks_ready * frag_ms + STEADY_STATE_LEAD_MS,
             ))
@@ -1223,25 +1349,74 @@ impl Broadcaster {
         let mut skipped_by_admin = false;
         let mid_song_err = loop {
             if self.listener_count() == 0 {
-                if let Some(since) = silence_since {
-                    if since.elapsed() >= NO_LISTENER_GRACE {
+                // freeze rather than keep pacing in real time: a solo
+                // listener pausing (the only way listener_count hits 0
+                // mid-track - a station with anyone else still listening
+                // never gets here) should come back to EXACTLY where
+                // they left off, not wherever the track would have
+                // gotten to had it kept playing unheard. previously this
+                // branch still called `encoder.next_chunk()` and paced
+                // chunks in real time for the whole grace window, so a
+                // reconnect within it landed on the live edge anyway -
+                // the grace bought nothing but a slightly later give-up.
+                // now: don't pull/pace a single further chunk while no
+                // one's listening - ffmpeg just backpressures harmlessly
+                // on its own output pipe (see `BufferedEncoder`'s bounded
+                // channel) - and shift the pacer's clock forward by
+                // however long the freeze lasted the moment a listener
+                // reconnects, so the very next chunk's pacing target is
+                // already due and playback picks up seamlessly.
+                let since = *silence_since.get_or_insert_with(|| {
+                    info!(
+                        "[radio-broadcaster] station {} lost all listeners; freezing '{}' in place (not advancing) for up to {:?}",
+                        self.station_id, track.title, NO_LISTENER_GRACE
+                    );
+                    Instant::now()
+                });
+                let remaining = NO_LISTENER_GRACE.saturating_sub(since.elapsed());
+                if remaining.is_zero() {
+                    info!(
+                        "[radio-broadcaster] station {} giving up after {:?} frozen without listeners",
+                        self.station_id, NO_LISTENER_GRACE
+                    );
+                    break None;
+                }
+                tokio::select! {
+                    _ = self.listener_notify.notified() => {}
+                    _ = tokio::time::sleep(remaining) => {
                         info!(
-                            "[radio-broadcaster] station {} stopping encoder after {:?} without listeners",
-                            self.station_id,
-                            NO_LISTENER_GRACE
+                            "[radio-broadcaster] station {} giving up after {:?} frozen without listeners",
+                            self.station_id, NO_LISTENER_GRACE
                         );
                         break None;
                     }
-                } else {
-                    silence_since = Some(Instant::now());
-                    info!(
-                        "[radio-broadcaster] station {} lost all listeners; keeping encoder alive for {:?}",
-                        self.station_id,
-                        NO_LISTENER_GRACE
-                    );
+                    _ = self.skip_notify.notified() => {
+                        if self.skip_request_generation.load(Ordering::Relaxed) != skip_generation {
+                            skipped_by_admin = true;
+                            encoder.interrupt();
+                            let _ = self.meta_tx.send(MetaUpdate::SkipFlush);
+                            break None;
+                        }
+                        // stale/spurious skip notification - keep waiting
+                        // out the remaining freeze window.
+                        continue;
+                    }
                 }
-            } else {
+                if self.listener_count() == 0 {
+                    // spurious listener_notify wake (a join/leave race) -
+                    // `since` is untouched so the remaining grace carries
+                    // over correctly on the next pass.
+                    continue;
+                }
+                let freeze_elapsed = since.elapsed();
+                pace_origin += freeze_elapsed;
+                self.track_started_at_ms
+                    .fetch_add(freeze_elapsed.as_millis() as i64, Ordering::Relaxed);
                 silence_since = None;
+                info!(
+                    "[radio-broadcaster] station {} listener reconnected after {:?} frozen; resuming '{}' at the exact frozen position",
+                    self.station_id, freeze_elapsed, track.title
+                );
             }
 
             let next = tokio::select! {
@@ -1869,4 +2044,213 @@ pub async fn stop_all() -> GrimoireResult<()> {
         stop_station(&id).await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::radio::playlist::RadioItemKind;
+    use bytes::Bytes;
+
+    fn test_broadcaster() -> Broadcaster {
+        // `Broadcaster::new` reads `radio.ring_capacity` via the global
+        // config singleton (`crate::radio::config::effective()`) - this
+        // doesn't touch any DB pool singleton (unlike the `#[ignore]`d
+        // config tests elsewhere in this crate), just overwrites the
+        // config RwLock with the same fixed test defaults every time, so
+        // it's safe to call unconditionally here regardless of test
+        // run order/parallelism.
+        crate::config::init_config_for_tests();
+        Broadcaster::new("test-station".to_string(), "audio_only".to_string())
+    }
+
+    fn dummy_init_chunk(seq: u32) -> Arc<Chunk> {
+        Arc::new(Chunk {
+            seq,
+            is_init: true,
+            bytes: Bytes::from_static(b"ftyp+moov"),
+            duration_ms: None,
+        })
+    }
+
+    fn dummy_media_chunk(seq: u32) -> Arc<Chunk> {
+        Arc::new(Chunk {
+            seq,
+            is_init: false,
+            bytes: Bytes::from_static(b"moof+mdat"),
+            duration_ms: Some(1000),
+        })
+    }
+
+    // reproduces the exact bug behind "resume plays forward for a while,
+    // then loops back to the pause point": a listener who tunes into an
+    // idle station gets `subscribe()`'s `current_init`/catchup `ring`
+    // written to their audio stream immediately (see `handler.rs`'s
+    // "write current init + catchup chunks" step), before any live chunk
+    // from a brand new `play_track` call ever arrives. if those were left
+    // over from whatever track the station abandoned before going idle,
+    // the listener hears/sees that stale tail FIRST, then gets yanked to
+    // wherever the real new track actually starts - which, for a
+    // cold-started resume specifically, is deliberately the exact
+    // position the (now provably stale) ring already ends at, reading as
+    // a visible "loop back" the instant the real stream takes over.
+    #[tokio::test]
+    async fn announce_idle_clears_stale_catchup_ring_and_init() {
+        let bc = test_broadcaster();
+
+        // simulate the station having just abandoned a track mid-stream
+        // (e.g. this session's freeze-then-give-up path) with real
+        // init/catchup content still sitting in `state`.
+        {
+            let mut s = bc.state.write().await;
+            s.current_init = Some(dummy_init_chunk(10));
+            s.ring.push_back(dummy_media_chunk(11));
+            s.ring.push_back(dummy_media_chunk(12));
+            s.init_seq = 10;
+        }
+
+        bc.announce_idle("waiting for listeners…").await;
+
+        let s = bc.state.read().await;
+        assert!(
+            s.current_init.is_none(),
+            "a freshly-idle station must not hand a new subscriber a stale init chunk \
+             from the track it already abandoned"
+        );
+        assert!(
+            s.ring.is_empty(),
+            "a freshly-idle station must not hand a new subscriber stale catchup chunks \
+             from the track it already abandoned"
+        );
+    }
+
+    // same bug, proven from the actual public surface a new listener's
+    // connection handler calls: `subscribe()` must come back empty for a
+    // genuinely idle station, not whatever the abandoned track left
+    // behind.
+    #[tokio::test]
+    async fn subscribe_after_going_idle_has_no_stale_init_or_catchup() {
+        let bc = Arc::new(test_broadcaster());
+        {
+            let mut s = bc.state.write().await;
+            s.current_init = Some(dummy_init_chunk(5));
+            s.ring.push_back(dummy_media_chunk(6));
+        }
+
+        bc.announce_idle("waiting for listeners…").await;
+
+        let sub = bc.subscribe().await;
+        assert!(sub.init.is_none());
+        assert!(sub.catchup.is_empty());
+    }
+
+    // `IdleGuard` must reset the flag on every exit path, not just a
+    // clean fall-through - `wait_for_listener`/`wait_for_request` both
+    // have several early `return`s between where the guard is created
+    // and the function actually ending.
+    #[test]
+    fn idle_guard_resets_flag_on_drop_even_via_early_return() {
+        let flag = AtomicBool::new(false);
+        // the `return` here is deliberate - it's the whole point of the
+        // test (an early-exit path the guard must still unwind through),
+        // not an accidental leftover clippy should simplify away.
+        #[allow(clippy::needless_return)]
+        fn helper(flag: &AtomicBool, bail_early: bool) {
+            let _guard = IdleGuard::new(flag);
+            assert!(flag.load(Ordering::Relaxed));
+            if bail_early {
+                return;
+            }
+        }
+        helper(&flag, true);
+        assert!(!flag.load(Ordering::Relaxed));
+    }
+
+    // the actual integration point the resume-hint fix depends on:
+    // `awaiting_listener` must be true for exactly the window
+    // `wait_for_listener()` is genuinely blocked, and flip back off the
+    // instant a listener arrives - proving this is a real, narrow window
+    // distinct from "any moment `now_playing.song_id` happens to be
+    // empty" (which also covers the brief inter-track interstitial).
+    #[tokio::test]
+    async fn awaiting_listener_is_true_only_while_genuinely_waiting() {
+        let bc = Arc::new(test_broadcaster());
+        assert!(!bc.awaiting_listener.load(Ordering::Relaxed));
+
+        let bc2 = bc.clone();
+        let wait_task = tokio::spawn(async move { bc2.wait_for_listener().await });
+
+        // give the spawned task a moment to actually start blocking on
+        // `listener_notify` before asserting against it.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(
+            bc.awaiting_listener.load(Ordering::Relaxed),
+            "should read as genuinely idle while nobody's listening"
+        );
+
+        bc.join(); // first listener arrives
+        wait_task.await.unwrap();
+
+        assert!(
+            !bc.awaiting_listener.load(Ordering::Relaxed),
+            "must flip back off the instant a listener arrives - this is the exact \
+             window set_pending_resume_if_idle is allowed to act in"
+        );
+    }
+
+    // the core fix for the "resume at the wrong time" class of bug: a
+    // resume hint arriving while NOT genuinely idle (e.g. during the
+    // brief "switching tracks…" gap between two real, actively-listened-
+    // to tracks - which also reports an empty `now_playing.song_id`,
+    // but is not an idle period at all) must be dropped, not stored for
+    // some later, unrelated idle period to wrongly replay.
+    #[test]
+    fn resume_hint_is_dropped_when_not_genuinely_idle() {
+        let bc = test_broadcaster();
+        assert!(!bc.awaiting_listener.load(Ordering::Relaxed));
+
+        bc.set_pending_resume_if_idle(ResumeHint {
+            kind: RadioItemKind::Song,
+            item_id: "song-1".to_string(),
+            position_seconds: 42.0,
+        });
+
+        assert!(
+            bc.pending_resume.lock().unwrap().is_none(),
+            "a hint arriving while a real track is just transitioning (not idle) must \
+             be dropped, not stored"
+        );
+    }
+
+    #[test]
+    fn resume_hint_is_accepted_when_genuinely_idle() {
+        let bc = test_broadcaster();
+        bc.awaiting_listener.store(true, Ordering::Relaxed);
+
+        bc.set_pending_resume_if_idle(ResumeHint {
+            kind: RadioItemKind::Video,
+            item_id: "video-1".to_string(),
+            position_seconds: 68.3,
+        });
+
+        let stored = bc.pending_resume.lock().unwrap().take();
+        assert_eq!(stored.map(|h| h.item_id), Some("video-1".to_string()));
+    }
+
+    // `take_pending_resume` must consume it exactly once - a second
+    // consumer (e.g. a later, unrelated idle period) must never see it
+    // again.
+    #[test]
+    fn take_pending_resume_consumes_exactly_once() {
+        let bc = test_broadcaster();
+        bc.awaiting_listener.store(true, Ordering::Relaxed);
+        bc.set_pending_resume_if_idle(ResumeHint {
+            kind: RadioItemKind::Song,
+            item_id: "song-2".to_string(),
+            position_seconds: 10.0,
+        });
+
+        assert!(bc.take_pending_resume().is_some());
+        assert!(bc.take_pending_resume().is_none());
+    }
 }

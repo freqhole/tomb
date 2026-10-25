@@ -28,6 +28,11 @@ import { useSetRatingMutation } from "../../music/queries/ratings";
 import { useVideoFavoriteStatuses } from "../hooks/useVideoFavoriteStatuses";
 import { useVideoRatingStatuses } from "../hooks/useVideoRatingStatuses";
 import { useVideoContextMenu } from "../hooks/contextMenu";
+import {
+  useVideoStreamContextMenuActions,
+  withStreamMenuActions,
+} from "../hooks/useVideoStreamContextMenuActions";
+import { createShareSourceRemote } from "../../app/services/remotes/shareSource";
 import { useQueryClient } from "@tanstack/solid-query";
 import { videoQueryKeys } from "../queries/queryKeys";
 import type { VideoQueryParams, VideoSummary } from "../data/types";
@@ -227,12 +232,16 @@ export function VideosView(props: VideosViewProps) {
   };
 
   const queryClient = useQueryClient();
+  const streamRemote = createShareSourceRemote();
 
   // context menu actions for a video — mirrors AlbumsView's
   // getContextMenuActions, passed down to the grid/table which render
-  // the actual menu via the shared ContextMenu component.
+  // the actual menu via the shared ContextMenu component. returns an
+  // Accessor so the "stream on X" entry (spliced in reactively, since
+  // its station lookup resolves async) propagates once it's ready - see
+  // useVideoStreamContextMenuActions.ts.
   const getContextMenuActions = (video: VideoSummary) => {
-    return useVideoContextMenu(video, {
+    const base = useVideoContextMenu(video, {
       showPlayActions: true,
       isFavorite: favoriteVideoIds().has(video.id),
       onSave: () => {
@@ -243,6 +252,8 @@ export function VideosView(props: VideosViewProps) {
         void queryClient.invalidateQueries({ queryKey: videoQueryKeys.tags.all() });
       },
     });
+    const { menuActions } = useVideoStreamContextMenuActions(video, streamRemote);
+    return withStreamMenuActions(base, menuActions);
   };
 
   // update page info for TopNav

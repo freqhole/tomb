@@ -73,8 +73,11 @@ pub struct RadioTrack {
     pub local_path: String,
     /// blob_id of the song's primary audio blob.
     pub audio_blob_id: Option<String>,
-    /// `None` for a video - videos have no "performing artist" concept
-    /// modeled here yet (series/season could be a future equivalent).
+    /// a song's real performing artist name, OR (repurposed for video -
+    /// see `fetch_video_track`'s doc comment) whichever of a video's own
+    /// two groupings applies: a series-attached episode's series title,
+    /// or a karaoke/music_video's real artist name. `None` for a
+    /// standalone movie/clip (no grouping concept of its own).
     pub artist: Option<String>,
     pub album: Option<String>,
     /// total track length in milliseconds (sourced from `songz.duration`).
@@ -86,6 +89,15 @@ pub struct RadioTrack {
     /// fallback chain: song_imagez → album_imagez → artist_imagez.
     /// used by public timeline manifests to populate art URLs.
     pub art_blob_id: Option<String>,
+    /// "resume where a previous listener left off" - when set, the
+    /// broadcaster seeks the encoder's input this far into the file
+    /// before streaming (see `encoder::Encoder::start`'s `-ss` handling).
+    /// only ever populated by the member-request branch of
+    /// `pick_for_station_after_with_options` (from
+    /// `requests::QueuedRequest::start_position_seconds`) - `None` for
+    /// every other picker path (random/shuffle/album modes have no
+    /// per-listener position to resume).
+    pub start_position_seconds: Option<f64>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -169,6 +181,7 @@ pub(crate) async fn pick_random_song_with_pool(
         duration_ms: row.duration,
         waveform_blob_id: row.waveform_blob_id,
         art_blob_id: row.art_blob_id,
+        start_position_seconds: None,
     })
 }
 
@@ -281,6 +294,18 @@ async fn pick_for_station_after_with_options(
             let Some(req) = crate::radio::requests::pop_next(station_id).await else {
                 break;
             };
+            // popped means gone from the queue regardless of what happens
+            // next (compatible-and-played, dropped for incompatibility, or
+            // dropped because it's no longer fetchable) - other listeners
+            // watching this station's queue need to stop showing it the
+            // moment it leaves, not just when a client explicitly removes
+            // it via the offal route.
+            crate::radio::queue_events::emit(
+                crate::radio::queue_events::RadioQueueEvent::Removed {
+                    station_id: station_id.to_string(),
+                    request_id: req.id.clone(),
+                },
+            );
             let compatible = !matches!(
                 (req.kind, content_mode.as_str()),
                 (RadioItemKind::Song, "video_only") | (RadioItemKind::Video, "audio_only")
@@ -295,7 +320,10 @@ async fn pick_for_station_after_with_options(
                 continue;
             }
             match fetch_track(req.kind, &req.item_id).await {
-                Ok(track) => return Ok(track),
+                Ok(mut track) => {
+                    track.start_position_seconds = req.start_position_seconds;
+                    return Ok(track);
+                }
                 Err(e) => {
                     tracing::warn!(
                         "[radio-picker] station {station_id} dropped a queued request for {:?} \
@@ -1034,13 +1062,23 @@ async fn fetch_song_track(pool: &sqlx::SqlitePool, song_id: &str) -> GrimoireRes
         duration_ms: row.duration,
         waveform_blob_id: row.waveform_blob_id,
         art_blob_id: row.art_blob_id,
+        start_position_seconds: None,
     })
 }
 
 /// load the full RadioTrack row for a given video id. video counterpart
-/// of `fetch_song_track` - no artist/album/waveform concept, art comes
-/// from the video's own poster instead of the song_imagez/album_imagez/
+/// of `fetch_song_track` - no waveform concept, art comes from the
+/// video's own poster instead of the song_imagez/album_imagez/
 /// artist_imagez fallback chain.
+///
+/// `artist` is repurposed here to carry whichever of a video's two
+/// mutually-exclusive groupings applies (see `Video`'s own doc comment -
+/// `series_id`/`artist_id` never both set): a series-attached episode's
+/// series title, or a karaoke/music_video's real performing artist name.
+/// a standalone movie/clip has neither, so `artist` stays `None` - the
+/// radio UI should show it blank, not a placeholder like "unknown
+/// artist"/"video" (see docs/backlog-video.md's bugfix writeup for the
+/// client-side half of this fix).
 async fn fetch_video_track(pool: &sqlx::SqlitePool, video_id: &str) -> GrimoireResult<RadioTrack> {
     let row = sqlx::query!(
         r#"SELECT v.id             as "video_id!",
@@ -1048,9 +1086,12 @@ async fn fetch_video_track(pool: &sqlx::SqlitePool, video_id: &str) -> GrimoireR
                   v.duration_seconds,
                   b.id             as "media_blob_id?",
                   b.local_path,
-                  v.poster_blob_id as "art_blob_id?"
+                  v.poster_blob_id as "art_blob_id?",
+                  COALESCE(vs.title, ar.name) as "artist?: String"
              FROM videoz v
              JOIN media_blobz b ON b.id = v.media_blob_id
+             LEFT JOIN video_seriez vs ON vs.id = v.series_id AND vs.deleted_at IS NULL
+             LEFT JOIN artistz ar ON ar.id = v.artist_id AND ar.deleted_at IS NULL
             WHERE v.id = ?
               AND b.local_path IS NOT NULL
               AND v.deleted_at IS NULL
@@ -1084,11 +1125,12 @@ async fn fetch_video_track(pool: &sqlx::SqlitePool, video_id: &str) -> GrimoireR
         title: row.title,
         local_path,
         audio_blob_id: row.media_blob_id,
-        artist: None,
+        artist: row.artist,
         album: None,
         duration_ms,
         waveform_blob_id: None,
         art_blob_id: row.art_blob_id,
+        start_position_seconds: None,
     })
 }
 

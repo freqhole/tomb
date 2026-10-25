@@ -1850,7 +1850,14 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         | AppAction::PairingStopRadio
         | AppAction::RadioStatusUpdate { .. }
         | AppAction::RadioConnectPhase(..)
-        | AppAction::RadioEnded { .. } => {}
+        | AppAction::RadioEnded { .. }
+        // unresolved/resolved item tracking for `--player`'s pairing
+        // view: tty-only (`player_pairing.unresolved_items` is never
+        // read outside tty - see `tty::run.rs`'s handler), same
+        // "exists solely for exhaustiveness" reasoning as the queue
+        // arms above.
+        | AppAction::PairingItemUnresolved { .. }
+        | AppAction::PairingItemResolved { .. } => {}
     }
 }
 

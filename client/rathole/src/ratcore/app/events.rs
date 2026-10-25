@@ -28,6 +28,31 @@ pub struct DispatchResponse {
     pub data: Option<JsonValue>,
 }
 
+/// combines a short, often-generic top-level message (e.g. "Failed to
+/// upsert peer node") with one or more structured error details (e.g.
+/// "Database error: UNIQUE constraint failed: ...") into one string
+/// worth actually showing the user.
+///
+/// every boundary that flattens a real, structured error-bearing
+/// response (`grimoire::response::GrimoireResponse`'s `errors: Vec<
+/// ErrorDetail>`, or the equivalent `"errors"` json array on the
+/// `freqhole-admin/1` wire) down into this crate's portable
+/// `DispatchResponse.message: String` should call this instead of
+/// handing over the bare top-level message alone - the top-level
+/// message on its own is frequently too generic to tell the user
+/// (or us, reading a bug report) what actually went wrong.
+pub fn combine_message_with_details(
+    message: &str,
+    details: impl IntoIterator<Item = String>,
+) -> String {
+    let details: Vec<String> = details.into_iter().filter(|d| !d.is_empty()).collect();
+    if details.is_empty() {
+        message.to_string()
+    } else {
+        format!("{message}: {}", details.join("; "))
+    }
+}
+
 /// admin command metadata, transport-agnostic. mirrors
 /// `grimoire::admin_dispatch::registry::AdminCommandInfo` but owned
 /// strings so the web shell can build them at runtime.

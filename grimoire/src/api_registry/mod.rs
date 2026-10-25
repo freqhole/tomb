@@ -343,7 +343,7 @@ pub mod type_registry {
     // radio member-request type (authenticated, non-admin)
     use crate::offal::music::radio::{
         RadioQueuedRequestInfo, RadioRequestsListResponse, RadioStationRequestsRequest,
-        RemoveRadioRequestRequest, SubmitRadioRequestRequest,
+        RemoveRadioRequestRequest, ReorderRadioRequestRequest, SubmitRadioRequestRequest,
     };
 
     // radio admin types
@@ -353,13 +353,14 @@ pub mod type_registry {
 
     // video domain types (phase 1)
     use crate::music::crud::{EntityUrl, ImageMetadata};
+    use crate::playback_progress::PlaybackProgress;
     use crate::playlists::PlaylistItem;
     use crate::video::{
         BulkDeleteVideosResponse, CreateVideoRequest, CreateVideoSeasonRequest,
         CreateVideoSeriesRequest, EntityTagCount, EntityTaxonLink, ListPendingVideoReviewRequest,
         MarkVideoGroupReviewedRequest, MoveVideoReviewRequest, PatchVideoGroupReviewRequest,
         PendingReviewVideoSummary, PendingVideoReviewGroup, PendingVideoReviewSession,
-        PlaybackProgress, ReprocessVideoResult, SeasonWithVideos, SeriesDetail, SeriesQueryResult,
+        ReprocessVideoResult, SeasonWithVideos, SeriesDetail, SeriesQueryResult,
         UpdateVideoRequest, UpdateVideoSeasonRequest, UpdateVideoSeriesRequest,
         UpdateVideosRequest, UpdateVideosResult, Video, VideoImportReviewOk, VideoPendingRequest,
         VideoPendingResponse, VideoRendition, VideoReviewPatch, VideoSearchResult, VideoSeason,
@@ -370,6 +371,9 @@ pub mod type_registry {
     // video domain offal request/response types (phase 2-3)
     use crate::offal::entities::favorites::{FavoriteStatusItem, GetFavoriteStatusBulkRequest};
     use crate::offal::entities::image_links::GetEntityImagesRequest;
+    use crate::offal::entities::playback_progress::{
+        GetPlaybackProgressRequest, ListPlaybackProgressRequest, UpsertPlaybackProgressRequest,
+    };
     use crate::offal::entities::playlist_items::{
         AddPlaylistItemRequest, AddPlaylistItemsRequest, ListPlaylistItemsRequest, PlaylistItemRef,
         RemovePlaylistItemRequest, RemovePlaylistItemsRequest, ReorderPlaylistItemsRequest,
@@ -385,15 +389,13 @@ pub mod type_registry {
     use crate::offal::entities::url_links::{
         AddEntityUrlRequest, GetEntityUrlsRequest, RemoveEntityUrlRequest,
     };
-    use crate::offal::video::progress::{
-        GetPlaybackProgressRequest, ListPlaybackProgressRequest, UpsertPlaybackProgressRequest,
-    };
     use crate::offal::video::relations::{
         RecentlyAddedVideosRequest, RecentlyAddedVideosResponse, UnassignedVideosRequest,
         UnassignedVideosResponse, VideosByValueRequest, VideosByValueResponse,
     };
     use crate::offal::video::seasons::{
         DeleteVideoSeasonRequest, GetVideoSeasonRequest, ListVideoSeasonsRequest,
+        MergeVideoSeasonRequest,
     };
     use crate::offal::video::series::{
         DeleteVideoSeriesRequest, GetVideoSeriesRequest, ListVideoSeriesRequest,
@@ -521,10 +523,23 @@ pub mod type_registry {
         registered.insert("RadioStationRequestsRequest".to_string());
         gen.add_schema::<RemoveRadioRequestRequest>("RemoveRadioRequestRequest");
         registered.insert("RemoveRadioRequestRequest".to_string());
+        gen.add_schema::<ReorderRadioRequestRequest>("ReorderRadioRequestRequest");
+        registered.insert("ReorderRadioRequestRequest".to_string());
         gen.add_schema::<RadioQueuedRequestInfo>("RadioQueuedRequestInfo");
         registered.insert("RadioQueuedRequestInfo".to_string());
         gen.add_schema::<RadioRequestsListResponse>("RadioRequestsListResponse");
         registered.insert("RadioRequestsListResponse".to_string());
+        // radio-queue live-push payloads (freqhole-events/1 ALPN /
+        // tauri bridge / http polling-diff fallback) - not tied to any
+        // single route, so there's no sibling `RouteInfo` entry; codegen
+        // still needs these registered so the TS client can type the
+        // event stream (see client-codegen's `domains/radioQueue.ts`).
+        gen.add_schema::<crate::radio::queue_events::RadioQueueEvent>("RadioQueueEvent");
+        registered.insert("RadioQueueEvent".to_string());
+        gen.add_schema::<crate::radio::queue_events::RadioQueueEventFilter>(
+            "RadioQueueEventFilter",
+        );
+        registered.insert("RadioQueueEventFilter".to_string());
 
         gen.add_schema::<ApiKeyStatusResponse>("ApiKeyStatusResponse");
         registered.insert("ApiKeyStatusResponse".to_string());
@@ -971,6 +986,8 @@ pub mod type_registry {
         registered.insert("ListVideoSeasonsRequest".to_string());
         gen.add_schema::<DeleteVideoSeasonRequest>("DeleteVideoSeasonRequest");
         registered.insert("DeleteVideoSeasonRequest".to_string());
+        gen.add_schema::<MergeVideoSeasonRequest>("MergeVideoSeasonRequest");
+        registered.insert("MergeVideoSeasonRequest".to_string());
 
         gen.add_schema::<GetVideoRequest>("GetVideoRequest");
         registered.insert("GetVideoRequest".to_string());

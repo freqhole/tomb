@@ -18,6 +18,7 @@ import {
   getAllLocalVideoSeasons,
   getLocalVideoSeasons,
   getOrCreateLocalVideoSeason,
+  mergeLocalVideoSeason,
   updateLocalVideoSeason,
 } from "../../services/storage/db/seasons";
 import {
@@ -335,6 +336,13 @@ export class LocalVideoDataSource implements VideoDataSource {
   }): Promise<void> {
     const { season_id, ...updates } = params;
     await updateLocalVideoSeason(season_id, updates);
+  }
+
+  async mergeVideoSeason(params: {
+    source_season_id: string;
+    target_season_id: string;
+  }): Promise<void> {
+    await mergeLocalVideoSeason(params.source_season_id, params.target_season_id);
   }
 
   // image operations — local storage using OPFS, mirroring

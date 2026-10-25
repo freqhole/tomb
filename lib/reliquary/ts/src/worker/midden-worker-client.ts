@@ -434,6 +434,7 @@ export class WorkerMiddenNode {
   async tune_radio(
     peerAddr: string,
     stationId: string | undefined,
+    resumeHint: string | undefined,
     onHello: (json: string) => void,
     onMeta: (json: string) => void,
     onChunk: (seq: number, isInit: boolean, bytes: Uint8Array) => void,
@@ -441,6 +442,7 @@ export class WorkerMiddenNode {
     const handleId = await this.api.tuneRadio(
       peerAddr,
       stationId,
+      resumeHint,
       Comlink.proxy(onHello),
       Comlink.proxy(onMeta),
       Comlink.proxy(onChunk),

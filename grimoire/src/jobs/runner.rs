@@ -37,13 +37,26 @@ tokio::task_local! {
 }
 
 /// concurrency class for a job type.
-/// used to cap the number of concurrent enrichment workers per source
-/// so bulk enrichment queues don't starve filesystem jobs.
+/// used to cap the number of concurrent workers a class of jobs can
+/// occupy, in either direction: `EnrichmentMb`/`EnrichmentLastFm`/
+/// `EnrichmentAudiodb` cap bulk enrichment queues so they don't starve
+/// filesystem jobs; `Heavy` caps the genuinely long-running
+/// import/transcode pipeline so it can never fully saturate the pool
+/// either - reserving at least one slot for quick, uncapped `Other`
+/// jobs (e.g. `ConvertWebp`) that would otherwise queue behind however
+/// many multi-minute heavy jobs happen to already be running, with no
+/// way to preempt them once claimed (see `class_cap`'s own doc comment
+/// for the full reasoning).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum JobClass {
     EnrichmentMb,
     EnrichmentLastFm,
     EnrichmentAudiodb,
+    /// genuinely long-running local work (minutes, not seconds) - the
+    /// media-add pipeline and video transcoding. capped below
+    /// `pool_size` (see `class_cap`) so at least one worker slot always
+    /// stays reachable for quick `Other` jobs even under heavy load.
+    Heavy,
     Other,
 }
 
@@ -52,17 +65,41 @@ fn job_class(job_type: &JobType) -> JobClass {
         JobType::MbAlbumSearch | JobType::MbAlbumDetail => JobClass::EnrichmentMb,
         JobType::LastFmAlbumDetail | JobType::LastFmArtistDetail => JobClass::EnrichmentLastFm,
         JobType::AudioDbAlbumDetail | JobType::AudioDbArtistDetail => JobClass::EnrichmentAudiodb,
+        JobType::ImportMusic
+        | JobType::ImportVideo
+        | JobType::TranscodeVideo
+        | JobType::ProcessFile
+        | JobType::ProcessDirectory
+        | JobType::FetchMedia
+        | JobType::PreCheckFetch => JobClass::Heavy,
         _ => JobClass::Other,
     }
 }
 
-/// max concurrent in-flight jobs for each capped class.
-/// returns `None` for `Other` (no cap).
-fn class_cap(class: JobClass) -> Option<usize> {
+/// number of worker slots `Heavy` jobs can never claim, reserved for
+/// quick `Other` jobs (see `JobClass::Heavy`'s doc comment) - the
+/// pool-saturation half of the webp-conversion starvation bug: the
+/// semaphore in `run_job_processor_loop` only hands out a NEW slot once
+/// an existing one finishes, so once every worker is legitimately busy
+/// on a multi-minute import/transcode, a newly-submitted `ConvertWebp`
+/// job has nowhere to run regardless of its priority - priority
+/// ordering (see the `ConvertWebp` submission site's own doc comment on
+/// its `priority: Some(10)`) only ever helps pick AMONG pending jobs
+/// once a slot is actually free, it can't conjure one into existence.
+const HEAVY_JOB_RESERVED_SLOTS: usize = 1;
+
+/// max concurrent in-flight jobs for each capped class, given the pool's
+/// total worker count. returns `None` for `Other` (no cap - benefits
+/// from every other class's cap leaving it room). `Heavy`'s cap is
+/// `pool_size - HEAVY_JOB_RESERVED_SLOTS`, floored at 1 so a
+/// single-worker pool (nothing to reserve from) doesn't starve heavy
+/// jobs entirely instead.
+fn class_cap(class: JobClass, pool_size: usize) -> Option<usize> {
     match class {
         JobClass::EnrichmentMb => Some(2),
         JobClass::EnrichmentLastFm => Some(3),
         JobClass::EnrichmentAudiodb => Some(2),
+        JobClass::Heavy => Some(pool_size.saturating_sub(HEAVY_JOB_RESERVED_SLOTS).max(1)),
         JobClass::Other => None,
     }
 }
@@ -980,7 +1017,7 @@ async fn claim_next_unblocked_job(
         // check per-class concurrency cap before reserving the key.
         // increment inside the lock to atomically reserve the slot.
         let class = job_class(&candidate_type);
-        let class_permit: Option<JobClassPermit> = if let Some(cap) = class_cap(class) {
+        let class_permit: Option<JobClassPermit> = if let Some(cap) = class_cap(class, pool_size) {
             match class_counts.lock() {
                 Ok(mut guard) => {
                     let current = guard.get(&class).copied().unwrap_or(0);
@@ -1104,4 +1141,80 @@ pub async fn run_job_processor_once(max_jobs: u32) -> GrimoireResponse<()> {
     }
 
     GrimoireResponse::success("job processor completed", ())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // the media-add pipeline + video transcoding - exactly what the
+    // webp-conversion starvation report named ("media add, transcode").
+    #[test]
+    fn job_class_classifies_the_heavy_pipeline_correctly() {
+        for jt in [
+            JobType::ImportMusic,
+            JobType::ImportVideo,
+            JobType::TranscodeVideo,
+            JobType::ProcessFile,
+            JobType::ProcessDirectory,
+            JobType::FetchMedia,
+            JobType::PreCheckFetch,
+        ] {
+            assert_eq!(job_class(&jt), JobClass::Heavy, "{jt:?} should be Heavy");
+        }
+    }
+
+    // ConvertWebp (the job actually being starved) and the cross-remote
+    // sync jobs (already have their own priority boost, need no class
+    // cap) must both land in the uncapped `Other` bucket, not `Heavy` -
+    // otherwise they'd be competing for the SAME reserved slot they're
+    // supposed to benefit from.
+    #[test]
+    fn job_class_does_not_misclassify_quick_or_already_prioritized_jobs_as_heavy() {
+        for jt in [
+            JobType::ConvertWebp,
+            JobType::SyncSongByBlake3,
+            JobType::SyncVideoByBlake3,
+            JobType::ScanDirectory,
+            JobType::RescanDirectories,
+            JobType::RepairLibraryImages,
+            JobType::ReorganizeLibraryFiles,
+        ] {
+            assert_eq!(job_class(&jt), JobClass::Other, "{jt:?} should be Other");
+        }
+    }
+
+    #[test]
+    fn heavy_class_cap_always_leaves_room_for_other_jobs() {
+        // typical pool sizes: cap is strictly less than pool_size, so at
+        // least one slot can never be claimed by a Heavy job.
+        assert_eq!(class_cap(JobClass::Heavy, 8), Some(7));
+        assert_eq!(class_cap(JobClass::Heavy, 4), Some(3));
+        assert_eq!(class_cap(JobClass::Heavy, 2), Some(1));
+    }
+
+    #[test]
+    fn heavy_class_cap_never_drops_to_zero_on_a_single_worker_pool() {
+        // nothing to reserve from on a 1-worker pool - Heavy still gets
+        // its one slot rather than being starved entirely (quick jobs
+        // just compete in the same FIFO at that point, same as today).
+        assert_eq!(class_cap(JobClass::Heavy, 1), Some(1));
+        assert_eq!(class_cap(JobClass::Heavy, 0), Some(1));
+    }
+
+    #[test]
+    fn other_class_is_never_capped_regardless_of_pool_size() {
+        assert_eq!(class_cap(JobClass::Other, 1), None);
+        assert_eq!(class_cap(JobClass::Other, 8), None);
+    }
+
+    #[test]
+    fn enrichment_class_caps_are_unaffected_by_pool_size() {
+        // pre-existing behavior (fixed caps, not pool-relative) must
+        // survive the signature change unchanged.
+        assert_eq!(class_cap(JobClass::EnrichmentMb, 1), Some(2));
+        assert_eq!(class_cap(JobClass::EnrichmentMb, 8), Some(2));
+        assert_eq!(class_cap(JobClass::EnrichmentLastFm, 8), Some(3));
+        assert_eq!(class_cap(JobClass::EnrichmentAudiodb, 8), Some(2));
+    }
 }

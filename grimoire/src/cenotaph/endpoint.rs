@@ -25,6 +25,7 @@ use super::wire::{
     PresenceState,
 };
 use crate::federation::transport::FederationEndpoint;
+use crate::radio::{RadioProtocol, RADIO_ALPN};
 
 /// ALPN identifier for the `freqhole-player/1` pairing/control protocol.
 pub const PLAYER_ALPN: &[u8] = b"freqhole-player/1";
@@ -129,7 +130,14 @@ impl PairingRuntime {
 
 /// build a native iroh endpoint (same construction grimoire's own p2p
 /// serving uses) and register the `freqhole-player/1` alpn handler on
-/// it. returns this device's node id (for the pairing qr) on success.
+/// it, alongside `freqhole-radio/1` - this is the one P2P endpoint a
+/// consumer like rathole has (see its own `run.rs` doc comment:
+/// `start_router_with` already covers freqhole/1 + admin + events +
+/// blobs, so this is the single place to also make such a consumer a
+/// genuine radio broadcast host, not just a radio listener/client - see
+/// docs/backlog-video.md's "rathole should be a radio host" bugfix for
+/// why this was missing). returns this device's node id (for the
+/// pairing qr) on success.
 async fn start_player_endpoint(
     state: SharedPairingState,
     dispatch_tx: PairingDispatchTx,
@@ -147,8 +155,19 @@ async fn start_player_endpoint(
     // initialized" (see `p2p_client.rs`'s own doc comment).
     crate::federation::p2p_client::set_federation_endpoint(endpoint.endpoint());
     let handler = PlayerProtocol::new(state, dispatch_tx, status_tx);
+    // if radio is already enabled in config, spin up the broadcaster
+    // registry now; RADIO_ALPN itself is always attached below
+    // regardless, so toggling radio on/off later never needs a router
+    // rebuild/process restart (iroh's Router has no runtime add/remove
+    // protocol API) - same precedent `start_federation_endpoint` and
+    // charnel's `init_p2p_client` already follow.
+    crate::radio::init_broadcaster_if_enabled().await;
     endpoint
-        .start_router_with(|builder| builder.accept(PLAYER_ALPN, handler))
+        .start_router_with(|builder| {
+            builder
+                .accept(PLAYER_ALPN, handler)
+                .accept(RADIO_ALPN, RadioProtocol::new())
+        })
         .await
         .map_err(|e| e.to_string())?;
     // leak the endpoint deliberately: it must outlive this task for the

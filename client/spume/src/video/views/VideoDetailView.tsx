@@ -8,12 +8,19 @@ import { DetailViewWrapper } from "../../components/layout/DetailViewWrapper";
 import { OfflineBadge } from "../../components/badges/OfflineBadge";
 import { MediaImage } from "../../components/media/MediaImage";
 import { Button } from "../../components/buttons/Button";
+import { PlayWithStreamButton } from "../../components/buttons/PlayWithStreamButton";
+import type { RequestQueueItem } from "../../components/radio/requestStation";
+import { isVideoAlreadyLocal } from "../services/syncState";
 import { LoadingState } from "../../components/feedback";
 import { ContextMenu } from "../../components/overlays/ContextMenu";
 import { Icon, IconNames } from "../../components/icons/registry";
 import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
 import { Rating } from "../../components/ratings/Rating";
 import { ShareButton } from "../../components/buttons/ShareButton";
+import {
+  ResponsiveActionBar,
+  type ActionBarItem,
+} from "../../components/overlays/ResponsiveActionBar";
 import type { SendVideoPayload } from "../services/send/sendVideoToRemote";
 import type { QueuedVideo } from "../../app/services/storage/mediaItem";
 import { createShareSourceRemote } from "../../app/services/remotes/shareSource";
@@ -22,6 +29,7 @@ import { buildRoute } from "../../music/utils/routing";
 import { TaxonChips } from "../../components/badges/TaxonChips";
 import { TagChips } from "../../components/badges/TagChips";
 import { useVideoQuery, useVideoExtrasQuery } from "../queries/videos";
+import { resumePositionFor, useVideoProgressQuery } from "../queries/progress";
 import { useVideoTaxonsQuery } from "../queries/taxons";
 import { useVideoEntityTagsQuery } from "../queries/tags";
 import { videoQueryKeys } from "../queries/queryKeys";
@@ -35,7 +43,10 @@ import { useSetRatingMutation } from "../../music/queries/ratings";
 import { useVideoFavoriteStatuses } from "../hooks/useVideoFavoriteStatuses";
 import { useVideoRatingStatuses } from "../hooks/useVideoRatingStatuses";
 import { useVideoContextMenu } from "../hooks/contextMenu";
+import { spliceStreamMenuActions } from "../hooks/useVideoStreamContextMenuActions";
+import { useStreamFlyoutActions } from "../../components/radio/useStreamFlyoutActions";
 import { showEditVideo } from "../hooks/modals";
+import { showShareModal } from "../../music/hooks/modals";
 import { showStationSelector } from "../../music/hooks/stationSelectorState";
 import { canUpdateVideo } from "../data/permissions";
 import { getVideoDataSource } from "../data";
@@ -241,6 +252,24 @@ export function VideoDetailView() {
     return Number.isNaN(year) ? null : year;
   };
 
+  // playback progress for this one video - drives the "resume" button
+  // label + seek-on-play below. `groupId` just scopes the query cache
+  // entry (see queries/progress.ts's doc comment) - a single movie has
+  // no series to group by, so its own id is as good a scope as any.
+  const progressVideos = createMemo(() => (videoQuery.data ? [videoQuery.data] : []));
+  const progressQuery = useVideoProgressQuery(() => videoQuery.data?.id, progressVideos);
+
+  // seconds to resume at, or `undefined` when there's nothing worth
+  // resuming (no progress yet, or already watched past
+  // COMPLETED_PROGRESS_THRESHOLD - a finished movie just plays from the
+  // start, same as before this existed, rather than seeking to near the
+  // end).
+  const resumePosition = createMemo((): number | undefined => {
+    const video = videoQuery.data;
+    if (!video) return undefined;
+    return resumePositionFor(video.id, progressQuery.data ?? new Map());
+  });
+
   const handlePlay = async () => {
     const video = videoQuery.data;
     if (!video || playPending()) return;
@@ -248,7 +277,12 @@ export function VideoDetailView() {
     try {
       // source is required so a history entry is created and watch-progress
       // tracking starts (without it, position never resumes on reload).
-      await playVideoQueue([video], 0, { type: "video", label: video.title, entity_id: video.id });
+      await playVideoQueue(
+        [video],
+        0,
+        { type: "video", label: video.title, entity_id: video.id },
+        resumePosition()
+      );
     } finally {
       setPlayPending(false);
     }
@@ -265,12 +299,224 @@ export function VideoDetailView() {
     }
   };
 
+  // item resolver for the play button's stream caret (see
+  // PlayWithStreamButton.tsx) - single video, resume-aware (same source
+  // handlePlay's own playVideoQueue call already uses).
+  const resolveStreamItems = async (): Promise<RequestQueueItem[] | null> => {
+    const video = videoQuery.data;
+    if (!video) return null;
+    return [{ kind: "video", itemId: video.id, startPositionSeconds: resumePosition() }];
+  };
+  // no file-access problem to solve once the video's already available
+  // locally (a genuine local import, or a remote video already synced
+  // down, or we're not even connected to a remote at all) - hides the
+  // whole caret (see isVideoAlreadyLocal's doc comment).
+  const isAlreadyLocal = () => {
+    const video = videoQuery.data;
+    return !!video && isVideoAlreadyLocal(video);
+  };
+
+  // secondary actions for the narrow/mobile layout's responsive action
+  // bar - ordered by priority (first collapses last, into the "..."
+  // overflow menu, as the container runs out of horizontal room). the
+  // primary play/resume button and favorite toggle stay pinned (never
+  // collapse) - see the narrow layout's own JSX below.
+  const narrowActionItems = createMemo((): ActionBarItem[] => {
+    const video = videoQuery.data;
+    if (!video) return [];
+    const items: ActionBarItem[] = [];
+
+    items.push({
+      key: "queue",
+      render: () => (
+        <Button
+          variant="ghost"
+          loading={queuePending()}
+          onClick={() => void handleAddToQueue()}
+          title="add video to queue"
+          aria-label="add video to queue"
+        >
+          <Icon name={IconNames.queue} />
+        </Button>
+      ),
+      action: {
+        label: "add to queue",
+        icon: "queue",
+        onClick: () => void handleAddToQueue(),
+      },
+    });
+
+    if (video.series_id) {
+      const seriesId = video.series_id;
+      items.push({
+        key: "view-series",
+        render: () => (
+          <Button
+            variant="ghost"
+            onClick={() => navigate(buildRoute(`/video/series/${seriesId}`))}
+            title="view series"
+            aria-label="view series"
+          >
+            <Icon name={IconNames.video} />
+          </Button>
+        ),
+        action: {
+          label: "view series",
+          icon: "video",
+          onClick: () => navigate(buildRoute(`/video/series/${seriesId}`)),
+        },
+      });
+    }
+
+    if (video.artist_id) {
+      const artistId = video.artist_id;
+      items.push({
+        key: "view-artist",
+        render: () => (
+          <Button
+            variant="ghost"
+            onClick={() => navigate(buildRoute(`/artists/${artistId}`))}
+            title="view artist"
+            aria-label="view artist"
+          >
+            <Icon name={IconNames.artist} />
+          </Button>
+        ),
+        action: {
+          label: "view artist",
+          icon: "artist",
+          onClick: () => navigate(buildRoute(`/artists/${artistId}`)),
+        },
+      });
+    }
+
+    if (video.album_id) {
+      const albumId = video.album_id;
+      items.push({
+        key: "view-album",
+        render: () => (
+          <Button
+            variant="ghost"
+            onClick={() => navigate(buildRoute(`/albums/${albumId}`))}
+            title="view album"
+            aria-label="view album"
+          >
+            <Icon name={IconNames.album} />
+          </Button>
+        ),
+        action: {
+          label: "view album",
+          icon: "album",
+          onClick: () => navigate(buildRoute(`/albums/${albumId}`)),
+        },
+      });
+    }
+
+    if (canUpdateVideo()) {
+      items.push({
+        key: "edit",
+        render: () => (
+          <button
+            onClick={() =>
+              showEditVideo({
+                videoId: video.id,
+                onDeleted: () => navigate(buildRoute("/video")),
+              })
+            }
+            class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+            title="edit video info"
+            aria-label="edit video info"
+          >
+            <Icon name={IconNames.edit} />
+          </button>
+        ),
+        action: {
+          label: "edit video info",
+          icon: "edit",
+          onClick: () =>
+            showEditVideo({
+              videoId: video.id,
+              onDeleted: () => navigate(buildRoute("/video")),
+            }),
+        },
+      });
+    }
+
+    const shareTarget = {
+      kind: "video" as const,
+      id: video.id,
+      displayTitle: video.title,
+      artistName: shareArtistQuery.data?.name || undefined,
+      albumName: shareAlbumQuery.data?.title || undefined,
+      seriesTitle: shareSeriesTitle() || undefined,
+      contentType: video.content_type || undefined,
+    };
+    items.push({
+      key: "share",
+      render: () => (
+        <ShareButton
+          target={shareTarget}
+          source={currentRemoteFull}
+          buildSendPayload={buildSendPayload}
+        />
+      ),
+      action: {
+        label: "share",
+        icon: "share",
+        onClick: () =>
+          showShareModal({
+            target: shareTarget,
+            source: currentRemoteFull,
+            buildSendPayload,
+          }),
+      },
+    });
+
+    items.push({
+      key: "station",
+      render: () => (
+        <button
+          onClick={() =>
+            void showStationSelector(
+              { kind: "video", videoId: video.id, videoTitle: video.title },
+              video.remote_server_id ?? undefined
+            )
+          }
+          class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
+          title="add to station..."
+          aria-label="add to station..."
+        >
+          <Icon name={IconNames.headphones} />
+        </button>
+      ),
+      action: {
+        label: "add to station...",
+        icon: "headphones",
+        onClick: () =>
+          void showStationSelector(
+            { kind: "video", videoId: video.id, videoTitle: video.title },
+            video.remote_server_id ?? undefined
+          ),
+      },
+    });
+
+    return items;
+  });
+
   // context menu for the poster (play/queue/favorite/edit/delete parity
-  // with the grid/table context menus elsewhere in the video domain)
+  // with the grid/table context menus elsewhere in the video domain) -
+  // shares the play button's own resolveStreamItems/isAlreadyLocal, so
+  // its "stream on X" entry always agrees with the play button's caret.
+  const posterStreamFlyout = useStreamFlyoutActions({
+    remote: currentRemoteFull,
+    resolveStreamItems,
+    streamLabel: () => `video "${videoQuery.data?.title ?? ""}"`,
+    alreadyLocal: isAlreadyLocal,
+  });
   const videoContextMenuActions = createMemo(() => {
     const video = videoQuery.data;
     if (!video) return [];
-    return useVideoContextMenu(video, {
+    const base = useVideoContextMenu(video, {
       isFavorite: isFavorite(),
       showPlayActions: true,
       onDeleted: () => navigate(buildRoute("/video")),
@@ -278,6 +524,7 @@ export function VideoDetailView() {
         void queryClient.invalidateQueries({ queryKey: videoQueryKeys.tags.all() });
       },
     });
+    return spliceStreamMenuActions(base, posterStreamFlyout.menuActions());
   });
 
   return (
@@ -366,101 +613,28 @@ export function VideoDetailView() {
                     </p>
                   </Show>
 
-                  <div class="mt-3 flex items-center justify-center flex-wrap gap-2">
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      loading={playPending()}
-                      onClick={() => void handlePlay()}
-                    >
-                      play
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      loading={queuePending()}
-                      onClick={() => void handleAddToQueue()}
-                      title="add video to queue"
-                      aria-label="add video to queue"
-                    >
-                      <Icon name={IconNames.queue} />
-                    </Button>
-                    <Show when={video().series_id}>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => navigate(buildRoute(`/video/series/${video().series_id}`))}
-                        title="view series"
-                        aria-label="view series"
-                      >
-                        <Icon name={IconNames.video} />
-                      </Button>
-                    </Show>
-                    <Show when={video().artist_id}>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => navigate(buildRoute(`/artists/${video().artist_id}`))}
-                        title="view artist"
-                        aria-label="view artist"
-                      >
-                        <Icon name={IconNames.artist} />
-                      </Button>
-                    </Show>
-                    <Show when={video().album_id}>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => navigate(buildRoute(`/albums/${video().album_id}`))}
-                        title="view album"
-                        aria-label="view album"
-                      >
-                        <Icon name={IconNames.album} />
-                      </Button>
-                    </Show>
-                    <Show when={canUpdateVideo()}>
-                      <button
-                        onClick={() =>
-                          showEditVideo({
-                            videoId: video().id,
-                            onDeleted: () => navigate(buildRoute("/video")),
-                          })
-                        }
-                        class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
-                        title="edit video info"
-                        aria-label="edit video info"
-                      >
-                        <Icon name={IconNames.edit} />
-                      </button>
-                    </Show>
-                    <FavoriteHeart isFavorite={isFavorite()} onToggle={handleFavoriteToggle} />
-                    <ShareButton
-                      target={{
-                        kind: "video",
-                        id: video().id,
-                        displayTitle: video().title,
-                        artistName: shareArtistQuery.data?.name || undefined,
-                        albumName: shareAlbumQuery.data?.title || undefined,
-                        seriesTitle: shareSeriesTitle() || undefined,
-                        contentType: video().content_type || undefined,
-                      }}
-                      source={currentRemoteFull}
-                      buildSendPayload={buildSendPayload}
+                  <div class="mt-3 flex items-center justify-center">
+                    <ResponsiveActionBar
+                      class="justify-center"
+                      items={narrowActionItems()}
+                      pinnedStart={() => (
+                        <>
+                          <PlayWithStreamButton
+                            label={resumePosition() != null ? "resume" : "play"}
+                            loading={playPending()}
+                            onClick={() => void handlePlay()}
+                            remote={currentRemoteFull}
+                            resolveStreamItems={resolveStreamItems}
+                            streamLabel={`video "${video().title}"`}
+                            alreadyLocal={isAlreadyLocal}
+                          />
+                          <FavoriteHeart isFavorite={isFavorite()} onToggle={handleFavoriteToggle} />
+                        </>
+                      )}
+                      pinnedEnd={() => (
+                        <Rating rating={userRating()} size="md" onRatingChange={handleRatingChange} />
+                      )}
                     />
-                    <button
-                      onClick={() =>
-                        void showStationSelector(
-                          { kind: "video", videoId: video().id, videoTitle: video().title },
-                          video().remote_server_id ?? undefined
-                        )
-                      }
-                      class="p-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors"
-                      title="add to station..."
-                      aria-label="add to station..."
-                    >
-                      <Icon name={IconNames.headphones} />
-                    </button>
-                    <Rating rating={userRating()} size="md" onRatingChange={handleRatingChange} />
                   </div>
                 </div>
               </div>
@@ -504,13 +678,15 @@ export function VideoDetailView() {
                   </Show>
 
                   <div class="mt-3 flex items-center gap-2">
-                    <Button
-                      variant="primary"
+                    <PlayWithStreamButton
+                      label={resumePosition() != null ? "resume video" : "play video"}
                       loading={playPending()}
                       onClick={() => void handlePlay()}
-                    >
-                      play video
-                    </Button>
+                      remote={currentRemoteFull}
+                      resolveStreamItems={resolveStreamItems}
+                      streamLabel={`video "${video().title}"`}
+                      alreadyLocal={isAlreadyLocal}
+                    />
                     <Button
                       variant="ghost"
                       loading={queuePending()}
@@ -672,12 +848,22 @@ function VideoExtrasSection(props: { movieId: string }) {
       remote_server_id: getCurrentRemote()?.remote_id,
       added_at: 0,
     }));
+  // own group id, distinct from the parent movie's own single-video
+  // progress query (`${props.movieId}` alone) - two observers sharing one
+  // query key but fetching different video sets would otherwise race and
+  // overwrite each other's cached data (see queryKeys.ts's autocomplete
+  // doc comment for the same failure mode elsewhere in this codebase).
+  const progressQuery = useVideoProgressQuery(
+    () => `${props.movieId}-extras`,
+    extrasAsSummaries
+  );
   const handlePlayExtra = async (extra: VideoSummary) => {
-    await playVideoQueue([extra], 0, {
-      type: "video",
-      label: extra.title,
-      entity_id: extra.id,
-    });
+    await playVideoQueue(
+      [extra],
+      0,
+      { type: "video", label: extra.title, entity_id: extra.id },
+      resumePositionFor(extra.id, progressQuery.data ?? new Map())
+    );
   };
   return (
     <Show when={extrasQuery.data && extrasQuery.data.length > 0}>
@@ -692,6 +878,7 @@ function VideoExtrasSection(props: { movieId: string }) {
                 onTagsSaved={() => {
                   void queryClient.invalidateQueries({ queryKey: videoQueryKeys.tags.all() });
                 }}
+                progress={progressQuery.data?.get(extra.id)?.position_fraction}
               />
             )}
           </For>

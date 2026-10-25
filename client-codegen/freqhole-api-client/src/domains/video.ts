@@ -227,43 +227,6 @@ export function createVideoMethods(call: CallFn) {
       );
     },
 
-    // playback progress
-    upsertPlaybackProgress: (params: s.UpsertPlaybackProgressRequest) => {
-      return call(
-        "video",
-        "upsert_playback_progress",
-        routes.video.upsert_playback_progress.resp,
-        routes.video.upsert_playback_progress.req,
-        routes.video.upsert_playback_progress.method,
-        routes.video.upsert_playback_progress.path,
-        params,
-      );
-    },
-
-    getPlaybackProgress: (params: s.GetPlaybackProgressRequest) => {
-      return call(
-        "video",
-        "get_playback_progress",
-        routes.video.get_playback_progress.resp,
-        routes.video.get_playback_progress.req,
-        routes.video.get_playback_progress.method,
-        routes.video.get_playback_progress.path,
-        params,
-      );
-    },
-
-    listPlaybackProgress: (params: s.ListPlaybackProgressRequest) => {
-      return call(
-        "video",
-        "list_playback_progress",
-        routes.video.list_playback_progress.resp,
-        routes.video.list_playback_progress.req,
-        routes.video.list_playback_progress.method,
-        routes.video.list_playback_progress.path,
-        params,
-      );
-    },
-
     // universal-domain relation hubs (era/recently_added/unassigned +
     // generic categorical hubs like genre/mood/style), mirrors music's
     // recentlyAddedAlbums/albumsByValue/unassignedAlbums.
@@ -453,6 +416,18 @@ export function createVideoMethods(call: CallFn) {
         routes.video.delete_video_season.req,
         routes.video.delete_video_season.method,
         routes.video.delete_video_season.path,
+        params,
+      );
+    },
+
+    mergeVideoSeason: (params: s.MergeVideoSeasonRequest) => {
+      return call(
+        "video",
+        "merge_video_season",
+        routes.video.merge_video_season.resp,
+        routes.video.merge_video_season.req,
+        routes.video.merge_video_season.method,
+        routes.video.merge_video_season.path,
         params,
       );
     },

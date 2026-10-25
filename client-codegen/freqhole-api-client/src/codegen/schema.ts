@@ -3913,7 +3913,8 @@ export const ListPendingVideoReviewRequestSchema = z.object({
 export type ListPendingVideoReviewRequest = z.infer<typeof ListPendingVideoReviewRequestSchema>;
 
 export const ListPlaybackProgressRequestSchema = z.object({
-  limit: z.number().nullish()
+  limit: z.number().nullish(),
+  blake3_in: z.array(z.string()).nullish()
 });
 export type ListPlaybackProgressRequest = z.infer<typeof ListPlaybackProgressRequestSchema>;
 
@@ -4472,6 +4473,12 @@ export const MergeAlbumsReviewRequestSchema = z.object({
 });
 export type MergeAlbumsReviewRequest = z.infer<typeof MergeAlbumsReviewRequestSchema>;
 
+export const MergeVideoSeasonRequestSchema = z.object({
+  source_season_id: z.string(),
+  target_season_id: z.string()
+});
+export type MergeVideoSeasonRequest = z.infer<typeof MergeVideoSeasonRequestSchema>;
+
 export const MergedKeyMatchSchema = z.object({
   merged_key: z.string(),
   albums: z.array(z.object({
@@ -4787,7 +4794,8 @@ export const PlaybackProgressSchema = z.object({
   duration_seconds: z.number().nullish(),
   position_locator: z.string().nullish(),
   completed_at: z.number().nullish(),
-  updated_at: z.number()
+  updated_at: z.number(),
+  blake3: z.string().nullish()
 });
 export type PlaybackProgress = z.infer<typeof PlaybackProgressSchema>;
 
@@ -5408,6 +5416,7 @@ export const PublicStationSchema = z.object({
   is_public: z.boolean(),
   is_running: z.boolean(),
   accepts_requests: z.boolean(),
+  content_mode: z.string(),
   now_playing: z.object({
   kind: z.string(),
   song_id: z.string(),
@@ -5658,6 +5667,7 @@ export const RadioInfoResponseSchema = z.object({
   is_public: z.boolean(),
   is_running: z.boolean(),
   accepts_requests: z.boolean(),
+  content_mode: z.string(),
   now_playing: z.object({
   kind: z.string(),
   song_id: z.string(),
@@ -5676,11 +5686,47 @@ export const RadioInfoResponseSchema = z.object({
 });
 export type RadioInfoResponse = z.infer<typeof RadioInfoResponseSchema>;
 
+export const RadioQueueEventSchema = z.union([z.object({
+  kind: z.literal('Submitted'),
+  station_id: z.string(),
+  request: z.object({
+  id: z.string(),
+  kind: z.string(),
+  item_id: z.string(),
+  requested_by: z.string(),
+  requested_by_username: z.string().nullish(),
+  title: z.string(),
+  artist: z.string().nullish(),
+  album: z.string().nullish(),
+  duration_ms: z.number().nullish(),
+  art_blob_id: z.string().nullish()
+})
+}), z.object({
+  kind: z.literal('Removed'),
+  station_id: z.string(),
+  request_id: z.string()
+}), z.object({
+  kind: z.literal('Reordered'),
+  station_id: z.string(),
+  request_id: z.string(),
+  new_index: z.number()
+}), z.object({
+  kind: z.literal('Cleared'),
+  station_id: z.string()
+})]);
+export type RadioQueueEvent = z.infer<typeof RadioQueueEventSchema>;
+
+export const RadioQueueEventFilterSchema = z.object({
+  station_id: z.string()
+});
+export type RadioQueueEventFilter = z.infer<typeof RadioQueueEventFilterSchema>;
+
 export const RadioQueuedRequestInfoSchema = z.object({
   id: z.string(),
   kind: z.string(),
   item_id: z.string(),
   requested_by: z.string(),
+  requested_by_username: z.string().nullish(),
   title: z.string(),
   artist: z.string().nullish(),
   album: z.string().nullish(),
@@ -5695,6 +5741,7 @@ export const RadioRequestsListResponseSchema = z.object({
   kind: z.string(),
   item_id: z.string(),
   requested_by: z.string(),
+  requested_by_username: z.string().nullish(),
   title: z.string(),
   artist: z.string().nullish(),
   album: z.string().nullish(),
@@ -5776,6 +5823,7 @@ export const RadioStationsResponseSchema = z.object({
   is_public: z.boolean(),
   is_running: z.boolean(),
   accepts_requests: z.boolean(),
+  content_mode: z.string(),
   now_playing: z.object({
   kind: z.string(),
   song_id: z.string(),
@@ -6220,6 +6268,13 @@ export const ReorderPlaylistSongsRequestSchema = z.object({
 });
 export type ReorderPlaylistSongsRequest = z.infer<typeof ReorderPlaylistSongsRequestSchema>;
 
+export const ReorderRadioRequestRequestSchema = z.object({
+  station_id: z.string(),
+  request_id: z.string(),
+  new_index: z.number()
+});
+export type ReorderRadioRequestRequest = z.infer<typeof ReorderRadioRequestRequestSchema>;
+
 export const RepairLibraryImagesJobResultSchema = z.object({
   totals: z.object({
   songs_waveforms_backfilled: z.number(),
@@ -6228,6 +6283,7 @@ export const RepairLibraryImagesJobResultSchema = z.object({
   albums_left_ambiguous: z.number(),
   videos_waveforms_backfilled: z.number(),
   videos_thumbnails_backfilled: z.number(),
+  videos_posters_regenerated: z.number(),
   errors: z.array(z.object({
   error_type: z.string(),
   title: z.string(),
@@ -6258,6 +6314,7 @@ export const RepairLibraryImagesResultSchema = z.object({
   albums_left_ambiguous: z.number(),
   videos_waveforms_backfilled: z.number(),
   videos_thumbnails_backfilled: z.number(),
+  videos_posters_regenerated: z.number(),
   errors: z.array(z.object({
   error_type: z.string(),
   title: z.string(),
@@ -7213,7 +7270,8 @@ export type StationFilter = z.infer<typeof StationFilterSchema>;
 export const SubmitRadioRequestRequestSchema = z.object({
   station_id: z.string(),
   kind: z.string(),
-  item_id: z.string()
+  item_id: z.string(),
+  start_position_seconds: z.number().nullish()
 });
 export type SubmitRadioRequestRequest = z.infer<typeof SubmitRadioRequestRequestSchema>;
 

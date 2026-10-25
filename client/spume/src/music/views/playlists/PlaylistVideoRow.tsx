@@ -9,6 +9,11 @@ import { DraggableRow, DraggableRowVideoContent } from "../../../components/list
 import { ContextMenu, ClickDropdownMenu } from "../../../components/overlays/ContextMenu";
 import { isCharnelMode } from "../../../app/services/charnel";
 import { useVideoContextMenu } from "../../../video/hooks/contextMenu";
+import {
+  useVideoStreamContextMenuActions,
+  withStreamMenuActions,
+} from "../../../video/hooks/useVideoStreamContextMenuActions";
+import { createShareSourceRemote } from "../../../app/services/remotes/shareSource";
 import { useVideoSeasonsQuery } from "../../../video/queries/series";
 import { formatSeasonLabel } from "../../../components/forms/VideoSeasonAutocomplete";
 import { useLocalVideoPosterUrl } from "../../../video/components/VideoCard";
@@ -51,12 +56,17 @@ export function PlaylistVideoRow(props: PlaylistVideoRowProps) {
     videoItem.video.source_type === "local" ? videoItem.video.poster_opfs_path : null
   );
 
-  const contextMenuActions = useVideoContextMenu(videoItem.video, {
+  const { menuActions: streamActions } = useVideoStreamContextMenuActions(
+    videoItem.video,
+    createShareSourceRemote()
+  );
+  const baseContextMenuActions = useVideoContextMenu(videoItem.video, {
     showPlayActions: !videoItem.video.is_offline,
     showRemoveFromPlaylist: true,
     playlistId: props.playlistId,
     isFavorite: isFavorite(),
   });
+  const contextMenuActions = withStreamMenuActions(baseContextMenuActions, streamActions);
 
   // content-type/series/season/episode subtitle line, e.g. "series ·
   // Voyager" or "season 2 · episode 5" - mirrors VideoCard.tsx's pattern.
@@ -130,7 +140,7 @@ export function PlaylistVideoRow(props: PlaylistVideoRowProps) {
         compact={props.isNarrow()}
         actions={
           <>
-            <Show when={props.isTouch && contextMenuActions.length > 0}>
+            <Show when={props.isTouch && contextMenuActions().length > 0}>
               <ClickDropdownMenu
                 trigger={
                   <IconButton
@@ -141,7 +151,7 @@ export function PlaylistVideoRow(props: PlaylistVideoRowProps) {
                     data-testid="btn-more-video"
                   />
                 }
-                actions={contextMenuActions}
+                actions={contextMenuActions()}
               />
             </Show>
             <Show when={!props.isNarrow()} fallback={null}>
@@ -162,5 +172,5 @@ export function PlaylistVideoRow(props: PlaylistVideoRowProps) {
     </DraggableRow>
   );
 
-  return props.isTouch ? row : <ContextMenu actions={contextMenuActions}>{row}</ContextMenu>;
+  return props.isTouch ? row : <ContextMenu actions={contextMenuActions()}>{row}</ContextMenu>;
 }
