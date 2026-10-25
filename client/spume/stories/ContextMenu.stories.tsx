@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
+import { expect, waitFor } from "storybook/test";
 import { IconButton } from "../src/components/buttons/IconButton";
 import { Icon } from "../src/components/icons/registry";
 import type { MenuAction } from "../src/components/overlays/ContextMenu";
@@ -17,6 +18,70 @@ const meta = {
 
 export default meta;
 type Story = StoryObj<typeof meta>;
+
+const viewportActions: MenuAction[] = Array.from({ length: 18 }, (_, index) => ({
+  label: `action ${index + 1}: stream on "a station with a very long name ${"unbroken".repeat(12)}"`,
+  icon: "play",
+  onClick: () => {},
+}));
+
+export const ViewportBounds: Story = {
+  render: () => (
+    <ContextMenu actions={viewportActions}>
+      <div data-testid="viewport-menu-trigger" style={{ height: "100vh" }}>
+        right-click anywhere to test viewport bounds
+      </div>
+    </ContextMenu>
+  ),
+  play: async ({ canvasElement }) => {
+    const trigger = canvasElement.querySelector('[data-testid="viewport-menu-trigger"]')!;
+    const viewport = window.visualViewport;
+    const left = viewport?.offsetLeft ?? 0;
+    const top = viewport?.offsetTop ?? 0;
+    const width = viewport?.width ?? window.innerWidth;
+    const height = viewport?.height ?? window.innerHeight;
+    for (const x of [left + 10, left + width / 2, left + width - 10]) {
+      for (const y of [top + 10, top + height / 2, top + height - 10]) {
+        trigger.dispatchEvent(
+          new MouseEvent("contextmenu", { bubbles: true, clientX: x, clientY: y, button: 2 })
+        );
+        await waitFor(() => {
+          const menu = document.querySelector<HTMLElement>('[role="menu"]');
+          expect(menu).not.toBeNull();
+          const bounds = menu!.getBoundingClientRect();
+          expect(bounds.width).toBeGreaterThan(0);
+          expect(bounds.height).toBeGreaterThan(0);
+          expect(bounds.left).toBeGreaterThanOrEqual(left + 7);
+          expect(bounds.top).toBeGreaterThanOrEqual(top + 7);
+          expect(bounds.right).toBeLessThanOrEqual(left + width - 7);
+          expect(bounds.bottom).toBeLessThanOrEqual(top + height - 7);
+        });
+        const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+        menu.scrollTop = menu.scrollHeight;
+        const lastItem = menu.querySelectorAll('[role="menuitem"]')[17];
+        expect(lastItem.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+          menu.getBoundingClientRect().bottom
+        );
+        menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        await waitFor(() => expect(document.querySelector('[role="menu"]')).toBeNull());
+      }
+    }
+  },
+};
+
+export const DropdownViewportBounds: Story = {
+  render: () => (
+    <DropdownMenu
+      actions={viewportActions}
+      trigger={
+        <div data-testid="viewport-menu-trigger" style={{ height: "100vh" }}>
+          right-click anywhere to test dropdown viewport bounds
+        </div>
+      }
+    />
+  ),
+  play: ViewportBounds.play,
+};
 
 // basic context menu on right-click
 export const RightClickMenu: Story = {

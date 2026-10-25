@@ -29,6 +29,13 @@ export type MenuAction =
       type?: never;
     };
 
+// fitViewport sizes the positioner, not its scrollable menu content.
+const viewportMenuStyle: JSX.CSSProperties = {
+  "min-width": "min(12rem, var(--kb-popper-content-available-width, calc(100vw - 16px)))",
+  "max-width": "var(--kb-popper-content-available-width, calc(100vw - 16px))",
+  "max-height": "var(--kb-popper-content-available-height, calc(100dvh - 16px))",
+};
+
 // type guard to check if action is not a separator
 function isActionItem(action: MenuAction): action is Exclude<MenuAction, { type: "separator" }> {
   return action.type !== "separator";
@@ -75,7 +82,13 @@ export function ContextMenu(props: ContextMenuProps) {
   };
 
   return (
-    <KobalteContextMenu onOpenChange={handleOpenChange} {...rest}>
+    <KobalteContextMenu
+      onOpenChange={handleOpenChange}
+      fitViewport
+      overlap
+      overflowPadding={8}
+      {...rest}
+    >
       <KobalteContextMenu.Trigger
         as={local.as as ValidComponent}
         class={`outline-none ${local.triggerClass ?? ""}`}
@@ -86,17 +99,16 @@ export function ContextMenu(props: ContextMenuProps) {
       <KobalteContextMenu.Portal>
         <KobalteContextMenu.Content
           class="
-            min-w-48
             bg-[var(--color-bg-elevated)]
             border border-[var(--color-border-default)]
             rounded-lg
             shadow-2xl
-            overflow-hidden
+            overflow-y-auto overflow-x-hidden
             animate-[fade-in_0.15s_ease-out]
             origin-top-left
             data-[expanded]:animate-[fade-in_0.15s_ease-out]
           "
-          style={{ "z-index": local.zIndex ?? 1200 }}
+          style={{ ...viewportMenuStyle, "z-index": local.zIndex ?? 1200 }}
         >
           <Show when={local.header}>
             <div class="p-2 border-b border-[var(--color-border-default)]">{local.header}</div>
@@ -131,7 +143,7 @@ export function ContextMenu(props: ContextMenuProps) {
                     <Show when={action.icon}>
                       <Icon name={action.icon!} size={16} color="currentColor" />
                     </Show>
-                    <span class="truncate">{action.label}</span>
+                    <span class="min-w-0 whitespace-normal break-words [overflow-wrap:anywhere]">{action.label}</span>
                     <Show when={action.badge}>
                       <span class="shrink-0 rounded-full bg-[var(--color-bg-hover)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
                         {action.badge}
@@ -174,23 +186,23 @@ export function DropdownMenu(props: DropdownMenuProps) {
   const [local, rest] = splitProps(props, ["trigger", "actions", "header", "onOpen"]);
 
   return (
-    <KobalteContextMenu {...rest}>
+    <KobalteContextMenu fitViewport overlap overflowPadding={8} {...rest}>
       <KobalteContextMenu.Trigger class="outline-none">{local.trigger}</KobalteContextMenu.Trigger>
 
       <KobalteContextMenu.Portal>
         <KobalteContextMenu.Content
           class="
-            min-w-48
             bg-[var(--color-bg-elevated)]
             border border-[var(--color-border-default)]
             rounded-lg
             shadow-2xl
-            overflow-hidden
+            overflow-y-auto overflow-x-hidden
             animate-[fade-in_0.15s_ease-out]
             z-[1200]
             origin-top-left
             data-[expanded]:animate-[fade-in_0.15s_ease-out]
           "
+          style={viewportMenuStyle}
         >
           <Show when={local.header}>
             <div class="p-2 border-b border-[var(--color-border-default)]">{local.header}</div>
@@ -225,7 +237,7 @@ export function DropdownMenu(props: DropdownMenuProps) {
                     <Show when={action.icon}>
                       <Icon name={action.icon!} size={16} color="currentColor" />
                     </Show>
-                    <span class="truncate">{action.label}</span>
+                    <span class="min-w-0 whitespace-normal break-words [overflow-wrap:anywhere]">{action.label}</span>
                     <Show when={action.badge}>
                       <span class="shrink-0 rounded-full bg-[var(--color-bg-hover)] px-2 py-0.5 text-xs text-[var(--color-text-secondary)]">
                         {action.badge}
