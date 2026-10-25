@@ -26,7 +26,7 @@ import {
   Show,
 } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
-import { getRemoteClient, getTaxonomyClient } from "../../music/data";
+import { getCurrentRemote, getRemoteClient, getTaxonomyClient } from "../../music/data";
 import { localTaxonomyClient } from "../../music/services/local-api/localTaxonomyClient";
 import { videoQueryKeys } from "../../video/queries/queryKeys";
 import {
@@ -34,7 +34,7 @@ import {
   type TaxonChipData,
   type TaxonKindOption,
 } from "../taxonomy/TaxonChipsGrid";
-import { Icon, IconNames } from "../icons/registry";
+import { NewTaxonKindForm, type NewTaxonKindFormHandle } from "../taxonomy/NewTaxonKindForm";
 import { toast } from "../feedback/Toast";
 import type { TaxonRef } from "../../music/data/types";
 
@@ -68,6 +68,14 @@ export interface VideoTaxonsEditorProps {
 export function VideoTaxonsEditor(props: VideoTaxonsEditorProps) {
   const queryClient = useQueryClient();
   const excludeKinds = createMemo(() => new Set(props.excludeKinds ?? []));
+  const [kindFormHandle, setKindFormHandle] = createSignal<NewTaxonKindFormHandle>();
+  // resolved client for NewTaxonKindForm - same source as the inline
+  // create-taxon/create-kind calls below, just memoized so the form
+  // doesn't need its own async lookup on every keystroke.
+  const [taxonomyClientResource] = createResource(
+    () => getCurrentRemote(),
+    () => getTaxonomyClient()
+  );
 
   // 1. taxon kinds — same source as the album editor (kind definitions
   //    aren't entity-scoped), works whether the active source is a
@@ -226,61 +234,6 @@ export function VideoTaxonsEditor(props: VideoTaxonsEditorProps) {
     }
   };
 
-  const [showNewKindForm, setShowNewKindForm] = createSignal(false);
-  const [newKindLabel, setNewKindLabel] = createSignal("");
-  const [newKindSlug, setNewKindSlug] = createSignal("");
-  const [newKindSlugDirty, setNewKindSlugDirty] = createSignal(false);
-  const [creatingKind, setCreatingKind] = createSignal(false);
-
-  const slugify = (s: string) =>
-    s
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "")
-      .slice(0, 40);
-
-  const resetNewKindForm = () => {
-    setShowNewKindForm(false);
-    setNewKindLabel("");
-    setNewKindSlug("");
-    setNewKindSlugDirty(false);
-  };
-
-  const handleCreateKind = async () => {
-    const label = newKindLabel().trim();
-    const slug = (newKindSlugDirty() ? newKindSlug() : slugify(label)).trim();
-    if (!label || !slug) {
-      toast.error("label and slug are required");
-      return;
-    }
-    const client = await getTaxonomyClient();
-    setCreatingKind(true);
-    try {
-      const resp = await client.music.createTaxonKind({
-        slug,
-        label,
-        description: null,
-        color: null,
-        value_type: null,
-        unit: null,
-        display_order: null,
-        domain: "video",
-      });
-      if (!resp.success) {
-        toast.error(`failed to create kind "${slug}"`);
-        return;
-      }
-      resetNewKindForm();
-      setKindsVersion((v) => v + 1);
-    } catch (err) {
-      console.error("failed to create taxon kind:", err);
-      toast.error(`failed to create kind "${slug}"`);
-    } finally {
-      setCreatingKind(false);
-    }
-  };
-
   // 7. imperative handle exposed to the parent modal
   const apply = async () => {
     if (!isDirty()) return;
@@ -339,7 +292,7 @@ export function VideoTaxonsEditor(props: VideoTaxonsEditorProps) {
   const reset = () => {
     setPendingAdds([]);
     setPendingRemoves(new Map());
-    resetNewKindForm();
+    kindFormHandle()?.reset();
   };
 
   onMount(() => {
@@ -379,68 +332,12 @@ export function VideoTaxonsEditor(props: VideoTaxonsEditorProps) {
       </Show>
 
       <Show when={!props.disabled}>
-        <Show
-          when={showNewKindForm()}
-          fallback={
-            <button
-              type="button"
-              onClick={() => setShowNewKindForm(true)}
-              class="inline-flex items-center gap-1 text-xs text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-            >
-              <Icon name={IconNames.add} size={12} />
-              new kind
-            </button>
-          }
-        >
-          <div class="space-y-1.5 p-2 rounded border border-dashed border-[var(--color-border-default)] bg-[var(--color-bg-secondary,var(--color-bg-primary))]/40">
-            <div class="flex items-center justify-between">
-              <span class="text-xs uppercase tracking-wide text-[var(--color-text-tertiary)]">
-                new taxon kind
-              </span>
-              <button
-                type="button"
-                onClick={resetNewKindForm}
-                class="text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)] transition-colors"
-                aria-label="cancel"
-              >
-                <Icon name={IconNames.close} size={12} />
-              </button>
-            </div>
-            <div class="flex flex-wrap gap-1.5">
-              <input
-                type="text"
-                value={newKindLabel()}
-                onInput={(e) => {
-                  const v = e.currentTarget.value;
-                  setNewKindLabel(v);
-                  if (!newKindSlugDirty()) setNewKindSlug(slugify(v));
-                }}
-                placeholder="label (e.g. tempo, region)"
-                disabled={creatingKind()}
-                class="flex-1 min-w-[140px] px-2 py-1 text-xs bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] border border-[var(--color-border-default)] rounded focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-500)]"
-              />
-              <input
-                type="text"
-                value={newKindSlug()}
-                onInput={(e) => {
-                  setNewKindSlug(e.currentTarget.value);
-                  setNewKindSlugDirty(true);
-                }}
-                placeholder="slug"
-                disabled={creatingKind()}
-                class="w-28 px-2 py-1 text-xs bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] border border-[var(--color-border-default)] rounded focus:outline-none focus:ring-1 focus:ring-[var(--color-accent-500)]"
-              />
-              <button
-                type="button"
-                onClick={() => void handleCreateKind()}
-                disabled={creatingKind()}
-                class="px-2 py-1 text-xs text-[var(--color-accent-500)] hover:text-[var(--color-accent-400)] disabled:opacity-50"
-              >
-                {creatingKind() ? "creating..." : "create"}
-              </button>
-            </div>
-          </div>
-        </Show>
+        <NewTaxonKindForm
+          client={taxonomyClientResource() ?? null}
+          domain="video"
+          onCreated={() => setKindsVersion((v) => v + 1)}
+          ref={(handle) => setKindFormHandle(handle)}
+        />
       </Show>
     </div>
   );

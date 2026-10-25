@@ -62,7 +62,18 @@ pub fn slugify_taxon_label(label: &str) -> String {
 /// `domain` column matches it (or is `"universal"`) are returned. `None`
 /// returns every kind (back-compat for the album editor, which predates
 /// domain scoping and still wants the full unfiltered set).
-pub async fn list_taxon_kinds(domain: Option<&str>) -> GrimoireResponse<Vec<TaxonKind>> {
+///
+/// `include_relation_hubs` controls whether the three synthesized,
+/// non-real kinds below ("era" release-decade bins, "recently_added",
+/// "unassigned") are appended. they exist only for the library graph
+/// view's hub nodes - they have no real taxon values to pick from, and
+/// are tagged `domain: "universal"` so a naive domain filter can't keep
+/// them out on its own. every taxon *editor* must pass `false` (or
+/// omit); only the graph view passes `true`.
+pub async fn list_taxon_kinds(
+    domain: Option<&str>,
+    include_relation_hubs: bool,
+) -> GrimoireResponse<Vec<TaxonKind>> {
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
@@ -144,199 +155,205 @@ pub async fn list_taxon_kinds(domain: Option<&str>) -> GrimoireResponse<Vec<Taxo
         })
         .collect();
 
-    // synthesize two extra kinds that aren't backed by real taxon_kindz
-    // rows: "era" (albums/videos grouped by release decade) and
-    // "recently_added" (albums/videos added in the last 30 days). these
-    // are first-class hub kinds in the client but have no seeded
-    // migration rows. domain "universal": their content is unioned
-    // across music (albumz) and video (videoz) so they surface
-    // regardless of the caller's domain filter (or lack of one).
-    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    if include_relation_hubs {
+        // synthesize two extra kinds that aren't backed by real taxon_kindz
+        // rows: "era" (albums/videos grouped by release decade) and
+        // "recently_added" (albums/videos added in the last 30 days). these
+        // are first-class hub kinds in the client but have no seeded
+        // migration rows. domain "universal": their content is unioned
+        // across music (albumz) and video (videoz) so they surface
+        // regardless of the caller's domain filter (or lack of one).
+        let now = time::OffsetDateTime::now_utc().unix_timestamp();
 
-    // era: albums with a release_date taxon (release_date column was
-    // migrated to taxonz in migration 039)
-    let era_count = match sqlx::query_scalar!(
-        r#"SELECT COUNT(DISTINCT at.album_id) as "count!"
-           FROM album_taxonz at
-           JOIN taxonz t ON t.id = at.taxon_id
-           JOIN albumz a ON a.id = at.album_id
-           WHERE t.kind_id = (SELECT id FROM taxon_kindz WHERE slug = 'release_date')
-             AND t.deleted_at IS NULL
-             AND a.deleted_at IS NULL"#
-    )
-    .fetch_one(&pool)
-    .await
-    {
-        Ok(c) => c,
-        Err(e) => {
-            return GrimoireResponse::failure(
-                "failed to count era albums",
-                vec![ErrorDetail::from(e)],
-            );
-        }
-    };
-
-    // video side of "era": videos with a known release_date (plain
-    // column, not taxon-based — video hasn't migrated release_date to
-    // taxonz the way music did in migration 039).
-    let era_video_count = match sqlx::query_scalar!(
-        r#"SELECT COUNT(*) as "count!"
-           FROM videoz v
-           WHERE v.deleted_at IS NULL
-             AND v.release_date IS NOT NULL"#
-    )
-    .fetch_one(&pool)
-    .await
-    {
-        Ok(c) => c,
-        Err(e) => {
-            return GrimoireResponse::failure(
-                "failed to count era videos",
-                vec![ErrorDetail::from(e)],
-            );
-        }
-    };
-
-    kinds.push(TaxonKind {
-        id: "synth::era".to_string(),
-        slug: "era".to_string(),
-        label: "era".to_string(),
-        description: Some("synthesized hub: albums/videos grouped by release decade".to_string()),
-        color: None,
-        value_type: "categorical".to_string(),
-        unit: None,
-        // large display_order so it sorts after seeded kinds
-        display_order: 9000,
-        is_user_defined: false,
-        created_at: now,
-        album_count: era_count,
-        video_count: era_video_count,
-        domain: UNIVERSAL_DOMAIN.to_string(),
-    });
-
-    // recently_added: albums created in the last 30 days
-    let recently_added_count = match sqlx::query_scalar!(
-        r#"SELECT COUNT(*) as "count!"
-           FROM albumz
-           WHERE deleted_at IS NULL
-             AND created_at >= unixepoch('now', '-30 days')"#
-    )
-    .fetch_one(&pool)
-    .await
-    {
-        Ok(c) => c,
-        Err(e) => {
-            return GrimoireResponse::failure(
-                "failed to count recently added albums",
-                vec![ErrorDetail::from(e)],
-            );
-        }
-    };
-
-    let recently_added_video_count = match sqlx::query_scalar!(
-        r#"SELECT COUNT(*) as "count!"
-           FROM videoz
-           WHERE deleted_at IS NULL
-             AND created_at >= unixepoch('now', '-30 days')"#
-    )
-    .fetch_one(&pool)
-    .await
-    {
-        Ok(c) => c,
-        Err(e) => {
-            return GrimoireResponse::failure(
-                "failed to count recently added videos",
-                vec![ErrorDetail::from(e)],
-            );
-        }
-    };
-
-    kinds.push(TaxonKind {
-        id: "synth::recently_added".to_string(),
-        slug: "recently_added".to_string(),
-        label: "recently added".to_string(),
-        description: Some("synthesized hub: albums/videos added in the last 30 days".to_string()),
-        color: None,
-        value_type: "categorical".to_string(),
-        unit: None,
-        // sort after era
-        display_order: 9001,
-        is_user_defined: false,
-        created_at: now,
-        album_count: recently_added_count,
-        video_count: recently_added_video_count,
-        domain: UNIVERSAL_DOMAIN.to_string(),
-    });
-
-    // unassigned: albums with no album_taxonz rows at all (across any
-    // kind). useful for admin triage — surfaces orphan content that
-    // hasn't been tagged yet. only emit the hub when the count is > 0
-    // so a fully-tagged library doesn't show a dead hub.
-    let unassigned_count = match sqlx::query_scalar!(
-        r#"SELECT COUNT(*) as "count!"
-           FROM albumz a
-           WHERE a.deleted_at IS NULL
-             AND NOT EXISTS (
-               SELECT 1 FROM album_taxonz at
+        // era: albums with a release_date taxon (release_date column was
+        // migrated to taxonz in migration 039)
+        let era_count = match sqlx::query_scalar!(
+            r#"SELECT COUNT(DISTINCT at.album_id) as "count!"
+               FROM album_taxonz at
                JOIN taxonz t ON t.id = at.taxon_id
-               WHERE at.album_id = a.id AND t.deleted_at IS NULL
-             )"#
-    )
-    .fetch_one(&pool)
-    .await
-    {
-        Ok(c) => c,
-        Err(e) => {
-            return GrimoireResponse::failure(
-                "failed to count unassigned albums",
-                vec![ErrorDetail::from(e)],
-            );
-        }
-    };
+               JOIN albumz a ON a.id = at.album_id
+               WHERE t.kind_id = (SELECT id FROM taxon_kindz WHERE slug = 'release_date')
+                 AND t.deleted_at IS NULL
+                 AND a.deleted_at IS NULL"#
+        )
+        .fetch_one(&pool)
+        .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "failed to count era albums",
+                    vec![ErrorDetail::from(e)],
+                );
+            }
+        };
 
-    // video side of "unassigned": videos (leaf entity_type only, not
-    // series/season) with no entity_taxonz rows at all.
-    let unassigned_video_count = match sqlx::query_scalar!(
-        r#"SELECT COUNT(*) as "count!"
-           FROM videoz v
-           WHERE v.deleted_at IS NULL
-             AND NOT EXISTS (
-               SELECT 1 FROM entity_taxonz et
-               JOIN taxonz t ON t.id = et.taxon_id
-               WHERE et.entity_type = 'video' AND et.entity_id = v.id AND t.deleted_at IS NULL
-             )"#
-    )
-    .fetch_one(&pool)
-    .await
-    {
-        Ok(c) => c,
-        Err(e) => {
-            return GrimoireResponse::failure(
-                "failed to count unassigned videos",
-                vec![ErrorDetail::from(e)],
-            );
-        }
-    };
+        // video side of "era": videos with a known release_date (plain
+        // column, not taxon-based — video hasn't migrated release_date to
+        // taxonz the way music did in migration 039).
+        let era_video_count = match sqlx::query_scalar!(
+            r#"SELECT COUNT(*) as "count!"
+               FROM videoz v
+               WHERE v.deleted_at IS NULL
+                 AND v.release_date IS NOT NULL"#
+        )
+        .fetch_one(&pool)
+        .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "failed to count era videos",
+                    vec![ErrorDetail::from(e)],
+                );
+            }
+        };
 
-    if unassigned_count > 0 || unassigned_video_count > 0 {
         kinds.push(TaxonKind {
-            id: "synth::unassigned".to_string(),
-            slug: "unassigned".to_string(),
-            label: "unassigned".to_string(),
+            id: "synth::era".to_string(),
+            slug: "era".to_string(),
+            label: "era".to_string(),
             description: Some(
-                "synthesized hub: albums/videos with no taxon assignments".to_string(),
+                "synthesized hub: albums/videos grouped by release decade".to_string(),
             ),
             color: None,
             value_type: "categorical".to_string(),
             unit: None,
-            // sort after recently_added
-            display_order: 9002,
+            // large display_order so it sorts after seeded kinds
+            display_order: 9000,
             is_user_defined: false,
             created_at: now,
-            album_count: unassigned_count,
-            video_count: unassigned_video_count,
+            album_count: era_count,
+            video_count: era_video_count,
             domain: UNIVERSAL_DOMAIN.to_string(),
         });
+
+        // recently_added: albums created in the last 30 days
+        let recently_added_count = match sqlx::query_scalar!(
+            r#"SELECT COUNT(*) as "count!"
+               FROM albumz
+               WHERE deleted_at IS NULL
+                 AND created_at >= unixepoch('now', '-30 days')"#
+        )
+        .fetch_one(&pool)
+        .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "failed to count recently added albums",
+                    vec![ErrorDetail::from(e)],
+                );
+            }
+        };
+
+        let recently_added_video_count = match sqlx::query_scalar!(
+            r#"SELECT COUNT(*) as "count!"
+               FROM videoz
+               WHERE deleted_at IS NULL
+                 AND created_at >= unixepoch('now', '-30 days')"#
+        )
+        .fetch_one(&pool)
+        .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "failed to count recently added videos",
+                    vec![ErrorDetail::from(e)],
+                );
+            }
+        };
+
+        kinds.push(TaxonKind {
+            id: "synth::recently_added".to_string(),
+            slug: "recently_added".to_string(),
+            label: "recently added".to_string(),
+            description: Some(
+                "synthesized hub: albums/videos added in the last 30 days".to_string(),
+            ),
+            color: None,
+            value_type: "categorical".to_string(),
+            unit: None,
+            // sort after era
+            display_order: 9001,
+            is_user_defined: false,
+            created_at: now,
+            album_count: recently_added_count,
+            video_count: recently_added_video_count,
+            domain: UNIVERSAL_DOMAIN.to_string(),
+        });
+
+        // unassigned: albums with no album_taxonz rows at all (across any
+        // kind). useful for admin triage — surfaces orphan content that
+        // hasn't been tagged yet. only emit the hub when the count is > 0
+        // so a fully-tagged library doesn't show a dead hub.
+        let unassigned_count = match sqlx::query_scalar!(
+            r#"SELECT COUNT(*) as "count!"
+               FROM albumz a
+               WHERE a.deleted_at IS NULL
+                 AND NOT EXISTS (
+                   SELECT 1 FROM album_taxonz at
+                   JOIN taxonz t ON t.id = at.taxon_id
+                   WHERE at.album_id = a.id AND t.deleted_at IS NULL
+                 )"#
+        )
+        .fetch_one(&pool)
+        .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "failed to count unassigned albums",
+                    vec![ErrorDetail::from(e)],
+                );
+            }
+        };
+
+        // video side of "unassigned": videos (leaf entity_type only, not
+        // series/season) with no entity_taxonz rows at all.
+        let unassigned_video_count = match sqlx::query_scalar!(
+            r#"SELECT COUNT(*) as "count!"
+               FROM videoz v
+               WHERE v.deleted_at IS NULL
+                 AND NOT EXISTS (
+                   SELECT 1 FROM entity_taxonz et
+                   JOIN taxonz t ON t.id = et.taxon_id
+                   WHERE et.entity_type = 'video' AND et.entity_id = v.id AND t.deleted_at IS NULL
+                 )"#
+        )
+        .fetch_one(&pool)
+        .await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "failed to count unassigned videos",
+                    vec![ErrorDetail::from(e)],
+                );
+            }
+        };
+
+        if unassigned_count > 0 || unassigned_video_count > 0 {
+            kinds.push(TaxonKind {
+                id: "synth::unassigned".to_string(),
+                slug: "unassigned".to_string(),
+                label: "unassigned".to_string(),
+                description: Some(
+                    "synthesized hub: albums/videos with no taxon assignments".to_string(),
+                ),
+                color: None,
+                value_type: "categorical".to_string(),
+                unit: None,
+                // sort after recently_added
+                display_order: 9002,
+                is_user_defined: false,
+                created_at: now,
+                album_count: unassigned_count,
+                video_count: unassigned_video_count,
+                domain: UNIVERSAL_DOMAIN.to_string(),
+            });
+        }
     }
 
     GrimoireResponse::success("taxon kinds retrieved", kinds)
@@ -1666,7 +1683,7 @@ pub async fn set_taxon_kind_color(req: SetTaxonKindColorRequest) -> GrimoireResp
 
     // re-read the kind via list + filter (cheaper than a dedicated getter and
     // matches the album_count enrichment shape returned by list_taxon_kinds).
-    let kinds = list_taxon_kinds(None).await;
+    let kinds = list_taxon_kinds(None, false).await;
     if !kinds.success {
         return GrimoireResponse::failure("color updated but failed to re-read kind", kinds.errors);
     }
@@ -1723,7 +1740,7 @@ pub async fn set_taxon_kind_label(req: SetTaxonKindLabelRequest) -> GrimoireResp
         return GrimoireResponse::failure("taxon kind not found", vec![]);
     }
 
-    let kinds = list_taxon_kinds(None).await;
+    let kinds = list_taxon_kinds(None, false).await;
     if !kinds.success {
         return GrimoireResponse::failure("label updated but failed to re-read kind", kinds.errors);
     }
