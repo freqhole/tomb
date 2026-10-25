@@ -2250,4 +2250,3 @@ mod tests {
         assert!(bc.take_pending_resume().is_none());
     }
 }
-

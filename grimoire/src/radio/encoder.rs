@@ -124,8 +124,7 @@ mod build_ffmpeg_args_tests {
 
     #[test]
     fn inserts_fast_seek_before_the_input_flag_when_a_start_position_is_set() {
-        let args =
-            build_ffmpeg_args("-i {input} -c:a aac", "/tmp/song.mp3", Some(42.5)).unwrap();
+        let args = build_ffmpeg_args("-i {input} -c:a aac", "/tmp/song.mp3", Some(42.5)).unwrap();
         assert_eq!(
             args,
             vec!["-ss", "42.5", "-i", "/tmp/song.mp3", "-c:a", "aac"]

@@ -107,9 +107,7 @@ pub async fn dispatch(
             Some(playback_progress::upsert(caller, body.clone()).await)
         }
         "/api/entities/progress/get" => Some(playback_progress::get(caller, body.clone()).await),
-        "/api/entities/progress/list" => {
-            Some(playback_progress::list(caller, body.clone()).await)
-        }
+        "/api/entities/progress/list" => Some(playback_progress::list(caller, body.clone()).await),
 
         _ => None,
     }

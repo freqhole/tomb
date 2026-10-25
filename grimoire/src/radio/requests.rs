@@ -88,8 +88,7 @@ impl StationQueue {
         if self.has_ever_had_listener {
             return;
         }
-        self.items
-            .retain(|r| r.submitted_at.elapsed() < IDLE_GRACE);
+        self.items.retain(|r| r.submitted_at.elapsed() < IDLE_GRACE);
     }
 }
 
@@ -546,7 +545,10 @@ mod tests {
 
         let reordered = list(station_id).await;
         assert_eq!(
-            reordered.iter().map(|r| r.item_id.as_str()).collect::<Vec<_>>(),
+            reordered
+                .iter()
+                .map(|r| r.item_id.as_str())
+                .collect::<Vec<_>>(),
             vec!["song-3", "song-1", "song-2"]
         );
     }
@@ -581,7 +583,10 @@ mod tests {
 
         let reordered = list(station_id).await;
         assert_eq!(
-            reordered.iter().map(|r| r.item_id.as_str()).collect::<Vec<_>>(),
+            reordered
+                .iter()
+                .map(|r| r.item_id.as_str())
+                .collect::<Vec<_>>(),
             vec!["song-2", "song-1"]
         );
     }
@@ -598,7 +603,10 @@ mod tests {
         )
         .await;
         assert_eq!(reorder(station_id, "not-a-real-id", 0).await, None);
-        assert_eq!(reorder("station-never-seen", "not-a-real-id", 0).await, None);
+        assert_eq!(
+            reorder("station-never-seen", "not-a-real-id", 0).await,
+            None
+        );
         // the real item must still be in its original position - a
         // failed reorder is a no-op.
         assert_eq!(list(station_id).await[0].item_id, "song-1");

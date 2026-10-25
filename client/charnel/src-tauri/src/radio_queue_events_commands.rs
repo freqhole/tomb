@@ -41,7 +41,7 @@ use grimoire::radio::queue_events::{self, RadioQueueEvent, RadioQueueEventFilter
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RadioQueueEventsFrame {
     /// live broker event (submitted/removed/reordered/cleared).
-    Event { evt: RadioQueueEvent },
+    Event { evt: Box<RadioQueueEvent> },
     /// terminal frame; no further events on this channel.
     Closed { reason: CloseReason },
 }
@@ -112,7 +112,10 @@ pub async fn radio_queue_events_subscribe(
             loop {
                 match stream.next_frame().await {
                     Some(EventsServerMsg::RadioQueueEvent { evt, .. }) => {
-                        if events.send(RadioQueueEventsFrame::Event { evt }).is_err() {
+                        if events
+                            .send(RadioQueueEventsFrame::Event { evt: Box::new(evt) })
+                            .is_err()
+                        {
                             break;
                         }
                     }
@@ -164,7 +167,10 @@ pub async fn radio_queue_events_subscribe(
         loop {
             match stream.next().await {
                 Some(Ok(evt)) => {
-                    if events.send(RadioQueueEventsFrame::Event { evt }).is_err() {
+                    if events
+                        .send(RadioQueueEventsFrame::Event { evt: Box::new(evt) })
+                        .is_err()
+                    {
                         // js side dropped the channel; nothing more to do.
                         break;
                     }

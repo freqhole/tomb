@@ -1218,4 +1218,3 @@ mod tests {
         assert_eq!(class_cap(JobClass::EnrichmentAudiodb, 8), Some(2));
     }
 }
-

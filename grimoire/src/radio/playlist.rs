@@ -300,10 +300,12 @@ async fn pick_for_station_after_with_options(
             // watching this station's queue need to stop showing it the
             // moment it leaves, not just when a client explicitly removes
             // it via the offal route.
-            crate::radio::queue_events::emit(crate::radio::queue_events::RadioQueueEvent::Removed {
-                station_id: station_id.to_string(),
-                request_id: req.id.clone(),
-            });
+            crate::radio::queue_events::emit(
+                crate::radio::queue_events::RadioQueueEvent::Removed {
+                    station_id: station_id.to_string(),
+                    request_id: req.id.clone(),
+                },
+            );
             let compatible = !matches!(
                 (req.kind, content_mode.as_str()),
                 (RadioItemKind::Song, "video_only") | (RadioItemKind::Video, "audio_only")

@@ -90,9 +90,9 @@ mod control_socket_bridge {
 mod pending_remotez_commands;
 mod player_pairing_accept;
 mod radio_commands;
-mod radio_queue_events_commands;
 #[cfg(unix)]
 mod radio_mpv;
+mod radio_queue_events_commands;
 mod remotez_commands;
 mod server_controls;
 mod spume_bridge;

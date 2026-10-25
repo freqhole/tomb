@@ -31,7 +31,6 @@
 //! `#[cfg(unix)]`: named pipes are a posix concept with no windows
 //! equivalent, mirroring rathole's own platform split.
 #![allow(dead_code)]
-
 #![cfg(unix)]
 
 use std::collections::HashSet;

@@ -245,9 +245,15 @@ pub async fn submit_request(caller: &Caller, body: JsonValue) -> GrimoireRespons
     // rendered row the moment this event arrives, no follow-up fetch.
     let mut username_cache = std::collections::HashMap::new();
     let user_repo = crate::users::repository::UserRepository::new();
-    let info =
-        resolve_request_info(id, kind, req.item_id, caller.user_id.clone(), &mut username_cache, &user_repo)
-            .await;
+    let info = resolve_request_info(
+        id,
+        kind,
+        req.item_id,
+        caller.user_id.clone(),
+        &mut username_cache,
+        &user_repo,
+    )
+    .await;
     crate::radio::queue_events::emit(crate::radio::queue_events::RadioQueueEvent::Submitted {
         station_id: req.station_id,
         request: info,
@@ -438,7 +444,8 @@ pub async fn reorder_request(_caller: &Caller, body: JsonValue) -> GrimoireRespo
     };
 
     let new_index = req.new_index.max(0) as usize;
-    let moved_to = crate::radio::requests::reorder(&req.station_id, &req.request_id, new_index).await;
+    let moved_to =
+        crate::radio::requests::reorder(&req.station_id, &req.request_id, new_index).await;
     let Some(final_index) = moved_to else {
         return GrimoireResponse::failure(
             "request not found",

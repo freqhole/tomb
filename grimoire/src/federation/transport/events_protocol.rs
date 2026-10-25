@@ -240,17 +240,27 @@ async fn handle_stream(
             let live = job_events::subscribe_filtered(filter, caller.clone());
             let live: Pin<Box<dyn Stream<Item = Result<JobEvent, CloseReason>> + Send>> =
                 Box::pin(live);
-            forward_events(id, &mut send, &mut reader, live, EventsServerMsg::event, node_id_short)
-                .await?;
+            forward_events(
+                id,
+                &mut send,
+                &mut reader,
+                live,
+                EventsServerMsg::event,
+                node_id_short,
+            )
+            .await?;
         }
         EventsClientMsg::SubscribeRadioQueue { id, filter } => {
             info!(
                 "[events-p2p] subscribe (radio queue) id={} station={} from {} (user={})",
                 id, filter.station_id, node_id_short, caller.username
             );
-            let items =
-                crate::offal::music::radio::snapshot_for_station(&filter.station_id).await;
-            write_msg(&mut send, &EventsServerMsg::RadioQueueSnapshot { id, items }).await?;
+            let items = crate::offal::music::radio::snapshot_for_station(&filter.station_id).await;
+            write_msg(
+                &mut send,
+                &EventsServerMsg::RadioQueueSnapshot { id, items },
+            )
+            .await?;
 
             let live = queue_events::subscribe_filtered(filter);
             let live: Pin<Box<dyn Stream<Item = Result<RadioQueueEvent, CloseReason>> + Send>> =

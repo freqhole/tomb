@@ -1365,22 +1365,22 @@ pub async fn create_video_watch_feed_event(
     // isn't the freqroot service account) - only reachable here on a
     // genuine race (user deleted between the two queries) or a query
     // error, same as any other best-effort lookup in this file.
-    let username = match sqlx::query_scalar!(
-        "SELECT username FROM user_accountz WHERE id = ?",
-        user_id
-    )
-    .fetch_optional(&pool)
-    .await
-    {
-        Ok(Some(u)) => u,
-        Ok(None) => {
-            return GrimoireResponse::success(
-                "skipped feed event - user not found",
-                FeedEventResult::Skipped,
-            )
-        }
-        Err(e) => return GrimoireResponse::failure("failed to resolve username", vec![e.into()]),
-    };
+    let username =
+        match sqlx::query_scalar!("SELECT username FROM user_accountz WHERE id = ?", user_id)
+            .fetch_optional(&pool)
+            .await
+        {
+            Ok(Some(u)) => u,
+            Ok(None) => {
+                return GrimoireResponse::success(
+                    "skipped feed event - user not found",
+                    FeedEventResult::Skipped,
+                )
+            }
+            Err(e) => {
+                return GrimoireResponse::failure("failed to resolve username", vec![e.into()])
+            }
+        };
 
     let row = sqlx::query!(
         r#"

@@ -210,9 +210,16 @@ mod tests {
         });
 
         use futures_util::StreamExt;
-        let evt = stream.next().await.expect("an event").expect("not an error");
+        let evt = stream
+            .next()
+            .await
+            .expect("an event")
+            .expect("not an error");
         match evt {
-            RadioQueueEvent::Submitted { station_id, request } => {
+            RadioQueueEvent::Submitted {
+                station_id,
+                request,
+            } => {
                 assert_eq!(station_id, "station-filter-test");
                 assert_eq!(request.id, "req-mine");
             }

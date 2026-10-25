@@ -124,28 +124,24 @@ async fn resolve_blake3(
     entity_id: &str,
 ) -> Option<String> {
     match entity_type {
-        TaggableEntity::Video => {
-            sqlx::query_scalar!(
-                r#"SELECT media_blob_blake3 as "blake3?" FROM videoz WHERE id = ?"#,
-                entity_id
-            )
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten()
-            .flatten()
-        }
-        TaggableEntity::Song => {
-            sqlx::query_scalar!(
-                r#"SELECT media_blob_blake3 as "blake3?" FROM songz WHERE id = ?"#,
-                entity_id
-            )
-            .fetch_optional(pool)
-            .await
-            .ok()
-            .flatten()
-            .flatten()
-        }
+        TaggableEntity::Video => sqlx::query_scalar!(
+            r#"SELECT media_blob_blake3 as "blake3?" FROM videoz WHERE id = ?"#,
+            entity_id
+        )
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .flatten(),
+        TaggableEntity::Song => sqlx::query_scalar!(
+            r#"SELECT media_blob_blake3 as "blake3?" FROM songz WHERE id = ?"#,
+            entity_id
+        )
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .flatten(),
         _ => None,
     }
 }
