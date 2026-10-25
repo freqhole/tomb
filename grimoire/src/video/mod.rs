@@ -24,8 +24,8 @@ pub use importer::{reprocess_video, ReprocessVideoResult};
 // from `crud::delete` instead, since they cascade + clean up side tables.
 pub use entities::seasons::{
     create_video_season, find_or_create_video_season, find_video_season_by_number,
-    get_video_season, list_video_seasons, update_video_season, CreateVideoSeasonRequest,
-    UpdateVideoSeasonRequest, VideoSeason,
+    get_video_season, list_video_seasons, merge_video_season, update_video_season,
+    CreateVideoSeasonRequest, UpdateVideoSeasonRequest, VideoSeason,
 };
 pub use entities::series::{
     create_video_series, find_or_create_video_series, find_video_series_by_title, get_video_series,

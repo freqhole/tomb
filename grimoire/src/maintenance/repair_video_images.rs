@@ -274,3 +274,153 @@ pub async fn repair_video_thumbnails_batch(
         },
     )
 }
+
+/// re-extract a poster for up to `limit` videos that already HAVE one -
+/// distinct from `repair_video_thumbnails_batch` above, which only ever
+/// backfills a MISSING poster. exists for the case where the extraction
+/// logic itself changes (e.g. the seek-percentage-into-the-clip used to
+/// pick the frame) and every already-imported video's existing poster
+/// needs to be redone to match, not just videos that slipped through
+/// without one. `offset` is only meaningful under `dry_run` - see
+/// `repair_waveforms_batch`'s doc comment for why. `scan_directory` and
+/// `created_by` mirror `repair_waveforms_batch`'s same-named parameters.
+pub async fn regenerate_video_thumbnails_batch(
+    dry_run: bool,
+    limit: i64,
+    offset: i64,
+    scan_directory: Option<&str>,
+    created_by: Option<(String, String)>,
+) -> GrimoireResponse<WaveformBatchOutcome> {
+    let mut result = RepairLibraryImagesResult::default();
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
+        }
+    };
+    let config = crate::config::get_config();
+    let created_by_string = created_by.as_ref().map(|(id, _)| id.clone());
+
+    let like_prefix = scan_directory_pattern(scan_directory);
+
+    let candidates = sqlx::query!(
+        r#"
+        SELECT v.id as "video_id!", v.media_blob_id as "media_blob_id!", mb.local_path as "local_path!",
+               v.duration_seconds, v.poster_blob_id as "old_poster_blob_id!"
+        FROM videoz v
+        JOIN media_blobz mb ON mb.id = v.media_blob_id
+        WHERE v.deleted_at IS NULL
+          AND v.poster_blob_id IS NOT NULL
+          AND mb.local_path IS NOT NULL
+          AND (?1 IS NULL OR mb.local_path LIKE ?1 ESCAPE '\')
+        LIMIT ?2 OFFSET ?3
+        "#,
+        like_prefix,
+        limit,
+        offset,
+    )
+    .fetch_all(&pool)
+    .await;
+
+    let rows = match candidates {
+        Ok(rows) => rows,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to query video poster regeneration candidates",
+                vec![ErrorDetail::from(crate::error::GrimoireError::from(e))],
+            )
+        }
+    };
+    let more_remaining = rows.len() as i64 == limit;
+
+    for row in rows {
+        if dry_run {
+            result.videos_posters_regenerated += 1;
+            continue;
+        }
+        let poster = crate::video::importer::extract_video_poster(
+            &row.media_blob_id,
+            Path::new(&row.local_path),
+            row.duration_seconds,
+            &config,
+            created_by_string.clone(),
+        )
+        .await;
+        let blob_id = match poster {
+            Ok(id) => id,
+            Err(e) => {
+                result.errors.push(ErrorDetail::new(
+                    "video_poster_regenerate_failed",
+                    "Video Poster Regeneration Failed",
+                    format!("video {}: {}", row.video_id, e),
+                ));
+                continue;
+            }
+        };
+        let update = crate::video::update_video(crate::video::UpdateVideoRequest {
+            video_id: row.video_id.clone(),
+            series_id: None,
+            season_id: None,
+            episode_number: None,
+            content_type: None,
+            title: None,
+            description: None,
+            poster_blob_id: Some(blob_id.clone()),
+            duration_seconds: None,
+            release_date: None,
+            updated_by: created_by_string.clone(),
+            clear_series_id: false,
+            clear_season_id: false,
+            parent_video_id: None,
+            clear_parent_video_id: false,
+            ..Default::default()
+        })
+        .await;
+        if !update.success {
+            result.errors.push(ErrorDetail::new(
+                "video_poster_link_failed",
+                "Video Poster Link Failed",
+                format!("video {}: {}", row.video_id, update.message),
+            ));
+            continue;
+        }
+        // drop the old thumbnail's gallery association - without this,
+        // every regenerate run would leave a demoted-to-non-primary
+        // `entity_imagez` row (and its now-unreferenced blob) behind
+        // instead of actually replacing it. failure here is non-fatal
+        // (stale old association, not a missing new one) - still counted
+        // as a success below since the video DOES have its fresh poster.
+        let _ = crate::video::remove_entity_image(
+            VideoEntityType::Video,
+            &row.video_id,
+            &row.old_poster_blob_id,
+        )
+        .await;
+        let image_resp = crate::video::add_entity_image(
+            VideoEntityType::Video,
+            &row.video_id,
+            &blob_id,
+            Some(true),
+            BlobType::Thumbnail,
+            created_by_string.as_deref(),
+        )
+        .await;
+        if image_resp.success {
+            result.videos_posters_regenerated += 1;
+        } else {
+            result.errors.push(ErrorDetail::new(
+                "video_thumbnail_link_failed",
+                "Video Thumbnail Link Failed",
+                format!("video {}: {}", row.video_id, image_resp.message),
+            ));
+        }
+    }
+
+    GrimoireResponse::success(
+        "video poster regeneration batch complete",
+        WaveformBatchOutcome {
+            result,
+            more_remaining,
+        },
+    )
+}

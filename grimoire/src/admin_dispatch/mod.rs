@@ -227,6 +227,9 @@ pub async fn handle(
         "maintenance_repair_library_video_thumbnails" => {
             handlers::maintenance::repair_library_video_thumbnails(args, caller).await
         }
+        "maintenance_regenerate_library_video_thumbnails" => {
+            handlers::maintenance::regenerate_library_video_thumbnails(args, caller).await
+        }
         "maintenance_repair_library_step" => {
             handlers::maintenance::repair_library_step(args, caller).await
         }

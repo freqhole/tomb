@@ -44,6 +44,14 @@ export interface BulkVideoTaxonsEditorProps {
   onAfterMutate?: () => void | Promise<void>;
   /** filtered out of the rendered kinds. */
   excludeKinds?: string[];
+  /** show only taxons common to EVERY video in `videoIds` (true
+   *  intersection, no partial-count chips) instead of the default union-
+   *  with-partial-count view - for a cohesive, conceptually-one-thing
+   *  group (e.g. a season's episodes) where "partially applied" doesn't
+   *  make sense to manage as a unit, unlike an arbitrary bulk-edit
+   *  selection. adding/removing still fans out to every video exactly
+   *  as before - only the displayed set of chips changes. */
+  onlyShared?: boolean;
 }
 
 export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
@@ -193,6 +201,7 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
     }
     const out = new Map<string, TaxonChipData[]>();
     for (const [key, v] of agg) {
+      if (props.onlyShared && v.count < total) continue;
       const taxon_id = key.slice(v.kind_slug.length + 2);
       const arr = out.get(v.kind_slug) ?? [];
       arr.push({
@@ -351,7 +360,8 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
     <div class="space-y-2">
       <div class="flex items-center justify-between">
         <span class="text-[10px] uppercase tracking-wide text-white/45">
-          taxons · {props.videoIds.length} video{props.videoIds.length === 1 ? "" : "s"}
+          {props.onlyShared ? "shared taxons" : "taxons"} · {props.videoIds.length} video
+          {props.videoIds.length === 1 ? "" : "s"}
         </span>
         <Show when={linksResource.loading || kindsResource.loading || busy()}>
           <div class="animate-spin w-3 h-3 border-2 border-[var(--color-accent-500)] border-t-transparent rounded-full" />

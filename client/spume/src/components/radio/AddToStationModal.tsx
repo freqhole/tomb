@@ -552,8 +552,30 @@ export function AddToStationModal() {
               </Show>
 
               <Show when={!stations.loading}>
-                <Show when={filterableStations().length > 0}>
+                <Show when={requestStations().length > 0}>
                   <div class="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">
+                    request on station
+                  </div>
+                  <For each={requestStations()}>
+                    {(station) => (
+                      <button
+                        class="w-full text-left flex items-center gap-3 px-3 py-2 rounded hover:bg-[var(--color-accent-500)]/10 transition-colors disabled:opacity-50"
+                        onClick={() => handleRequestSelect(station)}
+                        disabled={busy()}
+                      >
+                        <div class="w-8 h-8 rounded bg-gradient-to-br from-emerald-700 to-teal-900 flex-shrink-0" />
+                        <div class="flex-1 min-w-0">
+                          <div class="text-sm font-medium text-[var(--color-text-primary)] truncate">
+                            {station.name}
+                          </div>
+                        </div>
+                      </button>
+                    )}
+                  </For>
+                </Show>
+
+                <Show when={filterableStations().length > 0}>
+                  <div class="px-3 pt-3 pb-1 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">
                     add to station
                   </div>
                   <For each={filterableStations()}>
@@ -573,28 +595,6 @@ export function AddToStationModal() {
                               {station.description}
                             </div>
                           </Show>
-                        </div>
-                      </button>
-                    )}
-                  </For>
-                </Show>
-
-                <Show when={requestStations().length > 0}>
-                  <div class="px-3 pt-3 pb-1 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">
-                    request on station
-                  </div>
-                  <For each={requestStations()}>
-                    {(station) => (
-                      <button
-                        class="w-full text-left flex items-center gap-3 px-3 py-2 rounded hover:bg-[var(--color-accent-500)]/10 transition-colors disabled:opacity-50"
-                        onClick={() => handleRequestSelect(station)}
-                        disabled={busy()}
-                      >
-                        <div class="w-8 h-8 rounded bg-gradient-to-br from-emerald-700 to-teal-900 flex-shrink-0" />
-                        <div class="flex-1 min-w-0">
-                          <div class="text-sm font-medium text-[var(--color-text-primary)] truncate">
-                            {station.name}
-                          </div>
                         </div>
                       </button>
                     )}

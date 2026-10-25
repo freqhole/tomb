@@ -49,6 +49,7 @@ pub async fn dispatch(
         "/api/video/seasons/get" => Some(seasons::get(caller, body.clone()).await),
         "/api/video/seasons/update" => Some(seasons::update(caller, body.clone()).await),
         "/api/video/seasons/delete" => Some(seasons::delete(caller, body.clone()).await),
+        "/api/video/seasons/merge" => Some(seasons::merge(caller, body.clone()).await),
 
         // videos
         "/api/video/videos/query" => Some(videos::query(caller, body.clone()).await),

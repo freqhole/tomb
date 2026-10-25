@@ -319,6 +319,98 @@ pub async fn update_video_season(req: UpdateVideoSeasonRequest) -> GrimoireRespo
     GrimoireResponse::success("Video season updated successfully", season)
 }
 
+/// move every video out of `source_season_id` and into `target_season_id`
+/// (both must belong to the same series), then clean up the now-empty
+/// source season via the exact same `delete_video_season_if_unused` every
+/// single-video season reassignment already relies on - merging is just
+/// "reassign every video in one season, in bulk" plus that same cleanup.
+/// a single bulk `UPDATE` rather than looping the general-purpose
+/// per-video update path - this doesn't need any of that path's other
+/// per-field validation/history bookkeeping, just the season_id move.
+/// no-op (not an error) when the two ids are identical.
+pub async fn merge_video_season(
+    source_season_id: &str,
+    target_season_id: &str,
+    updated_by: Option<&str>,
+) -> GrimoireResponse<()> {
+    if source_season_id == target_season_id {
+        return GrimoireResponse::success_unit("season already merged into itself");
+    }
+
+    let pool = match database::connect().await {
+        Ok(p) => p,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "Failed to connect to database",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
+
+    let source_series_id: Option<String> = sqlx::query_scalar!(
+        "SELECT series_id FROM video_seasonz WHERE id = ? AND deleted_at IS NULL",
+        source_season_id
+    )
+    .fetch_optional(&pool)
+    .await
+    .ok()
+    .flatten();
+    let Some(source_series_id) = source_series_id else {
+        let err = GrimoireError::VideoSeasonNotFound {
+            id: source_season_id.to_string(),
+        };
+        return GrimoireResponse::failure("Video season not found", vec![ErrorDetail::from(&err)]);
+    };
+
+    let target_series_id: Option<String> = sqlx::query_scalar!(
+        "SELECT series_id FROM video_seasonz WHERE id = ? AND deleted_at IS NULL",
+        target_season_id
+    )
+    .fetch_optional(&pool)
+    .await
+    .ok()
+    .flatten();
+    let Some(target_series_id) = target_series_id else {
+        let err = GrimoireError::VideoSeasonNotFound {
+            id: target_season_id.to_string(),
+        };
+        return GrimoireResponse::failure("Video season not found", vec![ErrorDetail::from(&err)]);
+    };
+
+    if source_series_id != target_series_id {
+        let err = GrimoireError::BadRequest {
+            message: "cannot merge seasons from different series".to_string(),
+        };
+        return GrimoireResponse::failure(
+            "cannot merge seasons from different series",
+            vec![ErrorDetail::from(&err)],
+        );
+    }
+
+    if let Err(e) = sqlx::query!(
+        "UPDATE videoz SET season_id = ?, updated_by = COALESCE(?, updated_by), updated_at = unixepoch()
+         WHERE season_id = ? AND deleted_at IS NULL",
+        target_season_id,
+        updated_by,
+        source_season_id,
+    )
+    .execute(&pool)
+    .await
+    {
+        return GrimoireResponse::failure(
+            "Failed to move videos into the target season",
+            vec![ErrorDetail::from(e)],
+        );
+    }
+
+    // best-effort - the merge itself already succeeded (every video has
+    // moved); a failure here just leaves an orphaned, empty source
+    // season row behind rather than losing anything.
+    let _ = crate::video::crud::delete::delete_video_season_if_unused(source_season_id).await;
+
+    GrimoireResponse::success_unit("seasons merged successfully")
+}
+
 /// soft delete a video season row only - does not cascade to child videos
 /// or clean up `entity_taxonz`/`playlist_itemz`/`playback_progressz`. see
 /// `crate::video::crud::delete` for the full cascading workflow.

@@ -5,6 +5,11 @@
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { Button } from "../buttons/Button";
 import { TextInput } from "../forms/TextInput";
+import {
+  VideoSeasonAutocomplete,
+  formatSeasonLabel,
+  type VideoSeasonSelection,
+} from "../forms/VideoSeasonAutocomplete";
 import { EntityImages } from "../layout/EntityImages";
 import { toast } from "../feedback/Toast";
 import { confirm } from "../../app/services/confirmState";
@@ -21,8 +26,10 @@ import {
   useUpdateVideoSeriesMutation,
   useVideoSeasonsQuery,
   useUpdateVideoSeasonMutation,
+  useMergeVideoSeasonMutation,
 } from "../../video/queries/series";
 import { Modal } from "./Modal";
+import { BulkVideoTaxonsEditor } from "../taxonomy/BulkVideoTaxonsEditor";
 
 // broad invalidation so any other view (series grid tiles, series detail
 // header, episode rows, etc.) picks up a changed poster/gallery image or
@@ -50,33 +57,59 @@ export function EditVideoSeriesModal(props: EditVideoSeriesModalProps) {
   const updateMutation = useUpdateVideoSeriesMutation();
   const seasonsQuery = useVideoSeasonsQuery(() => props.seriesId);
   const updateSeasonMutation = useUpdateVideoSeasonMutation();
+  const mergeSeasonMutation = useMergeVideoSeasonMutation();
 
   const [formData, setFormData] = createSignal<FormData>({ title: "", description: "" });
   const [initialData, setInitialData] = createSignal<FormData | null>(null);
   const [loadedSeriesId, setLoadedSeriesId] = createSignal<string | null>(null);
 
-  // per-season rename state - keyed by season id so multiple rows can be
+  // per-season edit state - keyed by season id so multiple rows can be
   // in flight/erroring independently (a shared mutation's isPending/error
-  // would only ever reflect the single most recent call).
-  const [seasonDrafts, setSeasonDrafts] = createSignal<Record<string, string>>({});
+  // would only ever reflect the single most recent call). a selection is
+  // only recorded once the user actually picks a dropdown entry (existing
+  // or "create new") or presses enter - see `VideoSeasonAutocomplete`'s
+  // own doc comment; just typing and clicking away leaves no selection
+  // and so no pending change for that row.
+  const [seasonInputValues, setSeasonInputValues] = createSignal<Record<string, string>>({});
+  const [seasonSelections, setSeasonSelections] = createSignal<
+    Record<string, VideoSeasonSelection>
+  >({});
   const [seasonSaving, setSeasonSaving] = createSignal<Record<string, boolean>>({});
   const [seasonErrors, setSeasonErrors] = createSignal<Record<string, string>>({});
 
-  const seasonTitleDraft = (season: VideoSeason) => seasonDrafts()[season.id] ?? season.title ?? "";
+  const seasonInputValue = (season: VideoSeason) =>
+    seasonInputValues()[season.id] ?? formatSeasonLabel(season.season_number, season.title);
 
-  const seasonHasChange = (season: VideoSeason) =>
-    seasonTitleDraft(season).trim() !== (season.title ?? "");
+  const seasonHasChange = (season: VideoSeason) => season.id in seasonSelections();
 
-  const handleSeasonTitleInput = (seasonId: string, value: string) => {
-    setSeasonDrafts((prev) => ({ ...prev, [seasonId]: value }));
+  // true when the pending selection for this season picked a DIFFERENT,
+  // already-existing season - i.e. "merge this season's videos into that
+  // one" rather than "rename this season's own title".
+  const seasonIsMerge = (season: VideoSeason) => {
+    const selection = seasonSelections()[season.id];
+    return !!selection && !selection.isNew && selection.id !== season.id;
+  };
+
+  const handleSeasonSelect = (season: VideoSeason, selection: VideoSeasonSelection) => {
+    setSeasonInputValues((prev) => ({
+      ...prev,
+      [season.id]: formatSeasonLabel(selection.season_number, selection.title),
+    }));
+    setSeasonSelections((prev) => ({ ...prev, [season.id]: selection }));
     setSeasonErrors((prev) => {
-      if (!(seasonId in prev)) return prev;
-      const { [seasonId]: _removed, ...rest } = prev;
+      if (!(season.id in prev)) return prev;
+      const { [season.id]: _removed, ...rest } = prev;
       return rest;
     });
   };
 
   const anySeasonSaving = createMemo(() => Object.values(seasonSaving()).some(Boolean));
+
+  // video ids belonging to one season, for the shared-taxon editor below
+  // each row - `seasonsQuery` (plain season rows, used for the title/
+  // merge editing above) doesn't carry videos; `detailQuery` does.
+  const seasonVideoIds = (seasonId: string): string[] =>
+    (detailQuery.data?.seasons.find((s) => s.id === seasonId)?.videos ?? []).map((v) => v.id);
 
   // images — fetched/mutated immediately (not deferred to save), mirrors
   // AlbumEditorModal.tsx's image handling
@@ -249,16 +282,30 @@ export function EditVideoSeriesModal(props: EditVideoSeriesModalProps) {
 
     const changedSeasons = (seasonsQuery.data ?? []).filter((season) => seasonHasChange(season));
     for (const season of changedSeasons) {
-      const title = seasonTitleDraft(season).trim();
+      const selection = seasonSelections()[season.id];
       setSeasonSaving((prev) => ({ ...prev, [season.id]: true }));
       try {
-        await updateSeasonMutation.mutateAsync({
-          season_id: season.id,
-          series_id: props.seriesId,
-          title: title || null,
-        });
+        if (seasonIsMerge(season)) {
+          // picked a DIFFERENT, already-existing season - merge this
+          // season's videos into it rather than renaming this one.
+          await mergeSeasonMutation.mutateAsync({
+            source_season_id: season.id,
+            target_season_id: selection.id!,
+            series_id: props.seriesId,
+          });
+        } else {
+          // free-text rename (or re-picking a brand new, not-yet-
+          // existing label) - season_number isn't editable here, only
+          // the title (mirrors `update_video_season`'s admin-only,
+          // rename-focused route).
+          await updateSeasonMutation.mutateAsync({
+            season_id: season.id,
+            series_id: props.seriesId,
+            title: selection.title?.trim() || null,
+          });
+        }
       } catch (err) {
-        console.error("failed to rename season:", err);
+        console.error("failed to save season:", err);
         setSeasonErrors((prev) => ({ ...prev, [season.id]: "failed to save" }));
         ok = false;
       } finally {
@@ -354,28 +401,50 @@ export function EditVideoSeriesModal(props: EditVideoSeriesModalProps) {
             />
           </div>
 
-          {/* seasons — rename only; season_number/create/delete aren't
-              editable here (mirrors update_video_season's admin-only,
-              rename-focused server route). drafts are batched into the
-              main save button below (not saved per-row on blur), so a
-              season edit can't be silently lost by clicking save/cancel
-              before the field loses focus. */}
+          {/* seasons — rename OR merge into an existing season (picking a
+              DIFFERENT, already-existing season here moves every video
+              out of this one and into that one instead - see
+              `seasonIsMerge`'s doc comment); season_number/create/delete
+              still aren't directly editable (mirrors update_video_season's
+              admin-only, rename-focused server route). selections are
+              batched into the main save button below (not saved per-row
+              immediately), so a pending edit can't be silently lost by
+              clicking save/cancel before it's confirmed. */}
           <Show when={seasonsQuery.data && seasonsQuery.data.length > 0}>
             <div class="border-t border-[var(--color-border-default)] pt-4">
               <label class="block text-sm text-[var(--color-text-secondary)] mb-2">
-                season titles (optional)
+                season titles (optional) — pick an existing season to merge into it
               </label>
               <div class="flex flex-col gap-3">
                 <For each={seasonsQuery.data}>
                   {(season) => (
-                    <TextInput
-                      label={`season ${season.season_number}`}
-                      value={seasonTitleDraft(season)}
-                      oninput={(e) => handleSeasonTitleInput(season.id, e.currentTarget.value)}
-                      placeholder={`e.g. "the ${season.season_number === 1 ? "pilot" : "reunion"} special" — leave blank for none`}
-                      disabled={!canUpdateVideo() || seasonSaving()[season.id]}
-                      error={seasonErrors()[season.id]}
-                    />
+                    <div>
+                      <VideoSeasonAutocomplete
+                        label={`season ${season.season_number}`}
+                        seriesId={props.seriesId}
+                        excludeSeasonId={season.id}
+                        value={seasonInputValue(season)}
+                        onSelect={(selection) => handleSeasonSelect(season, selection)}
+                        placeholder={`e.g. "the ${season.season_number === 1 ? "pilot" : "reunion"} special" — leave blank for none`}
+                        disabled={!canUpdateVideo() || seasonSaving()[season.id]}
+                        hint={
+                          seasonIsMerge(season)
+                            ? `will merge this season's videos into "${seasonInputValue(season)}" and remove this season`
+                            : undefined
+                        }
+                      />
+                      <Show when={seasonErrors()[season.id]}>
+                        <p class="text-xs text-red-400 mt-1">{seasonErrors()[season.id]}</p>
+                      </Show>
+                      <Show when={canUpdateVideo() && seasonVideoIds(season.id).length > 0}>
+                        <div class="mt-2">
+                          <BulkVideoTaxonsEditor
+                            videoIds={seasonVideoIds(season.id)}
+                            onlyShared
+                          />
+                        </div>
+                      </Show>
+                    </div>
                   )}
                 </For>
               </div>

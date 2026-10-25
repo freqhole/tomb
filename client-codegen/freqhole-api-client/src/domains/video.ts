@@ -420,6 +420,18 @@ export function createVideoMethods(call: CallFn) {
       );
     },
 
+    mergeVideoSeason: (params: s.MergeVideoSeasonRequest) => {
+      return call(
+        "video",
+        "merge_video_season",
+        routes.video.merge_video_season.resp,
+        routes.video.merge_video_season.req,
+        routes.video.merge_video_season.method,
+        routes.video.merge_video_season.path,
+        params,
+      );
+    },
+
     // import review (grouped by detected series)
     listPendingVideoImportReview: (params: s.ListPendingVideoReviewRequest) => {
       return call(

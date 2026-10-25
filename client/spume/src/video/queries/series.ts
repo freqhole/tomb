@@ -186,6 +186,39 @@ export function useUpdateVideoSeasonMutation() {
   }));
 }
 
+export interface MergeVideoSeasonMutationParams {
+  source_season_id: string;
+  target_season_id: string;
+  series_id: string;
+}
+
+/** merge one season's videos into another - picking an EXISTING season's
+ *  name via `VideoSeasonAutocomplete` for a DIFFERENT season means
+ *  "merge into that one", not "rename". invalidates the same queries as
+ *  a video reassignment would, since every merged video's own season_id
+ *  effectively just changed. */
+export function useMergeVideoSeasonMutation() {
+  const queryClient = useQueryClient();
+
+  return createMutation(() => ({
+    mutationFn: async (params: MergeVideoSeasonMutationParams) => {
+      const dataSource = getVideoDataSource();
+      if (!dataSource.mergeVideoSeason) {
+        throw new Error("current data source does not support merging video seasons");
+      }
+      await dataSource.mergeVideoSeason({
+        source_season_id: params.source_season_id,
+        target_season_id: params.target_season_id,
+      });
+    },
+    onSuccess: (_result, params) => {
+      queryClient.invalidateQueries({ queryKey: videoQueryKeys.series.seasons(params.series_id) });
+      queryClient.invalidateQueries({ queryKey: videoQueryKeys.series.detail(params.series_id) });
+      queryClient.invalidateQueries({ queryKey: videoQueryKeys.videos.all() });
+    },
+  }));
+}
+
 export interface UpdateVideoSeriesMutationParams {
   series_id: string;
   title?: string;

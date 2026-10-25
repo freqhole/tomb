@@ -4473,6 +4473,12 @@ export const MergeAlbumsReviewRequestSchema = z.object({
 });
 export type MergeAlbumsReviewRequest = z.infer<typeof MergeAlbumsReviewRequestSchema>;
 
+export const MergeVideoSeasonRequestSchema = z.object({
+  source_season_id: z.string(),
+  target_season_id: z.string()
+});
+export type MergeVideoSeasonRequest = z.infer<typeof MergeVideoSeasonRequestSchema>;
+
 export const MergedKeyMatchSchema = z.object({
   merged_key: z.string(),
   albums: z.array(z.object({
@@ -6277,6 +6283,7 @@ export const RepairLibraryImagesJobResultSchema = z.object({
   albums_left_ambiguous: z.number(),
   videos_waveforms_backfilled: z.number(),
   videos_thumbnails_backfilled: z.number(),
+  videos_posters_regenerated: z.number(),
   errors: z.array(z.object({
   error_type: z.string(),
   title: z.string(),
@@ -6307,6 +6314,7 @@ export const RepairLibraryImagesResultSchema = z.object({
   albums_left_ambiguous: z.number(),
   videos_waveforms_backfilled: z.number(),
   videos_thumbnails_backfilled: z.number(),
+  videos_posters_regenerated: z.number(),
   errors: z.array(z.object({
   error_type: z.string(),
   title: z.string(),

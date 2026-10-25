@@ -367,6 +367,15 @@ export class RemoteVideoDataSource implements VideoDataSource {
     if (!result.success) this.failRequest(result);
   }
 
+  async mergeVideoSeason(params: {
+    source_season_id: string;
+    target_season_id: string;
+  }): Promise<void> {
+    const client = await this.getClient();
+    const result = await client.video.mergeVideoSeason(params);
+    if (!result.success) this.failRequest(result);
+  }
+
   // image operations — same generic entity_imagez routes albums use,
   // scoped to entity_type "video"/"video_series" (mirrors
   // music/data/remote/remoteSource.ts's image methods)

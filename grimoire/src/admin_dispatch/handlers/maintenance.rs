@@ -919,6 +919,74 @@ pub(in crate::admin_dispatch) async fn repair_library_video_thumbnails(
     )
 }
 
+/// re-extract a poster for EVERY video that already has one, not just
+/// ones missing one (see `maintenance::repair_video_images::
+/// regenerate_video_thumbnails_batch`'s own doc comment for why this
+/// exists as a separate, standalone command rather than another
+/// `RepairLibraryImagesOptions` toggle - it's a one-off "redo everything
+/// because the extraction logic changed" operation, not an ongoing
+/// backfill-whatever-slipped-through sweep, so it deliberately isn't
+/// folded into `repair_library`'s regular checklist). args: `{ dry_run?:
+/// bool, scan_directory?: string }`. loops every batch to completion in
+/// one call, same as `repair_library_video_thumbnails` above - this is
+/// meant to be run once (e.g. right after deploying a seek-percentage
+/// change), not driven step-by-step for live progress.
+pub(in crate::admin_dispatch) async fn regenerate_library_video_thumbnails(
+    args: JsonValue,
+    caller: &Caller,
+) -> GrimoireResponse<JsonValue> {
+    let dry_run = opt_bool(&args, "dry_run").unwrap_or(false);
+    let scan_directory = opt_str(&args, "scan_directory");
+    let created_by = Some((caller.user_id.clone(), caller.username.clone()));
+
+    let mut totals = crate::maintenance::RepairLibraryImagesResult::default();
+    let mut offset = 0i64;
+    loop {
+        let resp = crate::maintenance::regenerate_video_thumbnails_batch(
+            dry_run,
+            crate::maintenance::VIDEO_THUMBNAIL_BATCH_SIZE,
+            offset,
+            scan_directory.as_deref(),
+            created_by.clone(),
+        )
+        .await;
+        let Some(outcome) = resp.data else {
+            return GrimoireResponse::failure(resp.message, resp.errors);
+        };
+        let more_remaining = outcome.more_remaining;
+        let regenerated_this_batch = outcome.result.videos_posters_regenerated;
+        totals.merge(outcome.result);
+        if !more_remaining {
+            break;
+        }
+        offset = crate::maintenance::repair_library_images::next_batch_offset(
+            dry_run,
+            regenerated_this_batch,
+            offset,
+            crate::maintenance::VIDEO_THUMBNAIL_BATCH_SIZE,
+        );
+    }
+
+    let verb = if dry_run {
+        "would regenerate"
+    } else {
+        "regenerated"
+    };
+    GrimoireResponse::success(
+        format!(
+            "{verb} {} video poster(s) ({} error(s))",
+            totals.videos_posters_regenerated,
+            totals.errors.len(),
+        ),
+        json!({
+            "dry_run": dry_run,
+            "scan_directory": scan_directory,
+            "videos_posters_regenerated": totals.videos_posters_regenerated,
+            "errors": totals.errors,
+        }),
+    )
+}
+
 /// one resumable step of the library image repair pass - exposes the
 /// same phase/batch primitives `jobs::music::repair_library_images_processor`
 /// uses for its job chain, but driven by the caller round-tripping this

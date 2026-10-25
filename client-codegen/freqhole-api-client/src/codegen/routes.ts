@@ -273,6 +273,7 @@ export const routes = {
     list_videos_by_series: { method: 'POST', path: '/api/video/videos/list-by-series', req: s.ListVideosBySeriesRequestSchema, resp: s.VideoSchema.array(), auth: { type: 'authenticated' } as const },
     list_videos_unattached: { method: 'POST', path: '/api/video/videos/list-unattached', req: s.ListVideosUnattachedRequestSchema, resp: s.VideoSchema.array(), auth: { type: 'authenticated' } as const },
     mark_video_group_reviewed: { method: 'POST', path: '/api/video/import/mark-reviewed', req: s.MarkVideoGroupReviewedRequestSchema, resp: s.VideoImportReviewOkSchema, auth: { type: 'owner_or', role: 'admin' } as const },
+    merge_video_season: { method: 'POST', path: '/api/video/seasons/merge', req: s.MergeVideoSeasonRequestSchema, resp: s.EmptyResponseSchema, auth: { type: 'role', role: 'admin' } as const },
     move_video_review: { method: 'POST', path: '/api/video/import/move-video', req: s.MoveVideoReviewRequestSchema, resp: s.VideoImportReviewOkSchema, auth: { type: 'owner_or', role: 'admin' } as const },
     patch_video_group_review: { method: 'POST', path: '/api/video/import/patch-group', req: s.PatchVideoGroupReviewRequestSchema, resp: s.VideoImportReviewOkSchema, auth: { type: 'owner_or', role: 'admin' } as const },
     query_video_series: { method: 'POST', path: '/api/video/series/query', req: s.QueryParamsSchema, resp: s.SeriesQueryResultSchema, auth: { type: 'authenticated' } as const },

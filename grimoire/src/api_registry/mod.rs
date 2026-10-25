@@ -395,6 +395,7 @@ pub mod type_registry {
     };
     use crate::offal::video::seasons::{
         DeleteVideoSeasonRequest, GetVideoSeasonRequest, ListVideoSeasonsRequest,
+        MergeVideoSeasonRequest,
     };
     use crate::offal::video::series::{
         DeleteVideoSeriesRequest, GetVideoSeriesRequest, ListVideoSeriesRequest,
@@ -985,6 +986,8 @@ pub mod type_registry {
         registered.insert("ListVideoSeasonsRequest".to_string());
         gen.add_schema::<DeleteVideoSeasonRequest>("DeleteVideoSeasonRequest");
         registered.insert("DeleteVideoSeasonRequest".to_string());
+        gen.add_schema::<MergeVideoSeasonRequest>("MergeVideoSeasonRequest");
+        registered.insert("MergeVideoSeasonRequest".to_string());
 
         gen.add_schema::<GetVideoRequest>("GetVideoRequest");
         registered.insert("GetVideoRequest".to_string());
