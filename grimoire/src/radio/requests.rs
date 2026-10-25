@@ -216,24 +216,24 @@ pub async fn remove(station_id: &str, request_id: &str) -> bool {
 /// right item regardless). `new_index` is clamped to the queue's length
 /// after the item is lifted out, so "move to the end" is always
 /// expressible as a large index without the caller needing to know the
-/// exact count. returns true if a matching request was found and moved.
-/// any authenticated member (not just admins) may call this, same as
-/// `remove`/`clear` above.
-pub async fn reorder(station_id: &str, request_id: &str, new_index: usize) -> bool {
+/// exact count. returns the item's actual (clamped) final index on
+/// success - the caller needs this real index, not just a bool, to
+/// build an accurate `RadioQueueEvent::Reordered` payload for other
+/// listeners watching this station's queue (see
+/// offal::music::radio::reorder_request). `None` if no matching request
+/// was found. any authenticated member (not just admins) may call this,
+/// same as `remove`/`clear` above.
+pub async fn reorder(station_id: &str, request_id: &str, new_index: usize) -> Option<usize> {
     let mut reg = registry().write().await;
-    let Some(q) = reg.get_mut(station_id) else {
-        return false;
-    };
-    let Some(pos) = q.items.iter().position(|r| r.id == request_id) else {
-        return false;
-    };
+    let q = reg.get_mut(station_id)?;
+    let pos = q.items.iter().position(|r| r.id == request_id)?;
     let item = q
         .items
         .remove(pos)
         .expect("pos came from iter().position() on this same deque");
     let clamped = new_index.min(q.items.len());
     q.items.insert(clamped, item);
-    true
+    Some(clamped)
 }
 
 /// clear every queued request for a station at once. returns the number
@@ -542,7 +542,7 @@ mod tests {
 
         // move the last item ("song-3") to the front.
         let last_id = list(station_id).await[2].id.clone();
-        assert!(reorder(station_id, &last_id, 0).await);
+        assert_eq!(reorder(station_id, &last_id, 0).await, Some(0));
 
         let reordered = list(station_id).await;
         assert_eq!(
@@ -572,9 +572,12 @@ mod tests {
         .await;
 
         let first_id = list(station_id).await[0].id.clone();
-        // wildly out-of-range - must clamp to "end of queue", not panic
-        // or silently no-op.
-        assert!(reorder(station_id, &first_id, 999).await);
+        // wildly out-of-range - must clamp to "end of queue" (index 1,
+        // the only valid position once this item is lifted out of a
+        // 2-item queue), not panic or silently no-op. the returned
+        // index is the real, clamped one - callers need this (not just
+        // a bool) to build an accurate event payload.
+        assert_eq!(reorder(station_id, &first_id, 999).await, Some(1));
 
         let reordered = list(station_id).await;
         assert_eq!(
@@ -584,7 +587,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reorder_returns_false_for_an_unknown_id_or_station() {
+    async fn reorder_returns_none_for_an_unknown_id_or_station() {
         let station_id = "station-reorder-miss-test";
         submit(
             station_id,
@@ -594,8 +597,8 @@ mod tests {
             None,
         )
         .await;
-        assert!(!reorder(station_id, "not-a-real-id", 0).await);
-        assert!(!reorder("station-never-seen", "not-a-real-id", 0).await);
+        assert_eq!(reorder(station_id, "not-a-real-id", 0).await, None);
+        assert_eq!(reorder("station-never-seen", "not-a-real-id", 0).await, None);
         // the real item must still be in its original position - a
         // failed reorder is a no-op.
         assert_eq!(list(station_id).await[0].item_id, "song-1");

@@ -12,7 +12,7 @@ import { type MenuAction } from "../overlays/ContextMenu";
 import { toast } from "../feedback/Toast";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import { useStreamStation } from "./useStreamStation";
-import { submitRequestAndOfferListen, type RequestQueueItem } from "./requestStation";
+import { submitRequestAndTune, type RequestQueueItem } from "./requestStation";
 
 export interface UseStreamFlyoutActionsProps {
   /** radio requires an active remote (even a charnel-managed "self" one)
@@ -23,12 +23,12 @@ export interface UseStreamFlyoutActionsProps {
    *  normal play click never pays for this (e.g. a series' full
    *  resume-aware episode list, which needs its own progress fetch). */
   resolveStreamItems: () => Promise<RequestQueueItem[] | null>;
-  /** label used in the "requested ___ on station" toast, e.g.
-   *  `video "title"` or `series "title"`. an accessor (not a plain
-   *  string) so it stays live if the caller's own label changes over
-   *  time (e.g. a series title edited while its detail page is open) -
-   *  a plain string would be captured once at this hook's own call time
-   *  and never update again. */
+  /** unused by `handleStream` itself (stream-on-X auto-tunes rather than
+   *  showing a labeled toast - see `requestStation.ts`'s
+   *  `submitRequestAndTune`), kept on the props shape so every existing
+   *  call site doesn't need to drop its own `streamLabel`/label-building
+   *  logic for what would otherwise be an unrelated, purely-cosmetic
+   *  ripple across several unrelated files. */
   streamLabel: () => string;
   /** true when the video that would actually start playing (the single
    *  video itself, or whichever episode a series/season's "play"/
@@ -60,7 +60,7 @@ export function useStreamFlyoutActions(props: UseStreamFlyoutActionsProps) {
         toast.error("could not resolve an item to request");
         return;
       }
-      await submitRequestAndOfferListen(station, items, remote, props.streamLabel());
+      await submitRequestAndTune(station, items, remote);
     } finally {
       setBusy(false);
     }

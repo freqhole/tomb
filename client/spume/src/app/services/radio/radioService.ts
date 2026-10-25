@@ -11,7 +11,7 @@
 
 import { batch, createSignal } from "solid-js";
 import type { PublicNowPlaying } from "@freqhole/api-client";
-import type { RadioHandleLike } from "@freqhole/api-client";
+import type { RadioHandleLike, RadioResumeHint } from "@freqhole/api-client";
 import { getMiddenNode, isCharnelAvailable } from "../../api/client";
 import { tuneRadioCharnel, tuneRadioCharnelLocal } from "./charnelRadioAdapter";
 import { registerStopRadio, registerVolumeMirror, stopMusicForRadio } from "../playbackCoordinator";
@@ -137,6 +137,11 @@ interface PausedContext {
   stationId: string | null;
   stationName: string | null;
   isLocal: boolean;
+  /** what to resume at, if the broadcaster already gave up on this
+   *  track by the time we reconnect (see `TuneOptions.resumeHint`'s doc
+   *  comment) - null when there was nothing playing yet to resume
+   *  (an idle/interstitial card, or no now-playing at all). */
+  resumeHint: RadioResumeHint | null;
 }
 let pausedContext: PausedContext | null = null;
 
@@ -180,6 +185,26 @@ const [listenerCount, setListenerCount] = createSignal<number>(0);
 const [currentPeerAddr, setCurrentPeerAddr] = createSignal<string | null>(null);
 const [currentStationId, setCurrentStationId] = createSignal<string | null>(null);
 const [currentIsLocal, setCurrentIsLocal] = createSignal<boolean>(false);
+// the station's negotiated MSE codec string from Hello (e.g. "video/mp4;
+// codecs=...", "audio/mp4; codecs=..."). unlike `nowPlaying()?.kind`
+// (which only updates once real-time playback crosses a potentially
+// deep, deliberately-buffered-ahead track boundary - see
+// `pendingTrackBoundaries`'s doc comment - up to ~60s after tuning in on
+// a session with a large pre-buffered lead), this is known the instant
+// Hello arrives and never changes for the life of a tune: a station's
+// negotiated codec is fixed for the whole session (mirrors
+// `charnel::radio_commands::maybe_spawn_mpv_sink`'s own `codec.starts_with
+// ("video/")` gate, which correctly uses this same signal rather than
+// per-track `kind` for the identical reason). UI that needs to know
+// "should a video panel exist for this session" should read THIS, not
+// `nowPlaying()?.kind` - the per-track kind is still correct for
+// title/history display (which must track exactly what's audible right
+// now), just wrong for "does this station have real video frames at
+// all" (a mixed `audio_or_video` station synthesizes a still-image video
+// track even for a plain song - see `broadcaster.rs`'s
+// `synthesize_still_video` - so even a `kind: "song"` track still has
+// real video frames worth showing).
+const [negotiatedCodec, setNegotiatedCodec] = createSignal<string | null>(null);
 // resolved remote_server_id for the currently-tuned peer (used by the player
 // bar to fetch the waveform blob from the right backend). null while
 // resolving or when no matching remote is configured locally.
@@ -341,6 +366,20 @@ export const radioModeCapabilities = modeCapabilities;
 export const radioTimelineSeedActive = timelineSeedActive;
 export const radioTimelineSnapshot = timelineSnapshot;
 export const radioUseTimelineMode = useTimelineMode;
+/** the current tune's negotiated MSE codec from Hello, or `null` before
+ *  Hello arrives / when idle. `true` for `radioHasVideoCapability` below
+ *  is the usual thing UI actually wants - see `negotiatedCodec`'s own
+ *  doc comment for why this (not `radioNowPlaying()?.kind`) is the
+ *  correct signal for "does this session have real video frames to
+ *  show", and why it's available far sooner. */
+export const radioNegotiatedCodec = negotiatedCodec;
+/** true once this tune's Hello has confirmed a video-capable codec.
+ *  `false` (not `null`/unknown) before Hello arrives or when idle - a UI
+ *  gate reading this doesn't need a separate "codec not known yet"
+ *  branch, since "no confirmed video capability" is the correct default
+ *  either way. */
+export const radioHasVideoCapability = (): boolean =>
+  negotiatedCodec()?.startsWith("video/") ?? false;
 
 // true whenever the player bar shows radio playback state (connecting,
 // playing, paused, or a station queued up) - used by list views to reserve
@@ -611,12 +650,25 @@ export function radioPause(): void {
       console.warn("[radio] pause: player audio pause threw:", e);
     }
   }
-  // remember enough to resume.
+  // remember enough to resume - including where to pick back up if the
+  // broadcaster has already given up on this track by the time we
+  // reconnect (see `TuneOptions.resumeHint`'s doc comment). no hint when
+  // nothing real was actually playing (an idle/interstitial card has no
+  // `song_id`) - there's nothing meaningful to resume into.
+  const np = nowPlaying();
+  const songId = np?.song_id?.trim();
   pausedContext = {
     peerAddr: activeSession.peerAddr,
     stationId: activeSession.stationId,
     stationName: activeSession.stationName,
     isLocal: activeSession.isLocal,
+    resumeHint: songId
+      ? {
+          kind: np?.kind === "video" ? "video" : "song",
+          item_id: songId,
+          position_seconds: elapsedMs() / 1000,
+        }
+      : null,
   };
   const session = activeSession;
   activeSession = null;
@@ -641,9 +693,13 @@ export function radioPause(): void {
 }
 
 /**
- * resume after `radioPause()`. re-tunes to the same station; the
- * server-assigned position is the new live edge (live radio doesn't
- * rewind). no-op when not paused.
+ * resume after `radioPause()`. re-tunes to the same station - if the
+ * broadcaster is still within its short freeze window (or never lost
+ * every listener in the first place), this lands exactly back where
+ * playback was paused; if it already gave up and went idle, the
+ * resume hint tells it to cold-start the same track at the same
+ * position instead of picking something new (see `TuneOptions.
+ * resumeHint`'s doc comment). no-op when not paused.
  */
 export function radioResume(): void {
   if (status() !== "paused") return;
@@ -657,6 +713,7 @@ export function radioResume(): void {
     stationId: ctx.stationId ?? undefined,
     stationName: ctx.stationName ?? undefined,
     isLocal: ctx.isLocal,
+    resumeHint: ctx.resumeHint ?? undefined,
   }).catch((e) => {
     console.warn("[radio] resume re-tune failed:", e);
   });
@@ -703,6 +760,7 @@ export function leaveRadio(): void {
     setModeCapabilities([]);
     setTimelineSeedActive(false);
     setTimelineSnapshot(null);
+    setNegotiatedCodec(null);
     // reset timeline mode back to the MSE-availability baseline so a
     // subsequent tune to a different station isn't stuck in timeline mode
     // just because the previous one had poor network or forced it.
@@ -776,6 +834,17 @@ interface TuneOptions {
   preservePlayback?: boolean;
   /** internal: mark auto-reconnect retunes for diagnostics. */
   autoReconnect?: boolean;
+  /** set by `radioResume()` - tells the broadcaster where this listener
+   *  would like to pick back up, for the case where it already gave up
+   *  on that track and went idle (see `ResumeHint`'s own doc comment in
+   *  `@freqhole/api-client`). only honored server-side when the station
+   *  is actually idle at this moment; otherwise ignored. */
+  resumeHint?: RadioResumeHint;
+  /** whether this station accepts listener requests - threaded through
+   *  to the persisted `RadioStationRef` (see its own doc comment) purely
+   *  so a later app startup can decide whether to auto-resume the
+   *  "ready to resume" card for it. doesn't affect this tune itself. */
+  acceptsRequests?: boolean;
 }
 
 function shouldRecordRadioHistoryEntry(np: PublicNowPlaying, songId: string | null): boolean {
@@ -1033,6 +1102,14 @@ export async function tuneIntoRadio(
         ? "ManagedMediaSource"
         : "MediaSource"
   );
+  // this attempt's OWN blob url (classic MediaSource path only) -
+  // captured here rather than read back later via `audio.src`, since
+  // `audio` is the shared, persistent sink element: by the time a
+  // stale/superseded attempt's error-handling code runs (possibly a
+  // long time later - see the `catch` block below), `audio.src` may
+  // already belong to a NEWER attempt, and revoking/clearing THAT
+  // would be the exact bug this capture avoids.
+  let ownObjectUrl: string | null = null;
   if (ms) {
     if (usingManagedMediaSource) {
       // WebKit requires remote playback (AirPlay) be disabled - or an
@@ -1048,9 +1125,39 @@ export async function tuneIntoRadio(
         canStream = false;
       });
     } else {
-      audio.src = URL.createObjectURL(ms);
+      ownObjectUrl = URL.createObjectURL(ms);
+      audio.src = ownObjectUrl;
     }
   }
+
+  /** cleans up this attempt's own MediaSource resources on any failure
+   *  path (sourceopen timeout, superseded-while-waiting, tune_radio
+   *  rejection, ...) - only touches the SHARED `audio` sink element
+   *  when this attempt is still the active one. a stale/superseded
+   *  attempt must never clear/reload it, since doing so tears down
+   *  whatever NEWER, genuinely-active MediaSource/SourceBuffer the
+   *  element is currently serving - confirmed as a real bug (an
+   *  `InvalidStateError` flood that broke an otherwise-healthy,
+   *  already-playing session; see docs/backlog-video.md's bugfix
+   *  writeup). a stale attempt still revokes its OWN blob url (if
+   *  any) - it was never visible to anything else, and leaving it
+   *  un-revoked would leak for the rest of the document's lifetime
+   *  (blob urls aren't garbage-collected on their own). shared by
+   *  every failure path in this function rather than duplicated
+   *  per-site. */
+  const cleanupFailedTune = () => {
+    if (isActiveTune()) {
+      if (usingManagedMediaSource) {
+        (audio as HTMLMediaElement & { srcObject?: MediaProvider | null }).srcObject = null;
+      } else if (ms) {
+        if (ownObjectUrl) URL.revokeObjectURL(ownObjectUrl);
+        audio.removeAttribute("src");
+      }
+      audio.load();
+    } else if (!usingManagedMediaSource && ownObjectUrl) {
+      URL.revokeObjectURL(ownObjectUrl);
+    }
+  };
 
   let sb: SourceBuffer | null = null;
   // set by applyHello once the real Hello message arrives - the fallback
@@ -1477,27 +1584,17 @@ export async function tuneIntoRadio(
       `[radio] sourceopen ${sourceopenFired ? "fired" : "TIMED OUT waiting"} after ${Date.now() - sourceopenStartedAtMs}ms (usingManagedMediaSource: ${usingManagedMediaSource})`
     );
     if (!sourceopenFired) {
-      batch(() => {
-        setStatus("error");
-        setError("MediaSource never opened (sourceopen timed out) - see console");
-      });
-      if (usingManagedMediaSource) {
-        (audio as HTMLMediaElement & { srcObject?: MediaProvider | null }).srcObject = null;
-      } else {
-        URL.revokeObjectURL(audio.src);
-        audio.removeAttribute("src");
+      if (isActiveTune()) {
+        batch(() => {
+          setStatus("error");
+          setError("MediaSource never opened (sourceopen timed out) - see console");
+        });
       }
-      audio.load();
+      cleanupFailedTune();
       throw new Error("radio tune aborted: MediaSource sourceopen never fired");
     }
     if (!isActiveTune()) {
-      if (usingManagedMediaSource) {
-        (audio as HTMLMediaElement & { srcObject?: MediaProvider | null }).srcObject = null;
-      } else {
-        URL.revokeObjectURL(audio.src);
-        audio.removeAttribute("src");
-      }
-      audio.load();
+      cleanupFailedTune();
       throw new Error("radio tune superseded by a newer attempt");
     }
     // NOTE: addSourceBuffer is deliberately NOT called here - it needs the
@@ -2327,6 +2424,7 @@ export async function tuneIntoRadio(
         const codec =
           typeof msg?.codec === "string" && msg.codec.trim() ? msg.codec.trim() : MSE_CODEC;
         helloCodec = codec;
+        setNegotiatedCodec(codec);
         try {
           sb = ms.addSourceBuffer(codec);
           // sequence mode rewrites segment timestamps so cross-track +
@@ -2652,10 +2750,24 @@ export async function tuneIntoRadio(
   }, 3000);
   try {
     handle = useLocal
-      ? await tuneRadioCharnelLocal(opts.stationId, applyHello, applyMeta, onChunk)
+      ? await tuneRadioCharnelLocal(opts.stationId, opts.resumeHint, applyHello, applyMeta, onChunk)
       : useCharnel
-        ? await tuneRadioCharnel(peerAddr, opts.stationId, applyHello, applyMeta, onChunk)
-        : await node!.tune_radio(peerAddr, opts.stationId, applyHello, applyMeta, onChunk);
+        ? await tuneRadioCharnel(
+            peerAddr,
+            opts.stationId,
+            opts.resumeHint,
+            applyHello,
+            applyMeta,
+            onChunk
+          )
+        : await node!.tune_radio(
+            peerAddr,
+            opts.stationId,
+            opts.resumeHint ? JSON.stringify(opts.resumeHint) : undefined,
+            applyHello,
+            applyMeta,
+            onChunk
+          );
     console.info(`[radio] tune_radio resolved after ${Date.now() - tuneCallStartedAtMs}ms`);
     setConnectPhase("waiting for stream data\u2026");
     if (!isActiveTune()) {
@@ -2674,13 +2786,7 @@ export async function tuneIntoRadio(
         setError(`tune failed: ${e}`);
       });
     }
-    if (usingManagedMediaSource) {
-      (audio as HTMLMediaElement & { srcObject?: MediaProvider | null }).srcObject = null;
-    } else if (ms) {
-      URL.revokeObjectURL(audio.src);
-      audio.removeAttribute("src");
-    }
-    audio.load();
+    cleanupFailedTune();
     throw e;
   } finally {
     window.clearInterval(tuneHeartbeat);
@@ -2771,6 +2877,7 @@ export async function tuneIntoRadio(
     station_id: opts.stationId ?? undefined,
     station_name: opts.stationName ?? "(untitled station)",
     is_local: useLocal,
+    accepts_requests: opts.acceptsRequests ?? false,
   };
   void setCurrentRadioStationPersisted(stationRef);
 

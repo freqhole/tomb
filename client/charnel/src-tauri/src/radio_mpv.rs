@@ -1,6 +1,19 @@
-//! native mpv playback for a video-capable radio station, used when the
-//! "experimental player" (`use_libmpv_playback`) config is on - an
+//! native mpv playback for a video-capable radio station - an
 //! alternative to the browser's own `<video>`+MediaSource element.
+//!
+//! **currently disabled / unreachable**: `radio_commands.rs`'s
+//! `maybe_spawn_mpv_sink` always returns `None` now, regardless of the
+//! `use_libmpv_playback` config - this path caused real, confirmed bugs
+//! (mpv windows piling up on reconnect, orphaned on app quit - see
+//! docs/backlog-video.md's bugfix writeup) and was never fully validated
+//! to begin with, while the browser MSE path is now confirmed working
+//! end-to-end for video-capable stations. kept in the tree (not deleted)
+//! in case this is revisited later - `#![allow(dead_code)]` below
+//! suppresses the resulting warnings in the meantime. `kill_all_now()`
+//! (in `RadioMpvPlayer`'s pid-tracking) is still live/called from
+//! `radio_commands.rs`'s singleton handoff and `lib.rs`'s shutdown
+//! handler - both are no-ops now (nothing ever spawns), but are left
+//! wired in case this module is ever re-enabled.
 //!
 //! mirrors rathole's already-working radio playback
 //! (`client/rathole/src/tty/radio.rs` + `tty/video_player.rs`) closely:
@@ -17,14 +30,18 @@
 //!
 //! `#[cfg(unix)]`: named pipes are a posix concept with no windows
 //! equivalent, mirroring rathole's own platform split.
+#![allow(dead_code)]
 
 #![cfg(unix)]
 
+use std::collections::HashSet;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use nix::sys::signal::{kill, Signal};
+use nix::unistd::Pid;
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
@@ -35,6 +52,49 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const CONNECT_RETRY_INTERVAL: Duration = Duration::from_millis(25);
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+
+/// pids of every currently-live `RadioMpvPlayer` subprocess, registered
+/// on spawn and deregistered on drop. deliberately separate from the
+/// normal `kill_on_drop` cleanup path (which only runs once the owning
+/// `RadioMpvSink`/task actually drops, cooperatively, on its own
+/// schedule) - two call sites need to force-kill every tracked mpv
+/// RIGHT NOW, synchronously, without waiting on that:
+///
+/// - `radio_tune`'s singleton handoff (a new tune must not let the
+///   previous session's mpv linger even a moment, since a slow/stuck
+///   old session was exactly how multiple windows piled up - see
+///   docs/backlog-video.md's writeup of this bug)
+/// - charnel's `RunEvent::Exit` shutdown (relying on a background
+///   tokio task getting scheduled before the runtime itself tears down
+///   is not guaranteed, unlike a plain synchronous `Drop`)
+static LIVE_PIDS: Mutex<Option<HashSet<u32>>> = Mutex::new(None);
+
+fn live_pids() -> std::sync::MutexGuard<'static, Option<HashSet<u32>>> {
+    let mut guard = LIVE_PIDS.lock().unwrap_or_else(|p| p.into_inner());
+    if guard.is_none() {
+        *guard = Some(HashSet::new());
+    }
+    guard
+}
+
+/// force-kills (SIGKILL) every currently-tracked radio mpv subprocess
+/// right now, synchronously - does not wait on or depend on any async
+/// task's cooperative cancellation/drop path. safe to call even with
+/// zero live processes (no-op). a killed pid's own eventual `Child`
+/// drop (whenever its owning task actually gets scheduled) just finds
+/// an already-exited process and no-ops, so this never races badly with
+/// the normal cleanup path - at worst both try to kill the same
+/// already-dead pid.
+pub fn kill_all_now() {
+    let pids: Vec<u32> = live_pids()
+        .as_ref()
+        .map(|s| s.iter().copied().collect())
+        .unwrap_or_default();
+    for pid in pids {
+        tracing::info!(pid, "[radio-mpv] force-killing lingering mpv subprocess");
+        let _ = kill(Pid::from_raw(pid as i32), Signal::SIGKILL);
+    }
+}
 
 fn unique_temp_path(prefix: &str) -> std::path::PathBuf {
     let n = NEXT_ID.fetch_add(1, Ordering::Relaxed);
@@ -49,9 +109,13 @@ fn unique_temp_path(prefix: &str) -> std::path::PathBuf {
 /// socket - kept alive for the duration of a single radio session (the
 /// caller owns it and drops it on session end; `kill_on_drop(true)` on
 /// spawn means the process actually exits when that happens, mirroring
-/// the fix rathole's own `MpvPlayer` needed for the same reason).
+/// the fix rathole's own `MpvPlayer` needed for the same reason). also
+/// registered in `LIVE_PIDS` so `kill_all_now()` can force-kill it
+/// without depending on that cooperative drop path ever running - see
+/// this module's top doc comment for why both exist.
 pub struct RadioMpvPlayer {
     _child: Child,
+    pid: u32,
     write_half: AsyncMutex<tokio::net::unix::OwnedWriteHalf>,
 }
 
@@ -81,6 +145,11 @@ impl RadioMpvPlayer {
             .spawn()
             .map_err(|e| format!("failed to spawn mpv: {e}"))?;
 
+        let pid = child
+            .id()
+            .ok_or_else(|| "mpv child has no pid (already exited?)".to_string())?;
+        live_pids().as_mut().unwrap().insert(pid);
+
         if let Some(stdout) = child.stdout.take() {
             tokio::spawn(log_output(stdout, "stdout"));
         }
@@ -98,6 +167,7 @@ impl RadioMpvPlayer {
 
         Ok(Arc::new(Self {
             _child: child,
+            pid,
             write_half: AsyncMutex::new(write_half),
         }))
     }
@@ -120,6 +190,18 @@ impl RadioMpvPlayer {
         w.write_all(&line)
             .await
             .map_err(|e| format!("mpv ipc write failed: {e}"))
+    }
+}
+
+impl Drop for RadioMpvPlayer {
+    fn drop(&mut self) {
+        // bookkeeping only - the actual process kill is `_child`'s own
+        // `kill_on_drop`, which fires right after this via normal struct
+        // field drop order. just keeps `LIVE_PIDS` from accumulating
+        // stale entries for processes that exited the normal way.
+        if let Some(set) = live_pids().as_mut() {
+            set.remove(&self.pid);
+        }
     }
 }
 

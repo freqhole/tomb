@@ -6,9 +6,23 @@ const radioListRequests = vi.fn();
 const radioRemoveRequest = vi.fn(async () => ({ success: true, data: null }) as unknown);
 const radioClearRequests = vi.fn(async () => ({ success: true, data: null }));
 const radioReorderRequest = vi.fn(async () => ({ success: true, data: null }));
+// default: no live events ever arrive - resolves (ends the generator)
+// once aborted, same contract a real transport's subscribe() has on
+// cleanup. individual tests override this via `radioQueueEventsSubscribe`
+// to feed in `RadioQueueEvent`s and assert the hook applies them.
+const radioQueueEventsSubscribe = vi.fn(
+  (_filter: unknown, signal?: AbortSignal): AsyncGenerator<unknown, void, void> =>
+    (async function* () {
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) return resolve();
+        signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+    })()
+);
 vi.mock("../../app/api/client", () => ({
   getClientForRemote: async () => ({
     app: { radioListRequests, radioRemoveRequest, radioClearRequests, radioReorderRequest },
+    radioQueue: { events: { subscribe: radioQueueEventsSubscribe } },
   }),
 }));
 
@@ -50,6 +64,46 @@ function withRoot<T>(fn: () => T): { result: T; dispose: () => void } {
     result = fn();
   });
   return { result, dispose };
+}
+
+/**
+ * a manually-driven async iterable for simulating a live
+ * `RadioQueueEvent` subscription in tests - `push()` enqueues an event
+ * for the hook's `for await` loop to pick up, and the generator ends
+ * (same contract a real transport's `subscribe()` has) once `signal`
+ * aborts.
+ */
+function pushableEventStream<T>(signal?: AbortSignal) {
+  const queue: T[] = [];
+  let wake: (() => void) | null = null;
+  let aborted = signal?.aborted ?? false;
+  signal?.addEventListener(
+    "abort",
+    () => {
+      aborted = true;
+      wake?.();
+    },
+    { once: true }
+  );
+  async function* iterable(): AsyncGenerator<T, void, void> {
+    while (true) {
+      if (queue.length > 0) {
+        yield queue.shift()!;
+        continue;
+      }
+      if (aborted) return;
+      await new Promise<void>((resolve) => {
+        wake = resolve;
+      });
+    }
+  }
+  return {
+    push: (item: T) => {
+      queue.push(item);
+      wake?.();
+    },
+    iterable: iterable(),
+  };
 }
 
 afterEach(() => {
@@ -159,6 +213,73 @@ describe("useRadioRequestQueue", () => {
       request_id: "c",
     });
     expect(result.rows().map((r) => r.id)).toEqual(["c"]);
+    dispose();
+  });
+
+  it("applies live RadioQueueEvents (Submitted/Reordered/Removed/Cleared) to rows", async () => {
+    radioListRequests.mockResolvedValue({
+      success: true,
+      data: { requests: [row({ id: "a", item_id: "song-a" })] },
+    });
+    let pusher!: ReturnType<typeof pushableEventStream<unknown>>;
+    radioQueueEventsSubscribe.mockImplementationOnce((_filter: unknown, signal?: AbortSignal) => {
+      pusher = pushableEventStream(signal);
+      return pusher.iterable;
+    });
+    const { result, dispose } = withRoot(() =>
+      useRadioRequestQueue({ stationId: () => "station-1", remoteRef: () => remoteRef })
+    );
+    await vi.waitFor(() => expect(result.rows().map((r) => r.id)).toEqual(["a"]));
+
+    // Submitted - appends the new row using the event's own embedded
+    // metadata, no extra fetch.
+    pusher.push({
+      kind: "Submitted",
+      station_id: "station-1",
+      request: row({ id: "b", item_id: "song-b", title: "b song" }),
+    });
+    await vi.waitFor(() => expect(result.rows().map((r) => r.id)).toEqual(["a", "b"]));
+    expect(result.rows()[1]).toMatchObject({ id: "b", title: "b song" });
+
+    // Reordered - moves "b" to the front.
+    pusher.push({ kind: "Reordered", station_id: "station-1", request_id: "b", new_index: 0 });
+    await vi.waitFor(() => expect(result.rows().map((r) => r.id)).toEqual(["b", "a"]));
+
+    // Removed - "a" disappears without any server round-trip from here.
+    pusher.push({ kind: "Removed", station_id: "station-1", request_id: "a" });
+    await vi.waitFor(() => expect(result.rows().map((r) => r.id)).toEqual(["b"]));
+
+    // Cleared - empties the queue.
+    pusher.push({ kind: "Cleared", station_id: "station-1" });
+    await vi.waitFor(() => expect(result.rows()).toHaveLength(0));
+
+    dispose();
+  });
+
+  it("ignores a Submitted event for a request id it already has (de-dupes against a concurrent load())", async () => {
+    radioListRequests.mockResolvedValue({
+      success: true,
+      data: { requests: [row({ id: "a", item_id: "song-a" })] },
+    });
+    let pusher!: ReturnType<typeof pushableEventStream<unknown>>;
+    radioQueueEventsSubscribe.mockImplementationOnce((_filter: unknown, signal?: AbortSignal) => {
+      pusher = pushableEventStream(signal);
+      return pusher.iterable;
+    });
+    const { result, dispose } = withRoot(() =>
+      useRadioRequestQueue({ stationId: () => "station-1", remoteRef: () => remoteRef })
+    );
+    await vi.waitFor(() => expect(result.rows().map((r) => r.id)).toEqual(["a"]));
+
+    pusher.push({
+      kind: "Submitted",
+      station_id: "station-1",
+      request: row({ id: "a", item_id: "song-a" }),
+    });
+    // give the microtask queue a tick to (not) apply the duplicate.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(result.rows().map((r) => r.id)).toEqual(["a"]);
     dispose();
   });
 });

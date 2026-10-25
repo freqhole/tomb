@@ -23,7 +23,10 @@ pub use admin_iroh::AdminProtocol;
 pub use admin_protocol::{AdminMessage, ADMIN_ALPN};
 pub use connection::{ApiResponse, BlobStreamInfo, EnsureBlobOutcome, PeerConnection};
 pub use endpoint::{active_outgoing_transfers, ActiveOutgoingTransfer, FederationEndpoint};
-pub use events_client::{snapshot_events_remote, subscribe_events_remote, EventsRemoteStream};
+pub use events_client::{
+    snapshot_events_remote, subscribe_events_remote, subscribe_radio_queue_events_remote,
+    EventsRemoteStream,
+};
 pub use events_protocol::{EventsClientMsg, EventsProtocol, EventsServerMsg, EVENTS_ALPN};
 pub use freqhole_protocol::FreqholeProtocol;
 pub use handler::handle_incoming;
@@ -38,7 +41,7 @@ use crate::config::get_config;
 use crate::error::GrimoireResult;
 use crate::radio::{self, RadioProtocol, RADIO_ALPN};
 use crate::users::UserService;
-use tracing::{info, warn};
+use tracing::info;
 
 /// check to allow incoming P2P connections
 ///
@@ -78,20 +81,11 @@ async fn should_accept_incoming() -> bool {
 pub async fn start_federation_endpoint() -> GrimoireResult<FederationEndpoint> {
     let mut endpoint = FederationEndpoint::new().await?;
 
-    // radio is independent of federation auth/knock logic: if enabled, spin up
-    // broadcasters at startup and always attach RADIO_ALPN so future runtime
-    // enable/disable toggles don't require a process restart.
-    let radio_enabled = radio::config::effective().enabled;
-    if radio_enabled {
-        if let Err(e) = radio::init_broadcaster().await {
-            warn!(
-                "failed to init radio broadcasters at federation startup: {}; radio listeners may fail until supervisor restart",
-                e
-            );
-        } else {
-            info!("[radio] broadcaster registry initialized");
-        }
-    }
+    // radio is independent of federation auth/knock logic: always attach
+    // RADIO_ALPN below so future runtime enable/disable toggles don't
+    // require a process restart; this just spins up the broadcaster
+    // registry now if it's already enabled.
+    radio::init_broadcaster_if_enabled().await;
 
     // check if should accept incoming connections
     if should_accept_incoming().await {

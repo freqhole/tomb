@@ -198,13 +198,7 @@ pub async fn init_p2p_client(config_path: &Path) -> Result<(), String> {
     // until the operator flips the toggle (which calls init_registry
     // dynamically — broadcasters can come and go without a restart
     // because the RADIO_ALPN handler is always attached below).
-    if radio_enabled {
-        if let Err(e) = grimoire::radio::init_broadcaster().await {
-            tracing::warn!(error = %e, "failed to init radio broadcasters; radio disabled for this session");
-        } else {
-            tracing::info!("[radio] broadcaster registry initialized");
-        }
-    }
+    grimoire::radio::init_broadcaster_if_enabled().await;
 
     // always start router on charnel — the app needs to accept incoming
     // blob download requests from remote peers (iroh-blobs pull model).

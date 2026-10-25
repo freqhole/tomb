@@ -594,11 +594,24 @@ bump-version:
 
 # database commands (from grimoire)
 .PHONY: db-reset db-migrate db-prepare
+# resets grimoire's own db AND haruspex's/reliquary's sibling dbs
+# together, not just grimoire's. they're separate sqlite files under
+# the same data dir, but haruspex's identity rows are keyed off a
+# deterministic hash of grimoire's user ids (see
+# grimoire/src/users/haruspex_bridge.rs) - resetting only grimoire.db
+# leaves orphaned haruspex identityz rows behind (old user id -> old
+# derived identity id, which no longer matches anything), and since
+# identityz's username unique index isn't scoped to non-deleted rows,
+# an orphan can permanently block that username from ever getting a
+# fresh identity again ("UNIQUE constraint failed: identityz.username").
 db-reset:
 	@echo "resetting database..."
 	@DB_PATH=$(shell echo $(DATABASE_URL) | sed 's|sqlite:||'); \
 		BLOB_DB=$$(echo $$DB_PATH | sed 's|\.db$$|-blobdata.db|'); \
-		rm -f "$$DB_PATH" "$$BLOB_DB"
+		DATA_DIR=$$(dirname "$$DB_PATH"); \
+		rm -f "$$DB_PATH" "$$DB_PATH"-shm "$$DB_PATH"-wal "$$BLOB_DB"; \
+		rm -f "$$DATA_DIR/haruspex.db" "$$DATA_DIR/haruspex.db"-shm "$$DATA_DIR/haruspex.db"-wal; \
+		rm -f "$$DATA_DIR/reliquary.db" "$$DATA_DIR/reliquary.db"-shm "$$DATA_DIR/reliquary.db"-wal
 	$(MAKE) db-migrate
 
 db-migrate:

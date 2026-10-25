@@ -104,8 +104,8 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
             })?;
 
     // 2. read Tune; pick broadcaster by station_id (or default).
-    let requested_station = match read_control_message(&mut ctrl_recv).await? {
-        Some(ControlMessage::Tune(t)) => t.station_id,
+    let tune_msg = match read_control_message(&mut ctrl_recv).await? {
+        Some(ControlMessage::Tune(t)) => t,
         Some(other) => {
             return Err(GrimoireError::FederationApiError {
                 message: format!("radio: expected Tune, got {other:?}"),
@@ -117,6 +117,7 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
             });
         }
     };
+    let requested_station = tune_msg.station_id;
 
     let bc =
         match requested_station.as_deref() {
@@ -200,7 +201,12 @@ async fn run_session(conn: &Connection) -> GrimoireResult<()> {
     }
     let station_codec = station_row.map(|s| s.codec);
 
-    // 3. subscribe + send Hello.
+    // 3. subscribe + send Hello. register any resume hint BEFORE join()
+    // so `set_pending_resume_if_idle` sees the true pre-join idle state
+    // (see its own doc comment for why that ordering matters).
+    if let Some(hint) = tune_msg.resume_hint {
+        bc.set_pending_resume_if_idle(hint);
+    }
     let _guard = ListenerGuard::new(bc.clone());
     let listener_count = bc.listener_count();
     let mut sub = bc.subscribe().await;

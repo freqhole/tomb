@@ -5,7 +5,14 @@
 // uses Tauri's asset protocol for blob/audio file access (no HTTP streaming).
 
 import type { Transport, TransportResponse, BlobData, UploadMetadata } from "./transport.js";
-import type { CloseReason, EventFilter, JobEvent, JobStateSnapshot } from "./codegen/schema.js";
+import type {
+  CloseReason,
+  EventFilter,
+  JobEvent,
+  JobStateSnapshot,
+  RadioQueueEvent,
+  RadioQueueEventFilter,
+} from "./codegen/schema.js";
 import { bytesToBase64 } from "./base64.js";
 
 // tauri invoke function type
@@ -521,6 +528,21 @@ export class CharnelLocalTransport implements Transport {
   subscribeJobEvents(filter?: EventFilter, signal?: AbortSignal): AsyncIterable<JobEvent> {
     return charnelJobEventsIterable(filter, signal);
   }
+
+  // -----------------------------------------------------------------
+  // radio queue events (local ipc shortcut)
+  //
+  // same shape as the job-events shortcut above, minus the snapshot
+  // command - `radio_list_requests` already works transparently here,
+  // so only the live-push half needs a dedicated command.
+  // -----------------------------------------------------------------
+
+  subscribeRadioQueueEvents(
+    filter: RadioQueueEventFilter,
+    signal?: AbortSignal,
+  ): AsyncIterable<RadioQueueEvent> {
+    return charnelRadioQueueEventsIterable(filter, signal);
+  }
 }
 
 /**
@@ -651,5 +673,102 @@ export class JobEventsStreamClosed extends Error {
     const kind = (reason as { kind: string }).kind ?? "internal";
     super(`job events stream closed: ${kind}`);
     this.name = "JobEventsStreamClosed";
+  }
+}
+
+// =====================================================================
+// radio queue events iterator (tauri channel -> async iterable adapter)
+// =====================================================================
+
+/**
+ * frame shape emitted by the rust-side `RadioQueueEventsFrame`. same
+ * shape as `JobsEventsFrame` above, carrying a `RadioQueueEvent`
+ * payload instead.
+ */
+type RadioQueueEventsFrame =
+  | { kind: "event"; evt: RadioQueueEvent }
+  | { kind: "closed"; reason: CloseReason };
+
+async function* charnelRadioQueueEventsIterable(
+  filter: RadioQueueEventFilter,
+  signal: AbortSignal | undefined,
+): AsyncGenerator<RadioQueueEvent, void, void> {
+  const inv = await ensureInvoke();
+  const { Channel } = await import("@tauri-apps/api/core");
+
+  const queue: RadioQueueEventsFrame[] = [];
+  let wake: (() => void) | null = null;
+  let closed = false;
+  const waitForFrame = () =>
+    new Promise<void>((resolve) => {
+      wake = () => {
+        wake = null;
+        resolve();
+      };
+    });
+
+  const channel = new Channel<RadioQueueEventsFrame>();
+  channel.onmessage = (frame: RadioQueueEventsFrame) => {
+    queue.push(frame);
+    if (frame.kind === "closed") closed = true;
+    wake?.();
+  };
+
+  let sessionId: string;
+  try {
+    sessionId = (await inv("radio_queue_events_subscribe", {
+      filter,
+      events: channel,
+    })) as string;
+  } catch (err) {
+    throw err instanceof Error ? err : new Error(String(err));
+  }
+
+  const onAbort = () => {
+    closed = true;
+    inv("radio_queue_events_unsubscribe", { sessionId }).catch(() => {});
+    wake?.();
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
+
+  try {
+    while (true) {
+      if (queue.length === 0) {
+        if (closed) return;
+        if (signal?.aborted) return;
+        await waitForFrame();
+        continue;
+      }
+      const frame = queue.shift()!;
+      if (frame.kind === "closed") {
+        const reasonKind = (frame.reason as { kind: string }).kind ?? "internal";
+        if (reasonKind === "client_unsubscribed") return;
+        throw new RadioQueueEventsStreamClosed(frame.reason);
+      }
+      yield frame.evt;
+    }
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+    if (!closed) {
+      try {
+        await inv("radio_queue_events_unsubscribe", { sessionId });
+      } catch {
+        // session may have already been torn down server-side; nothing
+        // to do.
+      }
+    }
+  }
+}
+
+/**
+ * thrown by the subscribe iterator on any non-`client_unsubscribed`
+ * `CloseReason`. exported so consumers can `instanceof`-check before
+ * deciding to reconnect - same precedent as `JobEventsStreamClosed`.
+ */
+export class RadioQueueEventsStreamClosed extends Error {
+  constructor(public readonly reason: CloseReason) {
+    const kind = (reason as { kind: string }).kind ?? "internal";
+    super(`radio queue events stream closed: ${kind}`);
+    this.name = "RadioQueueEventsStreamClosed";
   }
 }

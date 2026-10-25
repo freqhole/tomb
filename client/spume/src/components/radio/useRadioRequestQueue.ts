@@ -14,12 +14,13 @@
 // hook is invoked and never update again. accessors keep both call
 // styles (a genuine component wrapping its own reactive props in
 // `() => props.x`, or a plain reactive signal) working identically.
-import { createEffect, createSignal, on, type Accessor } from "solid-js";
+import { createEffect, createSignal, on, onCleanup, type Accessor } from "solid-js";
 import { getClientForRemote } from "../../app/api/client";
 import type { RemoteRef } from "../../app/services/storage/types";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import { toast } from "../feedback/Toast";
-import { debug, warn } from "../../utils/logger";
+import { debug, warn, error as errorLog } from "../../utils/logger";
+import { RadioQueueEventsStreamClosed, type RadioQueueEvent } from "@freqhole/api-client";
 
 export interface RadioRequestRow {
   id: string;
@@ -57,6 +58,34 @@ export function useRadioRequestQueue(props: UseRadioRequestQueueProps) {
   const [thumbUrls, setThumbUrls] = createSignal<Record<string, string>>({});
   const resolvingThumbIds = new Set<string>();
 
+  /** maps the wire shape (`radio_list_requests`' response rows, or a
+   *  `Submitted` event's embedded `request`) to this hook's own row
+   *  shape - shared by `load()` and the live subscription below so
+   *  there's exactly one place that knows the field-name mapping. */
+  const toRow = (r: {
+    id: string;
+    kind: string;
+    item_id: string;
+    requested_by: string;
+    requested_by_username?: string | null;
+    title: string;
+    artist?: string | null;
+    album?: string | null;
+    duration_ms?: number | null;
+    art_blob_id?: string | null;
+  }): RadioRequestRow => ({
+    id: r.id,
+    kind: r.kind,
+    itemId: r.item_id,
+    requestedBy: r.requested_by,
+    requestedByUsername: r.requested_by_username ?? null,
+    title: r.title,
+    artist: r.artist ?? null,
+    album: r.album ?? null,
+    durationMs: r.duration_ms ?? null,
+    artBlobId: r.art_blob_id ?? null,
+  });
+
   const load = async () => {
     const stationId = props.stationId();
     if (!stationId) {
@@ -72,26 +101,108 @@ export function useRadioRequestQueue(props: UseRadioRequestQueueProps) {
         setRows([]);
         return;
       }
-      setRows(
-        result.data.requests.map((r) => ({
-          id: r.id,
-          kind: r.kind,
-          itemId: r.item_id,
-          requestedBy: r.requested_by,
-          requestedByUsername: r.requested_by_username ?? null,
-          title: r.title,
-          artist: r.artist ?? null,
-          album: r.album ?? null,
-          durationMs: r.duration_ms ?? null,
-          artBlobId: r.art_blob_id ?? null,
-        }))
-      );
+      setRows(result.data.requests.map(toRow));
     } catch (err) {
       debug("radio-queue", "failed to load queue:", err);
       setRows([]);
     } finally {
       setLoading(false);
     }
+  };
+
+  /** applies one live `RadioQueueEvent` to `rows` in place - no
+   *  server round-trip, since the event already carries everything
+   *  needed (full metadata for `Submitted`, bare ids for the rest). */
+  const applyEvent = (evt: RadioQueueEvent) => {
+    switch (evt.kind) {
+      case "Submitted": {
+        const row = toRow(evt.request);
+        setRows((prev) => (prev.some((r) => r.id === row.id) ? prev : [...prev, row]));
+        break;
+      }
+      case "Removed": {
+        setRows((prev) => prev.filter((r) => r.id !== evt.request_id));
+        break;
+      }
+      case "Reordered": {
+        setRows((prev) => {
+          const fromIndex = prev.findIndex((r) => r.id === evt.request_id);
+          if (fromIndex < 0) return prev;
+          const clamped = Math.max(0, Math.min(evt.new_index, prev.length - 1));
+          if (clamped === fromIndex) return prev;
+          const next = [...prev];
+          const [moved] = next.splice(fromIndex, 1);
+          next.splice(clamped, 0, moved);
+          return next;
+        });
+        break;
+      }
+      case "Cleared": {
+        setRows([]);
+        break;
+      }
+    }
+  };
+
+  // live subscription: reconnects with capped exponential backoff on any
+  // recoverable drop (same precedent as jobService.ts's job-tracking
+  // subscription), re-`load()`-ing on every (re)connect to resync past
+  // anything that happened while disconnected, then applying incremental
+  // `RadioQueueEvent`s as they arrive. `abortController` is re-created by
+  // the station/remote-change effect below, which also tears down the
+  // previous one first.
+  const RECONNECT_BASE_MS = 1000;
+  const RECONNECT_MAX_MS = 30_000;
+
+  const subscribeLive = (stationId: string, signal: AbortSignal) => {
+    let reconnectDelay = RECONNECT_BASE_MS;
+    let reconnectTimerId: ReturnType<typeof setTimeout> | undefined;
+
+    const scheduleReconnect = () => {
+      if (signal.aborted) return;
+      const delay = reconnectDelay;
+      reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
+      reconnectTimerId = setTimeout(run, delay);
+    };
+
+    const run = async () => {
+      if (signal.aborted) return;
+      try {
+        // re-snapshot on every (re)connect - a drop could have swallowed
+        // events for anything that changed while we were disconnected.
+        await load();
+        if (signal.aborted) return;
+        const client = await getClientForRemote(props.remoteRef());
+        for await (const evt of client.radioQueue.events.subscribe(
+          { station_id: stationId },
+          signal
+        )) {
+          reconnectDelay = RECONNECT_BASE_MS;
+          applyEvent(evt);
+          if (signal.aborted) return;
+        }
+        // stream ended cleanly (e.g. polling fallback's abort path) -
+        // nothing more to do once aborted; otherwise treat as a drop.
+        if (!signal.aborted) scheduleReconnect();
+      } catch (err) {
+        if (signal.aborted) return;
+        if (err instanceof RadioQueueEventsStreamClosed) {
+          warn("radio-queue", `events stream closed: ${err.reason.kind}, reconnecting`);
+        } else {
+          errorLog("radio-queue", "events subscription error, reconnecting:", err);
+        }
+        scheduleReconnect();
+      }
+    };
+
+    signal.addEventListener(
+      "abort",
+      () => {
+        if (reconnectTimerId) clearTimeout(reconnectTimerId);
+      },
+      { once: true }
+    );
+    void run();
   };
 
   // guarded against `remoteRef()` being reactively re-derived to an
@@ -101,6 +212,12 @@ export function useRadioRequestQueue(props: UseRadioRequestQueueProps) {
   // the server and replaces every row's object identity, which `<For>`
   // then treats as an entirely new list - a "queue blinks" symptom with
   // nothing actually having changed.
+  //
+  // owns the live subscription's lifetime too: every station/remote
+  // change tears down the previous subscription (if any) before
+  // `subscribeLive` kicks off a fresh `load()` + subscribe for the new
+  // station - one `AbortController` per station, not per mount.
+  let liveAbort: AbortController | undefined;
   createEffect(
     on(
       () => {
@@ -115,11 +232,20 @@ export function useRadioRequestQueue(props: UseRadioRequestQueueProps) {
       },
       (deps, prevDeps) => {
         if (prevDeps && deps.every((v, i) => v === prevDeps[i])) return;
-        void load();
+        liveAbort?.abort();
+        liveAbort = undefined;
+        const stationId = props.stationId();
+        if (!stationId) {
+          setRows([]);
+          return;
+        }
+        liveAbort = new AbortController();
+        subscribeLive(stationId, liveAbort.signal);
       },
       { defer: false }
     )
   );
+  onCleanup(() => liveAbort?.abort());
 
   createEffect(
     on(

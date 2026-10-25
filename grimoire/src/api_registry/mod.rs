@@ -528,6 +528,17 @@ pub mod type_registry {
         registered.insert("RadioQueuedRequestInfo".to_string());
         gen.add_schema::<RadioRequestsListResponse>("RadioRequestsListResponse");
         registered.insert("RadioRequestsListResponse".to_string());
+        // radio-queue live-push payloads (freqhole-events/1 ALPN /
+        // tauri bridge / http polling-diff fallback) - not tied to any
+        // single route, so there's no sibling `RouteInfo` entry; codegen
+        // still needs these registered so the TS client can type the
+        // event stream (see client-codegen's `domains/radioQueue.ts`).
+        gen.add_schema::<crate::radio::queue_events::RadioQueueEvent>("RadioQueueEvent");
+        registered.insert("RadioQueueEvent".to_string());
+        gen.add_schema::<crate::radio::queue_events::RadioQueueEventFilter>(
+            "RadioQueueEventFilter",
+        );
+        registered.insert("RadioQueueEventFilter".to_string());
 
         gen.add_schema::<ApiKeyStatusResponse>("ApiKeyStatusResponse");
         registered.insert("ApiKeyStatusResponse".to_string());

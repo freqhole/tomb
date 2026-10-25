@@ -24,6 +24,11 @@ vi.mock("../feedback/Toast", () => ({
   toast: { success: (...a: unknown[]) => toastSuccess(...a), error: (...a: unknown[]) => toastError(...a) },
 }));
 
+const tuneIntoRadio = vi.fn(async (..._args: unknown[]) => ({}) as HTMLVideoElement);
+vi.mock("../../app/services/radio/radioService", () => ({
+  tuneIntoRadio: (...args: unknown[]) => tuneIntoRadio(...args),
+}));
+
 function station(overrides: Partial<PublicStation> = {}): PublicStation {
   return {
     station_id: "station-1",
@@ -50,7 +55,11 @@ function station(overrides: Partial<PublicStation> = {}): PublicStation {
   };
 }
 
-const remote = { remote_id: "remote-1", name: "test remote" } as never;
+const remote = {
+  remote_id: "remote-1",
+  name: "test remote",
+  peer_addr: "peer-addr-xyz",
+} as never;
 const resolveToNull = async () => null;
 
 let dispose: (() => void) | undefined;
@@ -136,7 +145,7 @@ describe("PlayWithStreamButton", () => {
     expect(onClick).toHaveBeenCalledTimes(1);
   });
 
-  it("opens a menu (play + stream) and streams to the picked station when one qualifies", async () => {
+  it("opens a menu (play + stream), submits the request, and tunes in immediately - no success toast (clicking something play-shaped should just play, see requestStation.ts's submitRequestAndTune doc comment)", async () => {
     radioStationsFull.mockResolvedValue({
       success: true,
       data: { enabled: true, stations: [station()] },
@@ -177,6 +186,50 @@ describe("PlayWithStreamButton", () => {
         start_position_seconds: undefined,
       })
     );
-    await vi.waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    await vi.waitFor(() =>
+      expect(tuneIntoRadio).toHaveBeenCalledWith("peer-addr-xyz", {
+        stationId: "station-1",
+        stationName: "test station",
+        isLocal: false,
+        acceptsRequests: true,
+      })
+    );
+    expect(toastSuccess).not.toHaveBeenCalled();
+  });
+
+  it("shows an error toast (and never calls tuneIntoRadio) when the remote has no resolvable tune target", async () => {
+    radioStationsFull.mockResolvedValue({
+      success: true,
+      data: { enabled: true, stations: [station()] },
+    });
+    const resolveStreamItems = vi.fn(async () => [{ kind: "video" as const, itemId: "v1" }]);
+    // no peer_addr/base_url/is_charnel_managed - tuneTargetFor can't
+    // resolve anything to dial, so the submit still happens but tuning
+    // can't even be attempted.
+    const unresolvableRemote = { remote_id: "remote-2", name: "no target" } as never;
+
+    mount(() => (
+      <PlayWithStreamButton
+        label="play"
+        onClick={vi.fn()}
+        remote={() => unresolvableRemote}
+        resolveStreamItems={resolveStreamItems}
+        streamLabel='video "my video"'
+      />
+    ));
+
+    await vi.waitFor(() => expect(radioStationsFull).toHaveBeenCalled());
+    const trigger = host!.querySelector("button") as HTMLButtonElement;
+    trigger.click();
+    await vi.waitFor(() => expect(document.querySelector('[role="menu"]')).not.toBeNull());
+    const streamItem = Array.from(document.querySelectorAll('[role="menuitem"]')).find((b) =>
+      b.textContent?.includes("stream on")
+    );
+    (streamItem as HTMLButtonElement).click();
+
+    await vi.waitFor(() => expect(radioSubmitRequest).toHaveBeenCalled());
+    await vi.waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(tuneIntoRadio).not.toHaveBeenCalled();
+    expect(toastSuccess).not.toHaveBeenCalled();
   });
 });

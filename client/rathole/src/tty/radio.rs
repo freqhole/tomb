@@ -335,6 +335,9 @@ async fn run_session(
         &mut ctrl_send,
         &ControlMessage::Tune(TuneMessage {
             station_id: station_id.clone(),
+            // the TTY player has no pause/resume concept of its own -
+            // always a fresh tune.
+            resume_hint: None,
         }),
     )
     .await

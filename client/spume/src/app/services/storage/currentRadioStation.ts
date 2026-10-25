@@ -10,12 +10,25 @@ import type { RadioStationRef } from "./types";
 const [currentRadioStation, setCurrentRadioStation] = createSignal<RadioStationRef | null>(null);
 export { currentRadioStation };
 
-// load current radio station from IndexedDB
+// load current radio station from IndexedDB at app startup. a REQUEST
+// station's ref is deliberately NOT restored here - a request station is
+// more of a one-off, in-the-moment session (you tuned in to submit
+// specific requests right now) than something to silently land back on
+// every time the app relaunches, unlike a plain ambient/background
+// station. clears the persisted ref outright (not just the in-memory
+// signal) so this is a one-time cleanup, not a "keep re-deciding every
+// load" check - every other station's "ready to resume" card persists
+// as normal. single entry point for this on purpose: this is the one
+// place app startup loads the persisted station at all.
 export async function loadCurrentRadioStation(): Promise<RadioStationRef | null> {
   try {
     const db = await initAppDB();
     const state = await db.get(STORE_APP_STATE, "app_state");
     const station = state?.current_radio_station ?? null;
+    if (station?.accepts_requests) {
+      await clearCurrentRadioStation();
+      return null;
+    }
     setCurrentRadioStation(station);
     return station;
   } catch (error) {

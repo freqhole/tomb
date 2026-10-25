@@ -13,6 +13,7 @@ pub mod video_player;
 pub use events::{
     ActionMenu, ActionMenuOption, AdminCommand, AppAction, ArgKind, ArgSpec, CommandForm,
     CommandKind, DispatchResponse, FieldState, LastDispatch, SelectOption, ServeKindRequest,
+    combine_message_with_details,
 };
 pub use music::{MusicEvent, MusicMode, MusicState, PlayerState, SongRow};
 pub use pairing::{

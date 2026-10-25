@@ -493,6 +493,7 @@ async function proxyAdmin(peerAddr: string, command: string, args: string): Prom
 async function tuneRadio(
   peerAddr: string,
   stationId: string | undefined,
+  resumeHint: string | undefined,
   onHello: (json: string) => void,
   onMeta: (json: string) => void,
   onChunk: (seq: number, isInit: boolean, bytes: Uint8Array) => void
@@ -500,6 +501,7 @@ async function tuneRadio(
   const handle = (await requireNode().tune_radio(
     peerAddr,
     stationId,
+    resumeHint,
     onHello,
     onMeta,
     onChunk

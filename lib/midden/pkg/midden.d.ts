@@ -378,8 +378,8 @@ export class MiddenNode {
      * download a blob DIRECTLY into this node's own OPFS-backed store,
      * without ever reading the bytes back out to return to JS - the
      * wasm-side counterpart of grimoire's
-     * `pull_blob_to_local_store_with_ensure` (see docs/backlog.md item
-     * 12). `download_verified` above already downloads into
+     * `pull_blob_to_local_store_with_ensure`;
+     * `download_verified` above already downloads into
      * `self.blobs_store` (the SAME store this node serves blobs FROM)
      * before wastefully reading it back out into a `Uint8Array` - once
      * the download loop below completes, the blob is already locally
@@ -591,10 +591,21 @@ export class MiddenNode {
      *   fires per audio chunk. `is_init = true` marks the start of a new
      *   track; the JS side should append it to the same SourceBuffer.
      *
+     * `resume_hint`, when provided, is a pre-serialized JSON object
+     * matching grimoire's `ResumeHint` (`{"kind":"song"|"video",
+     * "item_id":"...","position_seconds":12.3}`) - forwarded into the
+     * Tune message's own `resume_hint` field as-is (same "JS builds the
+     * JSON, Rust just relays it" convention this module already uses
+     * elsewhere - see the module doc comment). only meaningful when the
+     * broadcaster happens to be idle at the moment this tune arrives;
+     * see `TuneMessage::resume_hint`'s own doc comment for the full
+     * picture. malformed JSON here is a caller bug, not a wire/protocol
+     * concern, so it's rejected locally rather than forwarded broken.
+     *
      * returns a [`RadioHandle`] — keep a reference to it; dropping it stops
      * playback and closes the iroh connection.
      */
-    tune_radio(peer_addr: string, station_id: string | null | undefined, on_hello: Function, on_meta: Function, on_chunk: Function): Promise<RadioHandle>;
+    tune_radio(peer_addr: string, station_id: string | null | undefined, resume_hint: string | null | undefined, on_hello: Function, on_meta: Function, on_chunk: Function): Promise<RadioHandle>;
     /**
      * remove a gc pin added by protect_blob (or by a cancelled download).
      */

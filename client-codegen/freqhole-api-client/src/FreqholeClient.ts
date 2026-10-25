@@ -13,6 +13,7 @@ import { createAuthMethods } from "./domains/auth.js";
 import { createEntitiesMethods } from "./domains/entities.js";
 import { createJobsMethods } from "./domains/jobs.js";
 import { createMusicMethods } from "./domains/music.js";
+import { createRadioQueueMethods } from "./domains/radioQueue.js";
 import { createUploadMethods } from "./domains/upload.js";
 import { createVideoMethods } from "./domains/video.js";
 import type { CallFn, SafeParseResult } from "./domains/types.js";
@@ -31,6 +32,7 @@ export class FreqholeClient {
   public readonly entities: ReturnType<typeof createEntitiesMethods>;
   public readonly jobs: ReturnType<typeof createJobsMethods>;
   public readonly music: ReturnType<typeof createMusicMethods>;
+  public readonly radioQueue: ReturnType<typeof createRadioQueueMethods>;
   public readonly upload: ReturnType<typeof createUploadMethods>;
   public readonly video: ReturnType<typeof createVideoMethods>;
 
@@ -42,6 +44,7 @@ export class FreqholeClient {
     this.entities = createEntitiesMethods(call);
     this.jobs = createJobsMethods(transport);
     this.music = createMusicMethods(call);
+    this.radioQueue = createRadioQueueMethods(transport);
     this.upload = createUploadMethods(transport);
     this.video = createVideoMethods(call);
   }

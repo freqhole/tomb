@@ -382,7 +382,12 @@ export function AddToStationModal() {
     try {
       await addTargetToStation(client, station.id, target);
       toast.success(`added ${targetLabel(target)} to "${station.name}"`, {
-        action: listenAction(adminTuneTarget(), station.id, station.name),
+        action: listenAction(
+          adminTuneTarget(),
+          station.id,
+          station.name,
+          !!station.accepts_requests
+        ),
       });
       closeStationSelector();
     } catch (e) {
@@ -440,7 +445,12 @@ export function AddToStationModal() {
       })) as RadioStation;
       await addTargetToStation(client, station.id, target);
       toast.success(`created station "${station.name}" with ${targetLabel(target)}`, {
-        action: listenAction(adminTuneTarget(), station.id, station.name),
+        action: listenAction(
+          adminTuneTarget(),
+          station.id,
+          station.name,
+          !!station.accepts_requests
+        ),
       });
       closeStationSelector();
     } catch (err) {

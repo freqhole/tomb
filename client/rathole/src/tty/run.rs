@@ -581,7 +581,10 @@ async fn run_inner(
 
 fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppAction>) {
     // bracketed paste arrives as one event for the whole pasted string.
-    // route it to the focused field if any.
+    // route it to the focused field if any. every free-text input
+    // surface in the app needs a branch here - it's easy to add a new
+    // one (forms, video edit) without remembering this dispatcher, so
+    // when adding a new text field, check this list first.
     if let Event::Paste(text) = ev {
         if matches!(app.state.ephemeral.focus, Focus::PeerInput) {
             use crate::ratcore::text_input as ti;
@@ -598,6 +601,56 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
             let r = &mut app.state.ephemeral.repl;
             ti::insert_str(&mut r.input, &mut r.cursor, &text);
             r.history_cursor = None;
+            r.flyout_cursor = 0;
+            r.cycle_stem = None;
+        } else if matches!(app.state.ephemeral.focus, Focus::CommandForm) {
+            use crate::ratcore::text_input as ti;
+            if let Some(form) = app.state.ephemeral.form.as_mut() {
+                if let Some(field) = form.fields.get_mut(form.focused) {
+                    match field {
+                        FieldState::Text { buf, cursor } => ti::insert_str(buf, cursor, &text),
+                        // preserves embedded newlines - matches Enter's
+                        // behavior for this field (inserts a literal
+                        // '\n' rather than advancing the wizard).
+                        FieldState::LongText { buf, cursor } => {
+                            ti::insert_str_multiline(buf, cursor, &text)
+                        }
+                        // same digit-only (+ optional leading '-' when
+                        // signed) filter the single-char path enforces
+                        // below, applied per pasted char so paste can't
+                        // smuggle in anything typing couldn't.
+                        FieldState::Number {
+                            buf,
+                            cursor,
+                            signed,
+                        } => {
+                            for c in text.chars() {
+                                if c.is_ascii_digit()
+                                    || (*signed
+                                        && c == '-'
+                                        && *cursor == 0
+                                        && !buf.starts_with('-'))
+                                {
+                                    ti::insert_char(buf, cursor, c);
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        } else if matches!(app.state.ephemeral.focus, Focus::VideoView)
+            && app.state.ephemeral.video.mode == VideoMode::Edit
+        {
+            use crate::ratcore::text_input as ti;
+            let v = &mut app.state.ephemeral.video;
+            let field = match v.edit_field_cursor {
+                0 => &mut v.edit_title,
+                1 => &mut v.edit_description,
+                2 => &mut v.edit_episode_number,
+                _ => return,
+            };
+            ti::insert_str(field, &mut v.edit_field_caret, &text);
         }
         return;
     }

@@ -5680,6 +5680,41 @@ export const RadioInfoResponseSchema = z.object({
 });
 export type RadioInfoResponse = z.infer<typeof RadioInfoResponseSchema>;
 
+export const RadioQueueEventSchema = z.union([z.object({
+  kind: z.literal('Submitted'),
+  station_id: z.string(),
+  request: z.object({
+  id: z.string(),
+  kind: z.string(),
+  item_id: z.string(),
+  requested_by: z.string(),
+  requested_by_username: z.string().nullish(),
+  title: z.string(),
+  artist: z.string().nullish(),
+  album: z.string().nullish(),
+  duration_ms: z.number().nullish(),
+  art_blob_id: z.string().nullish()
+})
+}), z.object({
+  kind: z.literal('Removed'),
+  station_id: z.string(),
+  request_id: z.string()
+}), z.object({
+  kind: z.literal('Reordered'),
+  station_id: z.string(),
+  request_id: z.string(),
+  new_index: z.number()
+}), z.object({
+  kind: z.literal('Cleared'),
+  station_id: z.string()
+})]);
+export type RadioQueueEvent = z.infer<typeof RadioQueueEventSchema>;
+
+export const RadioQueueEventFilterSchema = z.object({
+  station_id: z.string()
+});
+export type RadioQueueEventFilter = z.infer<typeof RadioQueueEventFilterSchema>;
+
 export const RadioQueuedRequestInfoSchema = z.object({
   id: z.string(),
   kind: z.string(),

@@ -524,6 +524,7 @@ export function RadioView() {
         stationId: station.station_id,
         stationName: station.name,
         isLocal,
+        acceptsRequests: station.accepts_requests,
       });
       // we're now actually tuned to this station — clear any preview
       // selection so the detail view flips to the live tuned content.

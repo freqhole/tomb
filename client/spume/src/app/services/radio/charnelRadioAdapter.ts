@@ -8,7 +8,7 @@
 // fans them out to the same `(on_hello, on_meta, on_chunk)` callbacks
 // midden invokes directly.
 
-import type { RadioHandleLike } from "@freqhole/api-client";
+import type { RadioHandleLike, RadioResumeHint } from "@freqhole/api-client";
 import { isCharnelMode } from "../../services/charnel";
 
 interface RadioChunkEvent {
@@ -77,6 +77,7 @@ function base64ToBytes(b64: string): Uint8Array {
 export async function tuneRadioCharnel(
   peerAddr: string,
   stationId: string | undefined,
+  resumeHint: RadioResumeHint | undefined,
   on_hello: (json: string) => void,
   on_meta: (json: string) => void,
   on_chunk: (seq: number, isInit: boolean, bytes: Uint8Array) => void,
@@ -121,6 +122,7 @@ export async function tuneRadioCharnel(
   const sessionId = (await invoke("radio_tune", {
     peerAddr,
     stationId: stationId ?? null,
+    resumeHint: resumeHint ?? null,
     events,
   })) as string;
 
@@ -151,6 +153,7 @@ export async function tuneRadioCharnel(
  */
 export async function tuneRadioCharnelLocal(
   stationId: string | undefined,
+  resumeHint: RadioResumeHint | undefined,
   on_hello: (json: string) => void,
   on_meta: (json: string) => void,
   on_chunk: (seq: number, isInit: boolean, bytes: Uint8Array) => void,
@@ -189,6 +192,7 @@ export async function tuneRadioCharnelLocal(
 
   const sessionId = (await invoke("radio_tune_local", {
     stationId: stationId ?? null,
+    resumeHint: resumeHint ?? null,
     events,
   })) as string;
 

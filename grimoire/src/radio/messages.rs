@@ -98,6 +98,28 @@ pub struct TuneMessage {
     /// reserved for phase 2 (multiple stations on one node). phase 1 ignores.
     #[serde(default)]
     pub station_id: Option<String>,
+    /// set by a client that just paused (dropped its session) and is now
+    /// resuming - tells the broadcaster where it would like to pick back
+    /// up, for the case where the station already gave up on that exact
+    /// track and moved on to idle (see `Broadcaster`'s freeze/give-up
+    /// handling in `play_track`). only ever honored when the broadcaster
+    /// is genuinely idle at the moment this arrives - if the station is
+    /// still mid-track (frozen within its own short grace window, or
+    /// genuinely still live for other listeners), this is ignored and the
+    /// listener just joins wherever the station already is, same as any
+    /// other tune. the client tracks its own position; the broadcaster
+    /// doesn't need to remember anything itself between give-up and a
+    /// later resume.
+    #[serde(default)]
+    pub resume_hint: Option<ResumeHint>,
+}
+
+/// see [`TuneMessage::resume_hint`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResumeHint {
+    pub kind: crate::radio::playlist::RadioItemKind,
+    pub item_id: String,
+    pub position_seconds: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

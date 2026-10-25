@@ -74,6 +74,9 @@ import {
   forceResyncRemoteStatus,
 } from "./services/players/remotePlaybackControl";
 import { getCurrentRemote, getCurrentUser, getDataSource } from "../music/data";
+import { RemoteMusicDataSource } from "../music/data/remote/remoteSource";
+import { localVideoDataSource } from "../video/data/local/localSource";
+import { RemoteVideoDataSource } from "../video/data/remote/remoteSource";
 import { syncArtistImagesForRemotePlay } from "../music/services/sync/syncArtistImagesOnPlay";
 import { useRouteDataSource } from "../music/hooks/useRouteDataSource";
 import { useToggleFavoriteMutation } from "../music/queries/favorites";
@@ -216,7 +219,7 @@ import {
   checkAndShowConfigUpgradeToast,
   checkAndShowStorageHealthToast,
 } from "./services/toastNotices";
-import { debug } from "../utils/logger";
+import { debug, warn } from "../utils/logger";
 import { isNarrowViewport } from "../config/breakpoints";
 import { getBackgroundConfig } from "./services/backgroundImage";
 import { playbackMode } from "./services/playbackMode";
@@ -230,6 +233,7 @@ import {
   radioCurrentRemoteServerId,
   radioCurrentStationId,
   radioElapsedMs,
+  radioHasVideoCapability,
   radioListenerCount,
   radioNowPlaying,
   radioPause,
@@ -301,6 +305,62 @@ export function AppLayout(props: AppLayoutProps) {
   const [currentVideoData, setCurrentVideoData] = createSignal<QueuedVideo | null>(null);
   const toggleFavoriteMutation = useToggleFavoriteMutation();
 
+  // same "which video is currently playing" fallback chain barSong() uses
+  // (currentVideoData(), then the queue item matching appState's
+  // current_item_key) - pulled out so the subtitle resource below can key
+  // off it without duplicating that resolution inside barSong() itself.
+  const activeVideoForSubtitle = createMemo((): QueuedVideo | null => {
+    const cv = currentVideoData();
+    if (cv) return cv;
+    const state = appState();
+    const sha256 = state?.current_item_key;
+    if (!sha256) return null;
+    const queueItem = state?.queue.find((i) => mediaItemKey(i) === sha256);
+    return queueItem?.kind === "video" ? queueItem.video : null;
+  });
+
+  // a local/on-demand video's subtitle text: a series-attached episode
+  // shows its series title, a karaoke/music_video shows its real artist
+  // name, a standalone movie/clip has neither - blank, not a placeholder.
+  // mirrors the same priority grimoire's `fetch_video_track` now applies
+  // server-side for radio (see its doc comment), so local and radio
+  // playback read consistently. resolved against whichever remote the
+  // video actually came from (not necessarily whichever remote is
+  // currently being browsed), since a playing video and the browse
+  // context can legitimately differ.
+  const [videoSubtitle] = createResource(
+    () => {
+      const v = activeVideoForSubtitle();
+      if (!v || (!v.series_id && !v.artist_id)) return null;
+      return {
+        seriesId: v.series_id ?? null,
+        artistId: v.artist_id ?? null,
+        remoteServerId: v.remote_server_id ?? null,
+      };
+    },
+    async (key) => {
+      try {
+        const remote = key.remoteServerId ? await getRemoteById(key.remoteServerId) : undefined;
+        if (key.seriesId) {
+          const source = remote ? new RemoteVideoDataSource(remote) : localVideoDataSource;
+          const series = await source.getVideoSeriesById(key.seriesId);
+          return series?.title ?? "";
+        }
+        if (key.artistId) {
+          const musicSource =
+            remote && remote.remote_id ? new RemoteMusicDataSource(remote) : getDataSource();
+          if (!musicSource.getArtists) return "";
+          const result = await musicSource.getArtists({ artist_id: key.artistId, limit: 1 });
+          return result.items[0]?.name ?? "";
+        }
+        return "";
+      } catch (err) {
+        warn("[player-bar] failed to resolve video subtitle", err);
+        return "";
+      }
+    }
+  );
+
   // charnel's unix control socket bridge (show_admin_pin/rotate_pin/
   // show_player commands - see control_socket_bridge.rs) tells us to
   // show the player-pairing route this way, since it has no other way
@@ -359,7 +419,7 @@ export function AppLayout(props: AppLayoutProps) {
               // so there is no element here to mirror
               !isVideoWindowActive() &&
               getVideoElement()) ||
-            (isRadio() && radioNowPlaying()?.kind === "video" && getRadioVideoElement())
+            (isRadio() && radioHasVideoCapability() && getRadioVideoElement())
           }
         >
           {(el) => (
@@ -428,7 +488,7 @@ export function AppLayout(props: AppLayoutProps) {
   createEffect(
     on(
       () =>
-        playbackMode() === "radio" && radioNowPlaying()?.kind === "video"
+        playbackMode() === "radio" && radioHasVideoCapability()
           ? `${radioCurrentPeerAddr() ?? ""}:${radioCurrentStationId() ?? ""}`
           : undefined,
       (session, prevSession) => {
@@ -446,7 +506,7 @@ export function AppLayout(props: AppLayoutProps) {
   // hide, so opening a modal shouldn't pause music playback).
   const isAnyModalOpenReactive = useIsAnyModalOpen();
   createEffect(() => {
-    const radioVideoActive = playbackMode() === "radio" && radioNowPlaying()?.kind === "video";
+    const radioVideoActive = playbackMode() === "radio" && radioHasVideoCapability();
     if (!currentVideoData() && !radioVideoActive) return;
     if (!isAnyModalOpenReactive() || videoMiniPlayerDismissed()) return;
     if (radioVideoActive) {
@@ -1336,6 +1396,7 @@ export function AppLayout(props: AppLayoutProps) {
           stationId: station.station_id,
           stationName: station.station_name,
           isLocal: station.is_local,
+          acceptsRequests: station.accepts_requests,
         });
       },
     },
@@ -1792,6 +1853,7 @@ export function AppLayout(props: AppLayoutProps) {
                 stationId: station.station_id,
                 stationName: station.station_name,
                 isLocal: station.is_local,
+                acceptsRequests: station.accepts_requests,
               });
             }}
             getRadioQueueContextMenuActions={getRadioQueueContextMenuActions}
@@ -1802,6 +1864,7 @@ export function AppLayout(props: AppLayoutProps) {
                     rows: radioRequestQueueState.rows,
                     loading: radioRequestQueueState.loading,
                     thumbUrls: radioRequestQueueState.thumbUrls,
+                    hasNowPlaying: () => !!radioNowPlaying()?.song_id?.trim(),
                     onRemove: (requestId) => void radioRequestQueueState.handleRemove(requestId),
                     onClear: () => void radioRequestQueueState.handleClear(),
                     onReorder: (requestId, newIndex) =>
@@ -1882,6 +1945,7 @@ export function AppLayout(props: AppLayoutProps) {
                   stationId: ref.station_id,
                   stationName: ref.station_name,
                   isLocal: ref.is_local,
+                  acceptsRequests: ref.accepts_requests,
                 });
                 return;
               }
@@ -2033,7 +2097,14 @@ export function AppLayout(props: AppLayoutProps) {
                 return {
                   id: np.song_id || "radio",
                   title: np.title || "untitled",
-                  artist: np.artist ?? "unknown artist",
+                  // a video's `artist` (now resolved server-side - see
+                  // `fetch_video_track`'s doc comment) is either a
+                  // series title, a karaoke/music_video's real artist
+                  // name, or genuinely absent for a standalone movie/
+                  // clip - that last case should read as blank, not
+                  // the "unknown artist" fallback a song with missing
+                  // metadata legitimately still wants.
+                  artist: np.kind === "video" ? (np.artist ?? "") : (np.artist ?? "unknown artist"),
                   album: np.album ?? undefined,
                   thumbnailUrl: artUrl,
                   images,
@@ -2067,7 +2138,7 @@ export function AppLayout(props: AppLayoutProps) {
                   id: cv.id,
                   sha256: cv.id,
                   title: cv.title,
-                  artist: "video",
+                  artist: videoSubtitle() ?? "",
                   album: undefined,
                   images: undefined,
                   album_images: undefined,
@@ -2087,7 +2158,7 @@ export function AppLayout(props: AppLayoutProps) {
                   id: queueItem.video.id,
                   sha256: queueItem.video.id,
                   title: queueItem.video.title,
-                  artist: "video",
+                  artist: videoSubtitle() ?? "",
                   album: undefined,
                   images: undefined,
                   album_images: undefined,
@@ -2181,7 +2252,16 @@ export function AppLayout(props: AppLayoutProps) {
                 const ms = remoteDurationMs();
                 return ms ? ms / 1000 : 0;
               }
-              if (isRadio()) return 0;
+              if (isRadio()) {
+                // radio is always `isLiveStream` (no seek bar - see
+                // below), but the track's real duration, when known, is
+                // still worth surfacing as a time-remaining countdown
+                // (see `PlaybackProgressBar`'s `hideBarAndDuration`
+                // handling) - 0 here means "unknown", same sentinel the
+                // remote-target branch above already uses.
+                const ms = radioNowPlaying()?.duration_ms;
+                return ms ? ms / 1000 : 0;
+              }
               return duration();
             };
             // hides the seek/duration ui for radio (always live) and for
@@ -2207,7 +2287,7 @@ export function AppLayout(props: AppLayoutProps) {
                   // effect above - reopens a panel the user closed while
                   // paused, mirroring VideoMiniPlayer's own "pause + hide,
                   // reopens once playback resumes" contract.
-                  if (radioNowPlaying()?.kind === "video") setVideoMiniPlayerDismissed(false);
+                  if (radioHasVideoCapability()) setVideoMiniPlayerDismissed(false);
                 } else if (radioStatus() === "playing" || radioStatus() === "connecting")
                   radioPause();
                 else if (radioStatus() === "error") leaveRadio();
@@ -2218,6 +2298,7 @@ export function AppLayout(props: AppLayoutProps) {
                     stationId: station.station_id,
                     stationName: station.station_name,
                     isLocal: station.is_local,
+                    acceptsRequests: station.accepts_requests,
                   });
                 }
                 return;
@@ -2459,12 +2540,12 @@ export function AppLayout(props: AppLayoutProps) {
                   activeTargetIsRemote={isRemoteTargetActive()}
                   isVideoActive={
                     (!isRadio() && !!currentVideoData()) ||
-                    (isRadio() && radioNowPlaying()?.kind === "video")
+                    (isRadio() && radioHasVideoCapability())
                   }
                   videoElement={
                     !isRadio() && currentVideoData() && !isVideoWindowActive()
                       ? getVideoElement()
-                      : isRadio() && radioNowPlaying()?.kind === "video"
+                      : isRadio() && radioHasVideoCapability()
                         ? getRadioVideoElement()
                         : null
                   }

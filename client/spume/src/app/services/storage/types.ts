@@ -94,6 +94,11 @@ export interface RadioStationRef {
   is_local?: boolean; // true if this is an in-process (self) station
   art_thumb_b64?: string; // base64 thumbnail for display
   art_thumb_mime?: string;
+  // true when this station accepts listener requests - a request
+  // station's persisted ref is deliberately NOT auto-resumed on the next
+  // app startup (see `loadCurrentRadioStation`'s doc comment); every
+  // other station's "ready to resume" card persists as normal.
+  accepts_requests?: boolean;
 }
 
 export interface QueueHistoryEntry {

@@ -13,7 +13,8 @@ import type {
 import type { BlobProgressCallback } from "./WasmTransport.js";
 import { isTauriRuntime } from "./tauriRuntime.js";
 import type { CloseReason, EventFilter, JobEvent, JobStateSnapshot } from "./codegen/schema.js";
-import { JobEventsStreamClosed } from "./CharnelLocalTransport.js";
+import type { RadioQueueEvent, RadioQueueEventFilter } from "./codegen/schema.js";
+import { JobEventsStreamClosed, RadioQueueEventsStreamClosed } from "./CharnelLocalTransport.js";
 import { bytesToBase64 } from "./base64.js";
 
 // tauri invoke function type
@@ -758,6 +759,20 @@ export class CharnelTransport implements Transport {
   subscribeJobEvents(filter?: EventFilter, signal?: AbortSignal): AsyncIterable<JobEvent> {
     return charnelRemoteJobEventsIterable(this.peerAddr, filter, signal);
   }
+
+  // -----------------------------------------------------------------
+  // radio queue events (remote path via freqhole-events/1 ALPN)
+  //
+  // same shape as the job-events remote path above, minus the
+  // snapshot command - see `CharnelLocalTransport.ts`'s doc comment.
+  // -----------------------------------------------------------------
+
+  subscribeRadioQueueEvents(
+    filter: RadioQueueEventFilter,
+    signal?: AbortSignal,
+  ): AsyncIterable<RadioQueueEvent> {
+    return charnelRemoteRadioQueueEventsIterable(this.peerAddr, filter, signal);
+  }
 }
 
 // frame shape emitted by the rust-side `JobsEventsFrame` — mirrors
@@ -828,6 +843,83 @@ async function* charnelRemoteJobEventsIterable(
     if (!closed) {
       try {
         await inv("jobs_events_unsubscribe", { sessionId });
+      } catch {
+        // session may have already been torn down; nothing to do.
+      }
+    }
+  }
+}
+
+// frame shape emitted by the rust-side `RadioQueueEventsFrame` — mirrors
+// `CharnelLocalTransport.ts`.
+type RadioQueueEventsFrame =
+  | { kind: "event"; evt: RadioQueueEvent }
+  | { kind: "closed"; reason: CloseReason };
+
+async function* charnelRemoteRadioQueueEventsIterable(
+  peerAddr: string,
+  filter: RadioQueueEventFilter,
+  signal: AbortSignal | undefined,
+): AsyncGenerator<RadioQueueEvent, void, void> {
+  const { invoke: inv, Channel } = await import("@tauri-apps/api/core");
+
+  const queue: RadioQueueEventsFrame[] = [];
+  let wake: (() => void) | null = null;
+  let closed = false;
+  const waitForFrame = () =>
+    new Promise<void>((resolve) => {
+      wake = () => {
+        wake = null;
+        resolve();
+      };
+    });
+
+  const channel = new Channel<RadioQueueEventsFrame>();
+  channel.onmessage = (frame: RadioQueueEventsFrame) => {
+    queue.push(frame);
+    if (frame.kind === "closed") closed = true;
+    wake?.();
+  };
+
+  let sessionId: string;
+  try {
+    sessionId = (await inv("radio_queue_events_subscribe", {
+      filter,
+      events: channel,
+      targetPeer: peerAddr,
+    })) as string;
+  } catch (err) {
+    throw err instanceof Error ? err : new Error(String(err));
+  }
+
+  const onAbort = () => {
+    closed = true;
+    inv("radio_queue_events_unsubscribe", { sessionId }).catch(() => {});
+    wake?.();
+  };
+  signal?.addEventListener("abort", onAbort, { once: true });
+
+  try {
+    while (true) {
+      if (queue.length === 0) {
+        if (closed) return;
+        if (signal?.aborted) return;
+        await waitForFrame();
+        continue;
+      }
+      const frame = queue.shift()!;
+      if (frame.kind === "closed") {
+        const reasonKind = (frame.reason as { kind: string }).kind ?? "internal";
+        if (reasonKind === "client_unsubscribed") return;
+        throw new RadioQueueEventsStreamClosed(frame.reason);
+      }
+      yield frame.evt;
+    }
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+    if (!closed) {
+      try {
+        await inv("radio_queue_events_unsubscribe", { sessionId });
       } catch {
         // session may have already been torn down; nothing to do.
       }

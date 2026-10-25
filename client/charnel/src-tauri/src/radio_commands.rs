@@ -29,27 +29,23 @@ use grimoire::radio::protocol::{read_chunk, read_control_message, RADIO_ALPN};
 #[cfg(unix)]
 type MpvSink = crate::radio_mpv::RadioMpvSink;
 
-/// spawns a native mpv radio sink when the "experimental player" config
-/// (`use_libmpv_playback`) is on and the station's own codec string
-/// (from `Hello`) is video-capable - `None` otherwise (audio-only
-/// station, config off, or mpv itself failed to start, e.g. not
-/// installed - falls back to the normal browser `<video>`+MediaSource
-/// path exactly as if this feature didn't exist).
+/// ALWAYS returns `None` - radio video deliberately never routes through
+/// the native mpv sink, regardless of `use_libmpv_playback`. that config
+/// flag is meant for the separate on-demand queue video window feature
+/// (`video_window`/`libmpv_backend.rs`), not radio - the two got
+/// conflated under one shared flag, which meant turning on the
+/// (unrelated, validated) queue-video feature silently also opted radio
+/// into this still-rough, never-fully-validated path. the browser
+/// `<video>`+MediaSource pipeline (`radioService.ts`) already handles
+/// video-capable radio stations correctly end-to-end (confirmed live,
+/// see docs/backlog-video.md's "radio video panel never showed for a
+/// video-capable station" bugfix writeup) - there's no reason for radio
+/// to ever prefer the mpv path over it. `radio_mpv.rs`'s sink/player
+/// types are left in place (not deleted) in case this path is revisited
+/// later, but nothing calls into them anymore.
 #[cfg(unix)]
-async fn maybe_spawn_mpv_sink(app: &tauri::AppHandle, codec: &str) -> Option<MpvSink> {
-    let use_libmpv = crate::app_config::FreqholeAppConfig::load(app)
-        .map(|c| c.use_libmpv_playback)
-        .unwrap_or_else(crate::app_config::default_use_libmpv_playback);
-    if !use_libmpv || !codec.starts_with("video/") {
-        return None;
-    }
-    match crate::radio_mpv::RadioMpvSink::spawn().await {
-        Ok(sink) => Some(sink),
-        Err(e) => {
-            tracing::warn!(error = %e, "[radio-charnel] failed to start mpv radio sink; falling back to browser playback");
-            None
-        }
-    }
+async fn maybe_spawn_mpv_sink(_app: &tauri::AppHandle, _codec: &str) -> Option<MpvSink> {
+    None
 }
 
 /// no native named-pipe support on this platform (e.g. windows) - always
@@ -64,9 +60,9 @@ async fn maybe_spawn_mpv_sink(_app: &tauri::AppHandle, _codec: &str) -> Option<M
 
 /// feeds one chunk to the mpv sink and returns `true` (chunk consumed,
 /// don't also forward it to the browser over `events`) - `false` when
-/// there's no active sink (the normal case: audio-only station, or the
-/// experimental player config is off), meaning the caller should fall
-/// through to its usual browser-forwarding path.
+/// there's no active sink (always the case now - see
+/// `maybe_spawn_mpv_sink`'s doc comment - kept as a passthrough rather
+/// than removed so a future re-enable doesn't need to re-thread this).
 #[cfg(unix)]
 async fn feed_mpv_sink(mpv: &mut Option<MpvSink>, is_init: bool, bytes: &[u8]) -> bool {
     let Some(sink) = mpv.as_mut() else {
@@ -164,12 +160,23 @@ pub async fn radio_tune(
     app: tauri::AppHandle,
     peer_addr: String,
     station_id: Option<String>,
+    resume_hint: Option<grimoire::radio::messages::ResumeHint>,
     events: Channel<RadioEvent>,
 ) -> Result<String, String> {
     // singleton policy: only one active listener session per app process.
-    // clear any stale/overlapping sessions before opening a fresh tune.
+    // clear any stale/overlapping sessions before opening a fresh tune -
+    // `drop_all_sessions` only signals cancellation (the owning audio-
+    // loop task notices and tears down on its own schedule), so also
+    // force-kill any mpv subprocess the previous session may have
+    // started right now rather than trusting that cooperative teardown
+    // finishes before this function goes on to spawn a brand new one -
+    // without this, a previous session slow to notice cancellation
+    // raced a fresh tune and left its mpv window orphaned (see
+    // docs/backlog-video.md's writeup of this bug).
     drop_all_sessions();
     drop_all_local_sessions();
+    #[cfg(unix)]
+    crate::radio_mpv::kill_all_now();
 
     let endpoint = get_endpoint_arc().map_err(|e| e.to_string())?;
     let addr = parse_peer_address(&peer_addr).map_err(|e| e.to_string())?;
@@ -184,8 +191,11 @@ pub async fn radio_tune(
     let (mut ctrl_send, mut ctrl_recv) =
         conn.open_bi().await.map_err(|e| format!("open_bi: {e}"))?;
 
-    let tune_body = serde_json::to_vec(&ControlMessage::Tune(TuneMessage { station_id }))
-        .map_err(|e| format!("serialize tune: {e}"))?;
+    let tune_body = serde_json::to_vec(&ControlMessage::Tune(TuneMessage {
+        station_id,
+        resume_hint,
+    }))
+    .map_err(|e| format!("serialize tune: {e}"))?;
     let tune_len = (tune_body.len() as u32).to_be_bytes();
     ctrl_send
         .write_all(&tune_len)
@@ -348,6 +358,7 @@ fn drop_all_local_sessions() {
 pub async fn radio_tune_local(
     app: tauri::AppHandle,
     station_id: Option<String>,
+    resume_hint: Option<grimoire::radio::messages::ResumeHint>,
     events: Channel<RadioEvent>,
 ) -> Result<String, String> {
     // singleton policy: only one active listener across remote + local paths.
@@ -395,6 +406,12 @@ pub async fn radio_tune_local(
         .unwrap_or_else(|| RADIO_CODEC.to_string());
 
     // join *before* snapshotting so listener_count in Hello reflects us.
+    // resume hint (if any) is registered before join() for the same
+    // pre-join-idle-check reason the iroh path (`radio::handler::
+    // run_session`) registers it before its own `ListenerGuard::new`.
+    if let Some(hint) = resume_hint {
+        bc.set_pending_resume_if_idle(hint);
+    }
     let new_count = bc.join();
     let sub = bc.subscribe().await;
 

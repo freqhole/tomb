@@ -186,6 +186,13 @@ export interface QueueSidebarProps {
     /** resolved thumbnail object-URLs per request id, keyed the same way
      *  useRadioRequestQueue.ts's own `thumbUrls` signal is. */
     thumbUrls: Accessor<Record<string, string>>;
+    /** true once this station has a genuine current track playing (not
+     *  the broadcaster's own idle/interstitial placeholder) - an empty
+     *  `rows()` with this true just means the one item currently
+     *  playing already left the pending-request queue by starting, not
+     *  that the station has nothing happening; the empty-queue fallback
+     *  message should only show when this is false too. */
+    hasNowPlaying: Accessor<boolean>;
     onRemove: (requestId: string) => void;
     onClear: () => void;
     onReorder: (requestId: string, newIndex: number) => void;
@@ -984,7 +991,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   <Show
                     when={queue().rows().length > 0}
                     fallback={
-                      <Show when={!queue().loading()}>
+                      <Show when={!queue().loading() && !queue().hasNowPlaying()}>
                         <div class="text-xs text-[var(--color-text-muted)] px-1 pb-2">
                           no requests queued yet.
                         </div>

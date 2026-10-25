@@ -175,13 +175,16 @@ export interface MiddenWorkerApi {
    *  envelope as a plain object ({ success, message, data, errors }). */
   proxyAdmin(peerAddr: string, command: string, args: string): Promise<unknown>;
   /** tune into a freqhole radio broadcaster (freqhole-radio/1 ALPN) -
-   *  forwards to the wasm node's tune_radio. callbacks fire
-   *  fire-and-forget from the entry side, same as the download
-   *  progress/chunk callbacks above. returns an opaque handle id for
-   *  radioLeave. */
+   *  forwards to the wasm node's tune_radio. `resumeHint`, when present,
+   *  is a pre-serialized JSON object (grimoire's `ResumeHint` shape) -
+   *  relayed straight through to the wasm node, same as `stationId`.
+   *  callbacks fire fire-and-forget from the entry side, same as the
+   *  download progress/chunk callbacks above. returns an opaque handle
+   *  id for radioLeave. */
   tuneRadio(
     peerAddr: string,
     stationId: string | undefined,
+    resumeHint: string | undefined,
     onHello: (json: string) => void,
     onMeta: (json: string) => void,
     onChunk: (seq: number, isInit: boolean, bytes: Uint8Array) => void,

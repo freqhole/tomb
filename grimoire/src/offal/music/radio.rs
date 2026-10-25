@@ -230,16 +230,115 @@ pub async fn submit_request(caller: &Caller, body: JsonValue) -> GrimoireRespons
         );
     }
 
-    crate::radio::requests::submit(
+    let id = crate::radio::requests::submit(
         &req.station_id,
         kind,
-        req.item_id,
+        req.item_id.clone(),
         caller.user_id.clone(),
         req.start_position_seconds,
     )
     .await;
 
+    // the new request's full display metadata, shared with
+    // `list_requests` below so both stay byte-for-byte consistent - a
+    // subscriber watching this station's queue can append a fully-
+    // rendered row the moment this event arrives, no follow-up fetch.
+    let mut username_cache = std::collections::HashMap::new();
+    let user_repo = crate::users::repository::UserRepository::new();
+    let info =
+        resolve_request_info(id, kind, req.item_id, caller.user_id.clone(), &mut username_cache, &user_repo)
+            .await;
+    crate::radio::queue_events::emit(crate::radio::queue_events::RadioQueueEvent::Submitted {
+        station_id: req.station_id,
+        request: info,
+    });
+
     GrimoireResponse::success("request submitted", JsonValue::Null)
+}
+
+/// resolves one queued request's full display metadata (title/artist/
+/// album/duration/art + requester username) - shared by `list_requests`
+/// (building the whole list) and `submit_request` (building a single
+/// `RadioQueueEvent::Submitted` payload for the just-added request), so
+/// both stay byte-for-byte consistent and neither duplicates the other's
+/// resolution logic. `username_cache`/`user_repo` are threaded in by the
+/// caller so a `list_requests` call resolving several rows from the same
+/// requester only looks that user up once (see its own call site).
+async fn resolve_request_info(
+    id: String,
+    kind: RadioItemKind,
+    item_id: String,
+    requested_by: String,
+    username_cache: &mut std::collections::HashMap<String, Option<String>>,
+    user_repo: &crate::users::repository::UserRepository,
+) -> RadioQueuedRequestInfo {
+    // best-effort metadata resolution: an item that's since become
+    // unfetchable (deleted, etc.) still needs to be listed so it can be
+    // deleted from the queue, not silently dropped from the response.
+    let (title, artist, album, duration_ms, art_blob_id) =
+        match crate::radio::playlist::fetch_track(kind, &item_id).await {
+            Ok(track) => (
+                track.title,
+                track.artist,
+                track.album,
+                track.duration_ms,
+                track.art_blob_id,
+            ),
+            Err(_) => ("(unavailable)".to_string(), None, None, None, None),
+        };
+    let requested_by_username = match username_cache.get(&requested_by) {
+        Some(cached) => cached.clone(),
+        None => {
+            let resolved = user_repo
+                .find_user_by_id(&requested_by)
+                .await
+                .ok()
+                .flatten()
+                .map(|u| u.username);
+            username_cache.insert(requested_by.clone(), resolved.clone());
+            resolved
+        }
+    };
+    RadioQueuedRequestInfo {
+        id,
+        kind: kind.as_str().to_string(),
+        item_id,
+        requested_by,
+        requested_by_username,
+        title,
+        artist,
+        album,
+        duration_ms,
+        art_blob_id,
+    }
+}
+
+/// resolved, enriched request list for one station - the same shape
+/// `list_requests` below returns over HTTP-ish dispatch, reused as-is by
+/// `events_protocol.rs`'s P2P `freqhole-events/1` channel to build a
+/// `RadioQueueSnapshot` frame when a peer subscribes to this station's
+/// live queue. `pub(crate)` (not a route) since this isn't an offal
+/// route itself, just shared plumbing between the two call sites.
+pub(crate) async fn snapshot_for_station(station_id: &str) -> Vec<RadioQueuedRequestInfo> {
+    let queued = crate::radio::requests::list(station_id).await;
+    let mut requests = Vec::with_capacity(queued.len());
+    let mut username_cache: std::collections::HashMap<String, Option<String>> =
+        std::collections::HashMap::new();
+    let user_repo = crate::users::repository::UserRepository::new();
+    for r in queued {
+        requests.push(
+            resolve_request_info(
+                r.id,
+                r.kind,
+                r.item_id,
+                r.requested_by,
+                &mut username_cache,
+                &user_repo,
+            )
+            .await,
+        );
+    }
+    requests
 }
 
 /// list every currently-queued request for a station, resolved with
@@ -262,55 +361,7 @@ pub async fn list_requests(_caller: &Caller, body: JsonValue) -> GrimoireRespons
         }
     };
 
-    let queued = crate::radio::requests::list(&req.station_id).await;
-    let mut requests = Vec::with_capacity(queued.len());
-    // one user often has several requests queued at once - resolve each
-    // distinct `requested_by` id at most once per call instead of once
-    // per request row.
-    let mut username_cache: std::collections::HashMap<String, Option<String>> =
-        std::collections::HashMap::new();
-    let user_repo = crate::users::repository::UserRepository::new();
-    for r in queued {
-        // best-effort metadata resolution: an item that's since become
-        // unfetchable (deleted, etc.) still needs to be listed so it can
-        // be deleted from the queue, not silently dropped from the response.
-        let (title, artist, album, duration_ms, art_blob_id) =
-            match crate::radio::playlist::fetch_track(r.kind, &r.item_id).await {
-                Ok(track) => (
-                    track.title,
-                    track.artist,
-                    track.album,
-                    track.duration_ms,
-                    track.art_blob_id,
-                ),
-                Err(_) => ("(unavailable)".to_string(), None, None, None, None),
-            };
-        let requested_by_username = match username_cache.get(&r.requested_by) {
-            Some(cached) => cached.clone(),
-            None => {
-                let resolved = user_repo
-                    .find_user_by_id(&r.requested_by)
-                    .await
-                    .ok()
-                    .flatten()
-                    .map(|u| u.username);
-                username_cache.insert(r.requested_by.clone(), resolved.clone());
-                resolved
-            }
-        };
-        requests.push(RadioQueuedRequestInfo {
-            id: r.id,
-            kind: r.kind.as_str().to_string(),
-            item_id: r.item_id,
-            requested_by: r.requested_by,
-            requested_by_username,
-            title,
-            artist,
-            album,
-            duration_ms,
-            art_blob_id,
-        });
-    }
+    let requests = snapshot_for_station(&req.station_id).await;
 
     match serde_json::to_value(RadioRequestsListResponse { requests }) {
         Ok(v) => GrimoireResponse::success("ok", v),
@@ -358,6 +409,10 @@ pub async fn remove_request(_caller: &Caller, body: JsonValue) -> GrimoireRespon
             )],
         );
     }
+    crate::radio::queue_events::emit(crate::radio::queue_events::RadioQueueEvent::Removed {
+        station_id: req.station_id,
+        request_id: req.request_id,
+    });
     GrimoireResponse::success("request removed", JsonValue::Null)
 }
 
@@ -383,9 +438,8 @@ pub async fn reorder_request(_caller: &Caller, body: JsonValue) -> GrimoireRespo
     };
 
     let new_index = req.new_index.max(0) as usize;
-    let moved =
-        crate::radio::requests::reorder(&req.station_id, &req.request_id, new_index).await;
-    if !moved {
+    let moved_to = crate::radio::requests::reorder(&req.station_id, &req.request_id, new_index).await;
+    let Some(final_index) = moved_to else {
         return GrimoireResponse::failure(
             "request not found",
             vec![ErrorDetail::new(
@@ -397,7 +451,12 @@ pub async fn reorder_request(_caller: &Caller, body: JsonValue) -> GrimoireRespo
                 ),
             )],
         );
-    }
+    };
+    crate::radio::queue_events::emit(crate::radio::queue_events::RadioQueueEvent::Reordered {
+        station_id: req.station_id,
+        request_id: req.request_id,
+        new_index: final_index as u64,
+    });
     GrimoireResponse::success("request reordered", JsonValue::Null)
 }
 
@@ -419,5 +478,8 @@ pub async fn clear_requests(_caller: &Caller, body: JsonValue) -> GrimoireRespon
     };
 
     crate::radio::requests::clear(&req.station_id).await;
+    crate::radio::queue_events::emit(crate::radio::queue_events::RadioQueueEvent::Cleared {
+        station_id: req.station_id,
+    });
     GrimoireResponse::success("queue cleared", JsonValue::Null)
 }
