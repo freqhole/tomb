@@ -112,76 +112,6 @@ fn build_ffmpeg_args(
     Ok(args)
 }
 
-#[cfg(test)]
-mod build_ffmpeg_args_tests {
-    use super::*;
-
-    #[test]
-    fn substitutes_input_with_no_start_position() {
-        let args = build_ffmpeg_args("-i {input} -c:a aac", "/tmp/song.mp3", None).unwrap();
-        assert_eq!(args, vec!["-i", "/tmp/song.mp3", "-c:a", "aac"]);
-    }
-
-    #[test]
-    fn inserts_fast_seek_before_the_input_flag_when_a_start_position_is_set() {
-        let args = build_ffmpeg_args("-i {input} -c:a aac", "/tmp/song.mp3", Some(42.5)).unwrap();
-        assert_eq!(
-            args,
-            vec!["-ss", "42.5", "-i", "/tmp/song.mp3", "-c:a", "aac"]
-        );
-    }
-
-    #[test]
-    fn zero_start_position_is_treated_as_no_seek() {
-        // a position of exactly 0.0 means "start from the top" - identical
-        // to no position at all, so no -ss should be inserted.
-        let args = build_ffmpeg_args("-i {input} -c:a aac", "/tmp/song.mp3", Some(0.0)).unwrap();
-        assert_eq!(args, vec!["-i", "/tmp/song.mp3", "-c:a", "aac"]);
-    }
-
-    #[test]
-    fn negative_start_position_is_treated_as_no_seek() {
-        let args = build_ffmpeg_args("-i {input} -c:a aac", "/tmp/song.mp3", Some(-5.0)).unwrap();
-        assert_eq!(args, vec!["-i", "/tmp/song.mp3", "-c:a", "aac"]);
-    }
-
-    #[test]
-    fn respects_a_differently_ordered_station_template() {
-        // the seek must land right before whichever token has {input},
-        // regardless of what else precedes it in the station's own
-        // configured args.
-        let args = build_ffmpeg_args(
-            "-hide_banner -loglevel error -i {input} -map 0:v:0",
-            "/videos/clip.mp4",
-            Some(10.0),
-        )
-        .unwrap();
-        assert_eq!(
-            args,
-            vec![
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-ss",
-                "10",
-                "-i",
-                "/videos/clip.mp4",
-                "-map",
-                "0:v:0"
-            ]
-        );
-    }
-
-    #[test]
-    fn no_input_token_leaves_args_unchanged_even_with_a_start_position() {
-        // defensive: a malformed/empty template with no {input} token at
-        // all has nowhere sensible to insert -ss - don't guess, just
-        // leave it alone (same as the None case).
-        let args = build_ffmpeg_args("-f mp4 pipe:1", "/tmp/song.mp3", Some(30.0)).unwrap();
-        assert_eq!(args, vec!["-f", "mp4", "pipe:1"]);
-    }
-}
-
 impl Encoder {
     /// spawn ffmpeg for the given input path. ffmpeg runs in the background;
     /// chunks are pulled lazily via [`Encoder::next_chunk`].
@@ -562,5 +492,75 @@ impl Drop for BufferedEncoder {
         if let Some(handle) = self.feeder.take() {
             handle.abort();
         }
+    }
+}
+
+#[cfg(test)]
+mod build_ffmpeg_args_tests {
+    use super::*;
+
+    #[test]
+    fn substitutes_input_with_no_start_position() {
+        let args = build_ffmpeg_args("-i {input} -c:a aac", "/tmp/song.mp3", None).unwrap();
+        assert_eq!(args, vec!["-i", "/tmp/song.mp3", "-c:a", "aac"]);
+    }
+
+    #[test]
+    fn inserts_fast_seek_before_the_input_flag_when_a_start_position_is_set() {
+        let args = build_ffmpeg_args("-i {input} -c:a aac", "/tmp/song.mp3", Some(42.5)).unwrap();
+        assert_eq!(
+            args,
+            vec!["-ss", "42.5", "-i", "/tmp/song.mp3", "-c:a", "aac"]
+        );
+    }
+
+    #[test]
+    fn zero_start_position_is_treated_as_no_seek() {
+        // a position of exactly 0.0 means "start from the top" - identical
+        // to no position at all, so no -ss should be inserted.
+        let args = build_ffmpeg_args("-i {input} -c:a aac", "/tmp/song.mp3", Some(0.0)).unwrap();
+        assert_eq!(args, vec!["-i", "/tmp/song.mp3", "-c:a", "aac"]);
+    }
+
+    #[test]
+    fn negative_start_position_is_treated_as_no_seek() {
+        let args = build_ffmpeg_args("-i {input} -c:a aac", "/tmp/song.mp3", Some(-5.0)).unwrap();
+        assert_eq!(args, vec!["-i", "/tmp/song.mp3", "-c:a", "aac"]);
+    }
+
+    #[test]
+    fn respects_a_differently_ordered_station_template() {
+        // the seek must land right before whichever token has {input},
+        // regardless of what else precedes it in the station's own
+        // configured args.
+        let args = build_ffmpeg_args(
+            "-hide_banner -loglevel error -i {input} -map 0:v:0",
+            "/videos/clip.mp4",
+            Some(10.0),
+        )
+        .unwrap();
+        assert_eq!(
+            args,
+            vec![
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-ss",
+                "10",
+                "-i",
+                "/videos/clip.mp4",
+                "-map",
+                "0:v:0"
+            ]
+        );
+    }
+
+    #[test]
+    fn no_input_token_leaves_args_unchanged_even_with_a_start_position() {
+        // defensive: a malformed/empty template with no {input} token at
+        // all has nowhere sensible to insert -ss - don't guess, just
+        // leave it alone (same as the None case).
+        let args = build_ffmpeg_args("-f mp4 pipe:1", "/tmp/song.mp3", Some(30.0)).unwrap();
+        assert_eq!(args, vec!["-f", "mp4", "pipe:1"]);
     }
 }

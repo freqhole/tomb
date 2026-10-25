@@ -2151,6 +2151,10 @@ mod tests {
     #[test]
     fn idle_guard_resets_flag_on_drop_even_via_early_return() {
         let flag = AtomicBool::new(false);
+        // the `return` here is deliberate - it's the whole point of the
+        // test (an early-exit path the guard must still unwind through),
+        // not an accidental leftover clippy should simplify away.
+        #[allow(clippy::needless_return)]
         fn helper(flag: &AtomicBool, bail_early: bool) {
             let _guard = IdleGuard::new(flag);
             assert!(flag.load(Ordering::Relaxed));

@@ -13,7 +13,7 @@ import { createSignal } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { debug, warn } from "../../utils/logger";
 import { getLocalVideos } from "./storage/db/videos";
-import { isLocalOrCharnelManagedVideoSource } from "../data";
+import { isLocalOrCharnelManagedVideoSource } from "../data/currentState";
 
 const [syncedVideoIds, setSyncedVideoIds] = createStore<Record<string, boolean>>({});
 

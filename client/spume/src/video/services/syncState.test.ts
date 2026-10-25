@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const isLocalOrCharnelManagedVideoSource = vi.fn(() => false);
-vi.mock("../data", () => ({
+vi.mock("../data/currentState", () => ({
   isLocalOrCharnelManagedVideoSource: () => isLocalOrCharnelManagedVideoSource(),
 }));
 
