@@ -788,11 +788,14 @@ function Inner(props: {
   // fetch taxon kinds for a remote and seed first-order relation hub
   // nodes (one per categorical user-defined kind). favorites is still
   // emitted by buildWalkGraph (per-user flag, no taxon_kindz row).
-  // era and recently_added are now returned by list_taxon_kinds.
+  // era and recently_added are synthesized hubs from list_taxon_kinds,
+  // opted into via `include_relation_hubs: true` - every other caller
+  // (the taxon editors) omits it so they never see these non-real,
+  // unlinkable "kinds" with an unusable add row.
   //
   // domain-inclusive hubs: fetches WITHOUT a domain filter so every
   // kind's real `album_count` AND `video_count` come back (the server
-  // returns every kind + the synthesized era/recently_added/unassigned
+  // returns every real kind + the opted-in era/recently_added/unassigned
   // hubs regardless of domain when `domain` is omitted - see
   // grimoire::music::entities::taxonomy::repository::list_taxon_kinds).
   // one hub per kind, not one per domain - childCount is the sum of
@@ -802,7 +805,7 @@ function Inner(props: {
   const loadTaxonKindsForRemote = async (remote: Remote): Promise<void> => {
     try {
       const client = await getClientForRemote(remote);
-      const result = await client.music.listTaxonKinds({ domain: null });
+      const result = await client.music.listTaxonKinds({ domain: null, include_relation_hubs: true });
       if (!result.success || !result.data) return;
       const remoteId = remote.remote_id;
       // stash the full kind list (categorical + scalar, empties
@@ -861,7 +864,10 @@ function Inner(props: {
   // sources.
   const loadTaxonKindsForLocal = async (): Promise<void> => {
     try {
-      const result = await localTaxonomyClient.music.listTaxonKinds({ domain: null });
+      const result = await localTaxonomyClient.music.listTaxonKinds({
+        domain: null,
+        include_relation_hubs: true,
+      });
       if (!result.success || !result.data) return;
       const remoteId = LOCAL_GRAPH_REMOTE_ID;
       const rhId = remoteHubId(remoteId);

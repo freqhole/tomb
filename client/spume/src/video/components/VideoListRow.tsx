@@ -149,12 +149,7 @@ export function VideoListRow(props: VideoListRowProps) {
           </Show>
         </Show>
 
-        <div class="relative z-10 flex items-center gap-3 px-2 py-2">
-          <Show when={props.index !== undefined}>
-            <span class="w-8 text-sm text-[var(--color-text-tertiary)] text-right flex-shrink-0">
-              {props.video.episode_number ?? props.index! + 1}
-            </span>
-          </Show>
+        <div class="relative z-10 flex items-center gap-2 @[480px]:gap-3 px-2 py-2">
           <div class="relative w-16 h-9 flex-shrink-0 rounded overflow-hidden bg-[var(--color-bg-elevated)]">
             <Show
               when={props.video.source_type === "remote"}
@@ -189,6 +184,20 @@ export function VideoListRow(props: VideoListRowProps) {
                 objectFit="cover"
                 class="w-full h-full"
               />
+            </Show>
+            {/* episode number overlaid on the thumbnail - mirrors
+                MediaThumbnail's index badge (used by the queue/playlist
+                rows) instead of reserving its own flex column, which
+                wasted space to the thumbnail's left and squeezed the
+                title on narrow widths. fades out on hover, same as
+                MediaThumbnail's own hideIndex-on-hover treatment, so it
+                doesn't fight the play button overlay below. */}
+            <Show when={props.index !== undefined}>
+              <div class="absolute inset-0 z-30 flex items-center justify-center pointer-events-none opacity-100 group-hover:opacity-0 transition-opacity">
+                <span class="bg-black/70 text-white text-xs font-medium leading-none px-1">
+                  {props.video.episode_number ?? props.index! + 1}
+                </span>
+              </div>
             </Show>
             <div class="absolute inset-0 z-40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
               <Show
@@ -228,10 +237,18 @@ export function VideoListRow(props: VideoListRowProps) {
               </Show>
             </div>
           </div>
+          {/* narrow: let the title wrap onto 2 lines instead of a single
+              marquee-scrolled line - there's no room on a phone-width
+              row for a long title plus duration/rating/favorite, and a
+              static 2-line clamp reads better than a tiny scrolling
+              strip. wide: unchanged single-line marquee. */}
+          <span class="flex-1 min-w-0 @[480px]:hidden text-sm text-[var(--color-text-primary)] line-clamp-2">
+            {props.video.title}
+          </span>
           <MarqueeText
             text={props.video.title}
             hoverOnly={true}
-            class="flex-1 min-w-0 text-sm text-[var(--color-text-primary)] group-hover:text-[var(--color-accent-500)] transition-colors"
+            class="hidden @[480px]:block flex-1 min-w-0 text-sm text-[var(--color-text-primary)] group-hover:text-[var(--color-accent-500)] transition-colors"
           />
           <Show when={props.showContentType && props.video.content_type}>
             <span class="text-xs text-[var(--color-text-tertiary)] flex-shrink-0">

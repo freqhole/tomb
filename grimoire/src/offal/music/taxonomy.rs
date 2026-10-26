@@ -263,14 +263,19 @@ fn to_json<T: serde::Serialize>(resp: GrimoireResponse<T>) -> GrimoireResponse<J
 pub async fn list_kinds(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     // tolerate a null/missing/empty body (existing callers predate the
     // `domain` filter) as well as a proper `ListTaxonKindsRequest` — read
-    // `domain` directly rather than a strict `serde_json::from_value`,
+    // fields directly rather than a strict `serde_json::from_value`,
     // since deserializing a bare struct from `null` would otherwise fail.
     let domain = body
         .as_object()
         .and_then(|o| o.get("domain"))
         .and_then(|v| v.as_str())
         .map(str::to_string);
-    to_json(r_list_taxon_kinds(domain.as_deref()).await)
+    let include_relation_hubs = body
+        .as_object()
+        .and_then(|o| o.get("include_relation_hubs"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    to_json(r_list_taxon_kinds(domain.as_deref(), include_relation_hubs).await)
 }
 
 pub async fn create_kind(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {

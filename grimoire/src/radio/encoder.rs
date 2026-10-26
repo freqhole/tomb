@@ -422,6 +422,7 @@ impl BufferedEncoder {
                         break;
                     }
                     Err(e) => {
+                        warn!("[radio-encoder] feeder error input={task_label}: {e}");
                         // surface the error then exit. broadcaster will
                         // see the Err and roll to the next track.
                         let _ = tx.send(Err(e)).await;

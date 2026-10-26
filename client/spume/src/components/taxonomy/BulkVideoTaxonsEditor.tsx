@@ -22,6 +22,7 @@ import { localTaxonomyClient } from "../../music/services/local-api/localTaxonom
 import type { TaxonomyClient } from "../../music/data";
 import { toast } from "../feedback/Toast";
 import { TaxonChipsGrid, type TaxonChipData, type TaxonKindOption } from "./TaxonChipsGrid";
+import { NewTaxonKindForm } from "./NewTaxonKindForm";
 
 // fully-resolved taxon link, common shape both the remote path (after
 // resolving raw `EntityTaxonLink`s against `music.getTaxon`) and the
@@ -70,8 +71,9 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
     () => clientResource() ?? (isLocalMode() ? localTaxonomyClient : null)
   );
 
+  const [kindsVersion, setKindsVersion] = createSignal(0);
   const [kindsResource] = createResource(
-    () => ({ override: props.kinds, client: taxonomyClient() }),
+    () => ({ override: props.kinds, client: taxonomyClient(), v: kindsVersion() }),
     async ({ override, client }) => {
       if (override) return override.filter((k) => !excludeKinds().has(k.slug));
       if (!client) return [] as TaxonKindOption[];
@@ -385,6 +387,14 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
           disabled={busy()}
           countSuffix="on"
         />
+        <Show when={!props.kinds}>
+          <NewTaxonKindForm
+            client={taxonomyClient()}
+            domain="video"
+            onCreated={() => setKindsVersion((v) => v + 1)}
+            disabled={busy()}
+          />
+        </Show>
       </Show>
     </div>
   );

@@ -14,6 +14,13 @@
 // created kinds (via `createTaxonKind`, persisted in the `taxon_kinds`
 // store so a kind can exist with real metadata before any value is
 // added under it) are merged in on top, per-domain.
+//
+// separately, `listTaxonKinds` can also append the non-real "unassigned"
+// relation-hub kind (mirrors the server's `synth::unassigned`, see
+// grimoire::music::entities::taxonomy::repository::list_taxon_kinds's
+// doc comment) — but only when the caller passes
+// `include_relation_hubs: true`. every taxon editor omits it; only the
+// library graph view opts in.
 
 import {
   upsertTaxon,
@@ -199,8 +206,12 @@ async function resolveKindSlugsForDomain(domain: string | null): Promise<string[
 
 export const localTaxonomyClient = {
   music: {
-    async listTaxonKinds(req?: { domain?: string | null }): Promise<ShimResult<ShimTaxonKind[]>> {
+    async listTaxonKinds(req?: {
+      domain?: string | null;
+      include_relation_hubs?: boolean | null;
+    }): Promise<ShimResult<ShimTaxonKind[]>> {
       const domain = req?.domain ?? null;
+      const includeRelationHubs = req?.include_relation_hubs ?? false;
       const isMusicScope = domain === null || domain === "music";
       const wellKnownLabels = new Map(WELL_KNOWN_KINDS.map((k) => [k.slug, k.label]));
 
@@ -243,8 +254,10 @@ export const localTaxonomyClient = {
 
       // "unassigned" hub (albums with no taxon links) is an album-only
       // concept, like the server-side synth hub it mirrors — only ever
-      // shown for the music scope.
-      if (isMusicScope && counts.unassigned > 0) {
+      // shown for the music scope, and only when the caller explicitly
+      // opts in (the graph view; every taxon editor omits this so it
+      // never sees a non-real, unlinkable "kind").
+      if (includeRelationHubs && isMusicScope && counts.unassigned > 0) {
         out.push(unassignedHubKind(counts.unassigned));
       }
       return ok(out);

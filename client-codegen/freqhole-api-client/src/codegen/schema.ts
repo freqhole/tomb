@@ -4036,7 +4036,8 @@ export const ListRelatedArtistsResponseSchema = z.object({
 export type ListRelatedArtistsResponse = z.infer<typeof ListRelatedArtistsResponseSchema>;
 
 export const ListTaxonKindsRequestSchema = z.object({
-  domain: z.string().nullish()
+  domain: z.string().nullish(),
+  include_relation_hubs: z.boolean().nullish()
 });
 export type ListTaxonKindsRequest = z.infer<typeof ListTaxonKindsRequestSchema>;
 

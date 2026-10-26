@@ -169,6 +169,15 @@ pub struct ListTaxonKindsRequest {
     /// `"universal"`) are returned. omit to get every kind (back-compat
     /// for the album editor, which predates domain scoping).
     pub domain: Option<String>,
+    /// include the synthesized, non-real relation-hub kinds ("era"
+    /// release-decade bins, "recently_added", "unassigned" - see
+    /// `list_taxon_kinds`'s doc comment). these have no real linkable
+    /// taxon values, so every taxon *editor* (album/video, single/bulk)
+    /// must omit this (or pass `false`) to avoid showing an unusable
+    /// "add" row for them. only the library graph view, which renders
+    /// them as computed hub nodes rather than editable kinds, should
+    /// pass `true`. defaults to `false` when omitted.
+    pub include_relation_hubs: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]

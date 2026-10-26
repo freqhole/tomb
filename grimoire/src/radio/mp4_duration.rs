@@ -92,8 +92,8 @@ fn parse_trex(body: &[u8]) -> Option<(u32, u32)> {
     Some((track_id, default_sample_duration))
 }
 
-/// parse every track's timescale (+ trex default sample duration, when
-/// present) out of an init segment's `moov` box body.
+/// parse audio/video tracks' timescales (+ trex default sample durations)
+/// out of an init segment's `moov` box body.
 pub fn parse_moov_tracks(moov_body: &[u8]) -> Vec<Mp4TrackInfo> {
     let mut trex_defaults: HashMap<u32, u32> = HashMap::new();
     if let Some(mvex) = find_box(moov_body, b"mvex") {
@@ -112,6 +112,13 @@ pub fn parse_moov_tracks(moov_body: &[u8]) -> Vec<Mp4TrackInfo> {
             let tkhd = find_box(trak.body, b"tkhd")?;
             let track_id = read_u32_after_times(tkhd)?;
             let mdia = find_box(trak.body, b"mdia")?;
+            let hdlr = find_box(mdia, b"hdlr")?;
+            // chapter text can span the entire item inside a single fragment.
+            // only playable media tracks may drive the broadcaster's clock.
+            let handler = hdlr.get(8..12)?;
+            if handler != b"soun" && handler != b"vide" {
+                return None;
+            }
             let mdhd = find_box(mdia, b"mdhd")?;
             let timescale = read_u32_after_times(mdhd)?;
             Some(Mp4TrackInfo {
@@ -219,6 +226,27 @@ pub fn fragment_duration_ms(moof_body: &[u8], tracks: &[Mp4TrackInfo]) -> Option
         }
 
         let ms = ((total_ticks as f64 / info.timescale as f64) * 1000.0).round() as u32;
+        if ms > 30_000 {
+            tracing::warn!(
+                "[radio-duration] unusually long fragment track_id={} timescale={} total_ticks={} duration_ms={} tfhd_default={:?} trex_default={:?} truns={:?}",
+                track_id,
+                info.timescale,
+                total_ticks,
+                ms,
+                tfhd_default,
+                info.default_sample_duration,
+                iter_boxes(traf.body)
+                    .filter(|b| &b.kind == b"trun")
+                    .map(|b| (
+                        b.body.get(0..4),
+                        b.body.get(4..8).map(|bytes| u32::from_be_bytes([
+                            bytes[0], bytes[1], bytes[2], bytes[3]
+                        ])),
+                        parse_trun_duration_ticks(b.body, default_duration)
+                    ))
+                    .collect::<Vec<_>>()
+            );
+        }
         best_ms = Some(best_ms.map_or(ms, |b| b.max(ms)));
     }
     best_ms
@@ -254,9 +282,16 @@ mod tests {
     }
 
     fn make_trak(track_id: u32, timescale: u32) -> Vec<u8> {
+        make_trak_with_handler(track_id, timescale, b"soun")
+    }
+
+    fn make_trak_with_handler(track_id: u32, timescale: u32, handler: &[u8; 4]) -> Vec<u8> {
         let tkhd = make_tkhd(track_id);
-        let mdhd = make_mdhd(timescale);
-        let mdia = make_box(b"mdia", &mdhd);
+        let mut mdia_body = make_mdhd(timescale);
+        let mut hdlr_body = vec![0u8; 8];
+        hdlr_body.extend_from_slice(handler);
+        mdia_body.extend_from_slice(&make_box(b"hdlr", &hdlr_body));
+        let mdia = make_box(b"mdia", &mdia_body);
         let mut body = tkhd;
         body.extend_from_slice(&mdia);
         make_box(b"trak", &body)
@@ -355,6 +390,41 @@ mod tests {
         assert!(tracks
             .iter()
             .any(|t| t.track_id == 2 && t.timescale == 44100));
+    }
+
+    #[test]
+    fn chapter_track_does_not_inflate_fragment_duration() {
+        let moov = make_moov(
+            &[
+                make_trak_with_handler(1, 24000, b"vide"),
+                make_trak_with_handler(2, 48000, b"soun"),
+                make_trak_with_handler(3, 48000, b"text"),
+            ],
+            &[make_trex(3, 0)],
+        );
+        let tracks = parse_moov_tracks(&moov);
+        let moof = make_moof(&[
+            make_traf(make_tfhd(1, Some(1000)), &[make_trun_default(72)]),
+            make_traf(make_tfhd(2, Some(1024)), &[make_trun_default(140)]),
+            make_traf(
+                make_tfhd(3, Some(2264256)),
+                &[make_trun_explicit(&[2264256, 2264256, 2264256, 62372352])],
+            ),
+        ]);
+        assert_eq!(fragment_duration_ms(&moof, &tracks), Some(3000));
+        assert_eq!(tracks.len(), 2);
+    }
+
+    #[test]
+    fn excludes_non_media_and_missing_handlers() {
+        for handler in [b"text", b"meta", b"subt", b"    "] {
+            let moov = make_moov(&[make_trak_with_handler(3, 48000, handler)], &[]);
+            assert!(parse_moov_tracks(&moov).is_empty());
+        }
+        let mut trak_body = make_tkhd(3);
+        trak_body.extend_from_slice(&make_box(b"mdia", &make_mdhd(48000)));
+        let moov = make_moov(&[make_box(b"trak", &trak_body)], &[]);
+        assert!(parse_moov_tracks(&moov).is_empty());
     }
 
     #[test]
