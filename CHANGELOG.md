@@ -1,5 +1,18 @@
 # freqhole-release
 
+## 0.3.21
+
+### Patch Changes
+
+- 183a371: try harder to prevent clipping of context menuz
+- 9cade8d: try to prioritize image upload jobs over other jobz;
+- 70e2123: try to improve taxon editor for videoz
+- 9c7b6de: video play progress + continue button for series & movie video type, row background fill to show progress
+- 8b1dfd7: add marquee text to video title rows in series detail view
+- cf7abb6: reorder "send to radio station" modal (requests-first); change screenshot timing (1% → 10%) + thumb regen job; season edit modal: season title autocomplete (merge seasons); season edit modal: shared taxon editing;
+- a0bb275: show fly-out menu if it's possible to stream video via a radio station when playing videos (a request-type radio station must be setup first!)
+- fe786b9: try to improve mobile action button sizing
+
 ## 0.3.20
 
 ### Patch Changes
