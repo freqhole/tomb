@@ -160,7 +160,7 @@ impl Default for RadioConfig {
 /// lets ffmpeg eagerly fill the server-side buffer (so a crash leaves
 /// listeners with `buffer_seconds` of slack to recover in).
 fn default_encode_args() -> String {
-    "-hide_banner -loglevel error -fflags +genpts -i {input} -vn -map 0:a:0 \
+    "-hide_banner -loglevel error -fflags +genpts -i {input} -vn -map 0:a:0 -map_chapters -1 \
      -c:a aac -profile:a aac_low -b:a 192k -ar 48000 -ac 2 \
      -movflags frag_keyframe+empty_moov+default_base_moof \
      -frag_duration 3000000 -avoid_negative_ts make_zero -f mp4 pipe:1"
@@ -217,7 +217,7 @@ fn default_max_concurrent_video_streams() -> u32 {
 /// keeps fragment count/duration predictable and aligned with
 /// `frag_duration`/`frag_ms` regardless of the source content.
 fn default_video_encode_args() -> String {
-    "-hide_banner -loglevel error -fflags +genpts -i {input} -map 0:v:0 -map 0:a:0 \
+    "-hide_banner -loglevel error -fflags +genpts -i {input} -map 0:v:0 -map 0:a:0 -map_chapters -1 \
      -c:v libx264 -profile:v main -preset veryfast -b:v 2500k -pix_fmt yuv420p \
      -x264-params scenecut=0 -force_key_frames expr:gte(t,n_forced*3) \
      -c:a aac -profile:a aac_low -b:a 192k -ar 48000 -ac 2 \
@@ -246,4 +246,157 @@ pub fn effective() -> RadioConfig {
         .radio
         .clone()
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::Command;
+
+    #[test]
+    #[ignore = "requires ffmpeg with libx264 and ffprobe"]
+    fn chaptered_media_produces_only_playable_radio_tracks() {
+        let dir = tempfile::tempdir().unwrap();
+        let metadata = dir.path().join("chapters.ffmetadata");
+        let input = dir.path().join("input.mkv");
+        std::fs::write(
+            &metadata,
+            ";FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=1440940\ntitle=chapter regression\n",
+        )
+        .unwrap();
+        let generated = Command::new("ffmpeg")
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=size=160x90:rate=24:duration=8",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:sample_rate=48000:duration=8",
+                "-f",
+                "ffmetadata",
+                "-i",
+            ])
+            .arg(&metadata)
+            .args([
+                "-map",
+                "0:v:0",
+                "-map",
+                "1:a:0",
+                "-map_metadata",
+                "2",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-c:a",
+                "aac",
+            ])
+            .arg(&input)
+            .output()
+            .unwrap();
+        assert!(
+            generated.status.success(),
+            "{}",
+            String::from_utf8_lossy(&generated.stderr)
+        );
+
+        for (name, template, expected) in [
+            ("audio", default_encode_args(), vec!["audio"]),
+            ("video", default_video_encode_args(), vec!["video", "audio"]),
+            (
+                "audio-with-chapters",
+                default_encode_args().replace("-map_chapters -1", ""),
+                vec!["audio", "data"],
+            ),
+            (
+                "video-with-chapters",
+                default_video_encode_args().replace("-map_chapters -1", ""),
+                vec!["video", "audio", "data"],
+            ),
+        ] {
+            let output = dir.path().join(format!("{name}.mp4"));
+            let args = shell_words::split(&template)
+                .unwrap()
+                .into_iter()
+                .map(|arg| {
+                    if arg == "{input}" {
+                        input.to_str().unwrap().to_owned()
+                    } else if arg == "pipe:1" {
+                        output.to_str().unwrap().to_owned()
+                    } else {
+                        arg
+                    }
+                })
+                .collect::<Vec<_>>();
+            let encoded = Command::new("ffmpeg").args(args).output().unwrap();
+            assert!(
+                encoded.status.success(),
+                "{}",
+                String::from_utf8_lossy(&encoded.stderr)
+            );
+            let probed = Command::new("ffprobe")
+                .args([
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "stream=codec_type",
+                    "-of",
+                    "json",
+                ])
+                .arg(&output)
+                .output()
+                .unwrap();
+            assert!(
+                probed.status.success(),
+                "{}",
+                String::from_utf8_lossy(&probed.stderr)
+            );
+            let json: serde_json::Value = serde_json::from_slice(&probed.stdout).unwrap();
+            let types = json["streams"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|stream| stream["codec_type"].as_str().unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(types, expected, "unexpected {name} stream types");
+            let mut parser = crate::radio::chunk::BoxParser::new();
+            parser.feed(&std::fs::read(&output).unwrap());
+            let mut seq = 0;
+            let mut durations = Vec::new();
+            while let Some(chunk) = parser.next_chunk(&mut seq) {
+                if !chunk.is_init {
+                    durations.push(chunk.duration_ms.expect("media fragment duration"));
+                }
+            }
+            assert!(
+                (2_900..=3_100).contains(durations.first().expect("first fragment")),
+                "{name} first fragment: {durations:?}"
+            );
+            assert!(
+                (7_900..=8_500).contains(&durations.iter().sum::<u32>()),
+                "{name} total duration: {durations:?}"
+            );
+            let decoded = Command::new("ffmpeg")
+                .args(["-v", "error", "-i"])
+                .arg(&output)
+                .args(["-f", "null", "-"])
+                .output()
+                .unwrap();
+            assert!(
+                decoded.status.success(),
+                "{}",
+                String::from_utf8_lossy(&decoded.stderr)
+            );
+            assert!(
+                decoded.stderr.is_empty(),
+                "{}",
+                String::from_utf8_lossy(&decoded.stderr)
+            );
+        }
+    }
 }

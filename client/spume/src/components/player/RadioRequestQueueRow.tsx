@@ -8,7 +8,7 @@
 // "currently playing" concept (nothing in this list is "playing"; the
 // station's own broadcaster decides what plays next, from the front of
 // this same queue).
-import { Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import type { RadioRequestRow as RadioRequestRowData } from "../radio/useRadioRequestQueue";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { MarqueeText } from "../text/MarqueeText";
@@ -38,6 +38,8 @@ export interface RadioRequestQueueRowProps {
 }
 
 export function RadioRequestQueueRow(props: RadioRequestQueueRowProps) {
+  const [isRowHovered, setIsRowHovered] = createSignal(false);
+
   return (
     <div
       draggable={props.draggableEnabled}
@@ -49,6 +51,8 @@ export function RadioRequestQueueRow(props: RadioRequestQueueRowProps) {
             : "rounded-lg hover:bg-[var(--color-accent-500)]/10"
       }`}
       style={{ transform: `translateY(${props.top}px)` }}
+      onMouseEnter={() => setIsRowHovered(true)}
+      onMouseLeave={() => setIsRowHovered(false)}
       onDragStart={props.onDragStart}
       onDragOver={props.onDragOver}
       onDragLeave={props.onDragLeave}
@@ -69,7 +73,7 @@ export function RadioRequestQueueRow(props: RadioRequestQueueRowProps) {
 
       <div class="flex-1 min-w-0 relative z-10">
         <h4 class="text-sm font-medium text-[var(--color-text-primary)] truncate m-0">
-          <MarqueeText text={props.row.title} />
+          <MarqueeText text={props.row.title} isHovering={isRowHovered} />
         </h4>
         <p class="text-xs text-[var(--color-text-secondary)] truncate m-0">
           {props.row.artist ?? "unknown artist"}
