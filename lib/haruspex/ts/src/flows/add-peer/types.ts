@@ -119,10 +119,21 @@ export type AddPeerEvent =
   | { type: "MODAL_CLOSE" }
   | { type: "INPUT_CHANGE"; input: string }
   | { type: "QR_SCAN"; input: string }
-  | { type: "SUBMIT_URL"; input: string }
+  | {
+      type: "SUBMIT_URL";
+      input: string;
+      /** "player" when the attempt unambiguously means "pair with this
+       *  player" (a scanned player qr, a player reconnect) - a
+       *  player_device peer then always lands on "auth" (the pin form),
+       *  never the knock form, even when it also has knocking enabled. */
+      intent?: "player";
+    }
   | { type: "SUBMIT_KNOCK"; username: string; message: string }
   | { type: "CANCEL_KNOCK" }
   | { type: "USE_INVITE_CODE" }
+  /** "auth" -> "url"/knock_form: the "don't have an invite code? request
+   *  access" link. only valid for a p2p peer with knocking enabled. */
+  | { type: "REQUEST_ACCESS" }
   | { type: "PASSKEY_SIGNIN" }
   | {
       type: "SUBMIT_AUTH";

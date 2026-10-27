@@ -61,6 +61,8 @@ export interface AddPeerContext {
    *  handling below for why this doesn't block outright the way an http
    *  duplicate still does). */
   existingRemote: SavedRemote | null;
+  /** the current attempt was submitted with `intent: "player"`. */
+  playerIntent: boolean;
 }
 
 export function initialContext(): AddPeerContext {
@@ -79,6 +81,7 @@ export function initialContext(): AddPeerContext {
     retryPending: null,
     remote: null,
     existingRemote: null,
+    playerIntent: false,
   };
 }
 
@@ -191,6 +194,7 @@ export function transition(ctx: AddPeerContext, event: AddPeerEvent): Transition
         serverInfo: null,
         retryPending: null,
         existingRemote: null,
+        playerIntent: event.intent === "player",
       };
       return { ctx: next, effects: [{ type: "CHECK_DUPLICATE", target }] };
     }
@@ -232,32 +236,42 @@ export function transition(ctx: AddPeerContext, event: AddPeerEvent): Transition
       if (ctx.step !== "testing") return noop(ctx);
       const { outcome } = event;
       // a player device is handled identically regardless of `outcome.kind`
-      // or whether it's brand-new or already saved: pin-pairing (or, for an
-      // already-saved remote, the host UI's live `queryPlayerPresence`
-      // check - see AddRemoteModal.tsx's `playerAccess` resource) is the
-      // ONLY way in - never the generic knock-request form (`needs_knock`),
-      // and never auto-`CREATE_REMOTE`d from a bare `already_authed` (that
-      // only proves this peer redeemed SOME pairing code in the past, not
-      // that it's currently in the player's live, ephemeral session - see
-      // this file's own history for that exact regression). always routes
-      // to "auth", on any non-failed outcome, never re-creating the remote
-      // from here either way.
+      // or whether it's brand-new or already saved: it's never auto-
+      // `CREATE_REMOTE`d from a bare `already_authed` (that only proves
+      // this peer redeemed SOME pairing code in the past, not that it's
+      // currently in the player's live, ephemeral session - see this
+      // file's own history for that exact regression), and pin-pairing (or,
+      // for an already-saved remote, the host UI's live `queryPlayerPresence`
+      // check - see AddRemoteModal.tsx's `playerAccess` resource) stays
+      // reachable from whichever step it lands on.
+      //
+      // a player_device peer can ALSO be a real, knockable remote (e.g.
+      // rathole - see grimoire's server_info() doc comment): for a fresh,
+      // not-yet-authed attempt that isn't explicitly a player pairing,
+      // default to the knock form (the host ui renders the pin form
+      // alongside it) - same as any other knockable peer. otherwise "auth".
       if (outcome.kind !== "failed" && outcome.serverInfo.player_device) {
+        const upsert: AddPeerEffect = {
+          type: "UPSERT_PENDING",
+          peerAddr: addrKey(ctx),
+          patch: { stage: "connected", ...serverInfoPatch(outcome.serverInfo) },
+        };
+        const toKnockForm =
+          outcome.serverInfo.knocking_enabled &&
+          outcome.kind !== "already_authed" &&
+          !ctx.playerIntent &&
+          !ctx.existingRemote &&
+          ctx.peerAddr !== null;
         return {
           ctx: {
             ...ctx,
-            step: "auth",
+            step: toKnockForm ? "url" : "auth",
+            subStep: toKnockForm ? "knock_form" : ctx.subStep,
             serverInfo: outcome.serverInfo,
-            error: null,
+            error: toKnockForm && outcome.kind === "needs_knock" ? (outcome.error ?? null) : null,
             progress: null,
           },
-          effects: [
-            {
-              type: "UPSERT_PENDING",
-              peerAddr: addrKey(ctx),
-              patch: { stage: "connected", ...serverInfoPatch(outcome.serverInfo) },
-            },
-          ],
+          effects: [upsert],
         };
       }
       if (ctx.existingRemote && outcome.kind !== "failed") {
@@ -389,6 +403,12 @@ export function transition(ctx: AddPeerContext, event: AddPeerEvent): Transition
     case "PASSKEY_SIGNIN":
       if (ctx.step !== "url" || ctx.subStep !== "knock_form") return noop(ctx);
       return noop({ ...ctx, step: "auth", error: null });
+
+    case "REQUEST_ACCESS":
+      if (ctx.step !== "auth" || !ctx.peerAddr || !ctx.serverInfo?.knocking_enabled) {
+        return noop(ctx);
+      }
+      return noop({ ...ctx, step: "url", subStep: "knock_form", error: null, progress: null });
 
     case "SUBMIT_AUTH": {
       if (ctx.step !== "auth") return noop(ctx);

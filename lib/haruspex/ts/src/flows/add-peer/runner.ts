@@ -103,20 +103,20 @@ export function createAddPeerFlow(deps: AddPeerFlowDeps): AddPeerFlow {
     } catch (err) {
       // an auth rejection on the probe itself can still mean "knockable":
       // the hello surface is public, so re-read it to route to the knock
-      // form instead of a dead-end error. a player_device peer routes to
-      // auth instead (see the non-error path below for why).
+      // form instead of a dead-end error. a non-knockable player_device
+      // peer routes to auth instead (pin pairing is its way in).
       if (isAuthRejection(err)) {
         try {
           const helloInfo = await deps.getServerInfo(target);
-          if (helloInfo?.player_device) {
-            return { kind: "needs_auth", serverInfo: helloInfo };
-          }
           if (helloInfo?.knocking_enabled) {
             return {
               kind: "needs_knock",
               serverInfo: helloInfo,
               error: "access denied - you can request access from the server admin",
             };
+          }
+          if (helloInfo?.player_device) {
+            return { kind: "needs_auth", serverInfo: helloInfo };
           }
         } catch {
           // fall through to the generic failure below
@@ -140,11 +140,9 @@ export function createAddPeerFlow(deps: AddPeerFlowDeps): AddPeerFlow {
     if (authed) return { kind: "already_authed", serverInfo: info };
     // a player_device peer (e.g. rathole) can ALSO have knocking enabled -
     // it's genuinely both a real remote and a pairable player (see
-    // grimoire's server_info() doc comment) - route to "auth" either way,
-    // since that's the step that renders the player pairing ui (with its
-    // own "don't have an invite code? request access" knock fallback
-    // link when knocking_enabled), not the separate knock-only step.
-    if (info.player_device) return { kind: "needs_auth", serverInfo: info };
+    // grimoire's server_info() doc comment). the outcome just reports
+    // what the peer supports; the machine's CONNECTION_RESULT decides
+    // knock form vs auth for player devices (see its `playerIntent`).
     if (info.knocking_enabled) return { kind: "needs_knock", serverInfo: info };
     return { kind: "needs_auth", serverInfo: info };
   }

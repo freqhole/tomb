@@ -566,3 +566,133 @@ describe("back / cancel / lifecycle", () => {
     expect(effects).toEqual([]);
   });
 });
+
+describe("knockable player_device peers", () => {
+  const PLAYER_KNOCK: PeerServerInfo = { ...INFO, player_device: true, knocking_enabled: true };
+  const probe = (intent?: "player"): AddPeerEvent[] => [
+    { type: "SUBMIT_URL", input: NODE_ID, intent },
+    { type: "DUPLICATE_RESULT", duplicate: null },
+  ];
+
+  it("defaults to the knock form (not the invite code form) and persists stage connected", () => {
+    const { ctx, effects } = run([
+      ...probe(),
+      { type: "CONNECTION_RESULT", outcome: { kind: "needs_knock", serverInfo: PLAYER_KNOCK } },
+    ]);
+    expect(ctx.step).toBe("url");
+    expect(ctx.subStep).toBe("knock_form");
+    expect(ctx.serverInfo?.player_device).toBe(true);
+    const upsert = effects[0] as Extract<AddPeerEffect, { type: "UPSERT_PENDING" }>;
+    expect(upsert.type).toBe("UPSERT_PENDING");
+    expect(upsert.patch.stage).toBe("connected");
+  });
+
+  it("carries an auth-rejection hint onto the knock form", () => {
+    const { ctx } = run([
+      ...probe(),
+      {
+        type: "CONNECTION_RESULT",
+        outcome: { kind: "needs_knock", serverInfo: PLAYER_KNOCK, error: "access denied" },
+      },
+    ]);
+    expect(ctx.subStep).toBe("knock_form");
+    expect(ctx.error).toBe("access denied");
+  });
+
+  it("routes to auth with player intent (scanned player qr / player reconnect)", () => {
+    const { ctx } = run([
+      ...probe("player"),
+      { type: "CONNECTION_RESULT", outcome: { kind: "needs_knock", serverInfo: PLAYER_KNOCK } },
+    ]);
+    expect(ctx.step).toBe("auth");
+    expect(ctx.playerIntent).toBe(true);
+  });
+
+  it("routes to auth when already authed (no access to request)", () => {
+    const { ctx, effects } = run([
+      ...probe(),
+      { type: "CONNECTION_RESULT", outcome: { kind: "already_authed", serverInfo: PLAYER_KNOCK } },
+    ]);
+    expect(ctx.step).toBe("auth");
+    expect(effectTypes(effects)).toEqual(["UPSERT_PENDING"]);
+  });
+
+  it("routes an already-saved player to auth so the pin/presence check still runs", () => {
+    const { ctx } = run([
+      { type: "SUBMIT_URL", input: NODE_ID },
+      { type: "DUPLICATE_RESULT", duplicate: { remote_id: "r0", name: "p", peer_addr: NODE_ID } },
+      { type: "CONNECTION_RESULT", outcome: { kind: "needs_knock", serverInfo: PLAYER_KNOCK } },
+    ]);
+    expect(ctx.step).toBe("auth");
+  });
+
+  it("a later attempt without player intent resets it", () => {
+    const { ctx } = run([
+      ...probe("player"),
+      { type: "BACK" },
+      ...probe(),
+      { type: "CONNECTION_RESULT", outcome: { kind: "needs_knock", serverInfo: PLAYER_KNOCK } },
+    ]);
+    expect(ctx.playerIntent).toBe(false);
+    expect(ctx.subStep).toBe("knock_form");
+  });
+});
+
+describe("REQUEST_ACCESS", () => {
+  const toAuth = (serverInfo: PeerServerInfo): AddPeerEvent[] => [
+    { type: "SUBMIT_URL", input: NODE_ID },
+    { type: "DUPLICATE_RESULT", duplicate: null },
+    { type: "CONNECTION_RESULT", outcome: { kind: "needs_auth", serverInfo } },
+  ];
+
+  it("moves auth -> knock form for a knockable p2p peer, keeping peer + server info", () => {
+    const info = { ...INFO, knocking_enabled: true };
+    const { ctx, effects } = run([
+      ...toAuth(info),
+      { type: "SUBMIT_AUTH", mode: "register", username: "ed" }, // leaves an error behind
+      { type: "REQUEST_ACCESS" },
+    ]);
+    expect(effects).toEqual([]);
+    expect(projectState(ctx)).toEqual({
+      step: "url",
+      subStep: "knock_form",
+      error: null,
+      pendingRemotes: [],
+      serverInfo: info,
+      peerAddr: NODE_ID,
+    });
+  });
+
+  it("then lets the knock be submitted", () => {
+    const { effects } = run([
+      ...toAuth({ ...INFO, knocking_enabled: true }),
+      { type: "REQUEST_ACCESS" },
+      { type: "SUBMIT_KNOCK", username: "ed", message: "hi" },
+    ]);
+    expect(effectTypes(effects)).toEqual(["SEND_KNOCK"]);
+  });
+
+  it("is a no-op when knocking is disabled", () => {
+    const { ctx } = run([...toAuth(INFO), { type: "REQUEST_ACCESS" }]);
+    expect(ctx.step).toBe("auth");
+  });
+
+  it("is a no-op for an http remote", () => {
+    const { ctx } = run([
+      { type: "SUBMIT_URL", input: "https://music.example.com" },
+      { type: "DUPLICATE_RESULT", duplicate: null },
+      {
+        type: "CONNECTION_RESULT",
+        outcome: { kind: "needs_auth", serverInfo: { ...INFO, knocking_enabled: true } },
+      },
+      { type: "REQUEST_ACCESS" },
+    ]);
+    expect(ctx.step).toBe("auth");
+  });
+
+  it("is a no-op outside the auth step", () => {
+    const { ctx } = run([{ type: "REQUEST_ACCESS" }]);
+    expect(ctx.step).toBe("url");
+    expect(ctx.subStep).toBe("input");
+  });
+});
