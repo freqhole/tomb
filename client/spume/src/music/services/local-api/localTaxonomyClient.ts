@@ -190,9 +190,15 @@ function unassignedHubKind(albumCount: number): ShimTaxonKind {
 //     original, pre-domain behavior).
 //   - any other domain (e.g. "video"): well-known defaults are
 //     music-only and must NOT appear. scope instead to kind_slugs
-//     actually linked to an entity of that type via `entity_taxons`
+//     actually linked to an entity of that domain via `entity_taxons`
 //     (only true, reliable signal for "this kind applies here"
-//     available locally).
+//     available locally). this is also how local mode mirrors the
+//     server's widen-on-link rule: linking any taxon to a video-domain
+//     entity makes its kind show up for that domain from then on.
+const ENTITY_TYPES_BY_DOMAIN: Record<string, string[]> = {
+  video: ["video", "video_series", "video_season"],
+};
+
 async function resolveKindSlugsForDomain(domain: string | null): Promise<string[]> {
   if (domain === null || domain === "music") {
     const rows = await queryLocalTaxons({ remote_id: LOCAL_TAXON_REMOTE_ID });
@@ -201,7 +207,9 @@ async function resolveKindSlugsForDomain(domain: string | null): Promise<string[
     for (const slug of wellKnownSlugs) discovered.delete(slug);
     return [...wellKnownSlugs, ...discovered];
   }
-  return [...(await getKindSlugsLinkedToEntityType(domain))];
+  const entityTypes = ENTITY_TYPES_BY_DOMAIN[domain] ?? [domain];
+  const slugSets = await Promise.all(entityTypes.map((t) => getKindSlugsLinkedToEntityType(t)));
+  return [...new Set(slugSets.flatMap((s) => [...s]))];
 }
 
 export const localTaxonomyClient = {

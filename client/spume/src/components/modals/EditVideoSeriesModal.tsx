@@ -111,6 +111,10 @@ export function EditVideoSeriesModal(props: EditVideoSeriesModalProps) {
   const seasonVideoIds = (seasonId: string): string[] =>
     (detailQuery.data?.seasons.find((s) => s.id === seasonId)?.videos ?? []).map((v) => v.id);
 
+  const unassignedVideoIds = createMemo(() =>
+    (detailQuery.data?.unassignedVideos ?? []).map((v) => v.id)
+  );
+
   // images — fetched/mutated immediately (not deferred to save), mirrors
   // AlbumEditorModal.tsx's image handling
   const [images, setImages] = createSignal<ImageMetadata[]>([]);
@@ -401,6 +405,18 @@ export function EditVideoSeriesModal(props: EditVideoSeriesModalProps) {
             />
           </div>
 
+          {/* taxons on the series entity itself (entity_type
+              "video_series") - shown in the series detail header
+              alongside every episode's own taxons. applied immediately,
+              like the per-season shared editors below. */}
+          <Show when={canUpdateVideo()}>
+            <BulkVideoTaxonsEditor
+              videoIds={[props.seriesId]}
+              entityType="video_series"
+              heading="series taxons"
+            />
+          </Show>
+
           {/* seasons — rename OR merge into an existing season (picking a
               DIFFERENT, already-existing season here moves every video
               out of this one and into that one instead - see
@@ -448,6 +464,18 @@ export function EditVideoSeriesModal(props: EditVideoSeriesModalProps) {
                   )}
                 </For>
               </div>
+            </div>
+          </Show>
+
+          {/* videos attached to the series with no season ("extras", or
+              every episode when the series has no seasons at all) - same
+              shared-taxon editor as each season row above. */}
+          <Show when={canUpdateVideo() && unassignedVideoIds().length > 0}>
+            <div class="border-t border-[var(--color-border-default)] pt-4">
+              <label class="block text-sm text-[var(--color-text-secondary)] mb-2">
+                {(seasonsQuery.data?.length ?? 0) > 0 ? "extras" : "episodes"}
+              </label>
+              <BulkVideoTaxonsEditor videoIds={unassignedVideoIds()} onlyShared />
             </div>
           </Show>
 

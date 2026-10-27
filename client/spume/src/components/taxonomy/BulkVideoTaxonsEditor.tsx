@@ -53,10 +53,16 @@ export interface BulkVideoTaxonsEditorProps {
    *  selection. adding/removing still fans out to every video exactly
    *  as before - only the displayed set of chips changes. */
   onlyShared?: boolean;
+  /** which video-domain entity the ids in `videoIds` refer to. defaults
+   *  to "video"; pass "video_series" to edit a series' own taxons. */
+  entityType?: "video" | "video_series" | "video_season";
+  /** overrides the header text (defaults to "taxons · N videos"). */
+  heading?: string;
 }
 
 export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
   const excludeKinds = createMemo(() => new Set(props.excludeKinds ?? []));
+  const entityType = () => props.entityType ?? "video";
   const isLocalMode = createMemo(() => !getCurrentRemote());
 
   const [clientResource] = createResource(
@@ -104,7 +110,7 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
         const results = await Promise.allSettled(
           props.videoIds.map(async (video_id) => {
             const resp = await localTaxonomyClient.music.getEntityTaxonLinks({
-              entity_type: "video",
+              entity_type: entityType(),
               entity_id: video_id,
             });
             const links: ResolvedLink[] = resp.success
@@ -129,7 +135,7 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
       const results = await Promise.allSettled(
         props.videoIds.map(async (video_id) => {
           const resp = await client.entities.getEntityTaxons({
-            entity_type: "video",
+            entity_type: entityType(),
             entity_id: video_id,
           });
           return { video_id, links: resp.success ? resp.data : [] };
@@ -262,7 +268,7 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
       `add ${taxon.label}`,
       (client, video_id) =>
         client.entities.addEntityTaxon({
-          entity_type: "video",
+          entity_type: entityType(),
           entity_id: video_id,
           taxon_id: taxon.id,
           origin: "user",
@@ -270,7 +276,7 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
         }),
       (video_id) =>
         localTaxonomyClient.music.addEntityTaxon({
-          entity_type: "video",
+          entity_type: entityType(),
           entity_id: video_id,
           taxon_id: taxon.id,
           origin: "user",
@@ -310,14 +316,14 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
         props.videoIds.map((video_id) =>
           local
             ? localTaxonomyClient.music.addEntityTaxon({
-                entity_type: "video",
+                entity_type: entityType(),
                 entity_id: video_id,
                 taxon_id: taxonId,
                 origin: "user",
                 confidence: null,
               })
             : (client as ApiClient).entities.addEntityTaxon({
-                entity_type: "video",
+                entity_type: entityType(),
                 entity_id: video_id,
                 taxon_id: taxonId,
                 origin: "user",
@@ -343,14 +349,14 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
       `remove ${chip.label}`,
       (client, video_id) =>
         client.entities.removeEntityTaxon({
-          entity_type: "video",
+          entity_type: entityType(),
           entity_id: video_id,
           taxon_id: chip.taxon_id,
           origin: chip.origin,
         }),
       (video_id) =>
         localTaxonomyClient.music.removeEntityTaxon({
-          entity_type: "video",
+          entity_type: entityType(),
           entity_id: video_id,
           taxon_id: chip.taxon_id,
           origin: chip.origin,
@@ -362,8 +368,12 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
     <div class="space-y-2">
       <div class="flex items-center justify-between">
         <span class="text-[10px] uppercase tracking-wide text-white/45">
-          {props.onlyShared ? "shared taxons" : "taxons"} · {props.videoIds.length} video
-          {props.videoIds.length === 1 ? "" : "s"}
+          {props.heading ?? (
+            <>
+              {props.onlyShared ? "shared taxons" : "taxons"} · {props.videoIds.length} video
+              {props.videoIds.length === 1 ? "" : "s"}
+            </>
+          )}
         </span>
         <Show when={linksResource.loading || kindsResource.loading || busy()}>
           <div class="animate-spin w-3 h-3 border-2 border-[var(--color-accent-500)] border-t-transparent rounded-full" />
@@ -391,6 +401,7 @@ export function BulkVideoTaxonsEditor(props: BulkVideoTaxonsEditorProps) {
           <NewTaxonKindForm
             client={taxonomyClient()}
             domain="video"
+            existingSlugs={(kindsResource() ?? []).map((k) => k.slug)}
             onCreated={() => setKindsVersion((v) => v + 1)}
             disabled={busy()}
           />

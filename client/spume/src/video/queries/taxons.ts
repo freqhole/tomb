@@ -2,21 +2,38 @@
 // entities.getEntityTaxons route (entity_taxonz table, entity_type
 // agnostic) plus a per-id music.getTaxon resolve step, since
 // getEntityTaxons only returns raw links (taxon_id, no label/kind_slug).
-// mirrors useVideoFavoriteStatuses.ts's remote-client-or-empty pattern:
-// local (no-remote) mode has no taxon data for video yet, so it
-// resolves to an empty list rather than reaching into a local store.
+// local (no-remote) mode reads the local `entity_taxons` indexeddb store
+// via localTaxonomyClient instead, whose links already come resolved.
 import { createQuery } from "@tanstack/solid-query";
 import { getRemoteClient } from "../../music/data";
+import { localTaxonomyClient } from "../../music/services/local-api/localTaxonomyClient";
 import type { TaxonRef } from "../../music/services/storage/types";
 import { videoQueryKeys } from "./queryKeys";
 
 type RemoteClient = NonNullable<Awaited<ReturnType<typeof getRemoteClient>>>;
 
-async function fetchTaxonsForEntity(
-  client: RemoteClient,
+async function fetchLocalTaxonsForEntity(
   entityType: "video" | "video_series",
   entityId: string
 ): Promise<TaxonRef[]> {
+  const resp = await localTaxonomyClient.music.getEntityTaxonLinks({
+    entity_type: entityType,
+    entity_id: entityId,
+  });
+  if (!resp.success) return [];
+  const byId = new Map<string, TaxonRef>();
+  for (const link of resp.data) {
+    byId.set(link.taxon_id, { id: link.taxon_id, kind_slug: link.kind_slug, label: link.label });
+  }
+  return Array.from(byId.values());
+}
+
+async function fetchTaxonsForEntity(
+  client: RemoteClient | null,
+  entityType: "video" | "video_series",
+  entityId: string
+): Promise<TaxonRef[]> {
+  if (!client) return fetchLocalTaxonsForEntity(entityType, entityId);
   const linksResult = await client.entities.getEntityTaxons({
     entity_type: entityType,
     entity_id: entityId,
@@ -46,8 +63,6 @@ export function useVideoTaxonsQuery(videoId: () => string | undefined) {
       if (!id) return [];
 
       const client = await getRemoteClient();
-      if (!client) return [];
-
       return fetchTaxonsForEntity(client, "video", id);
     },
     enabled: !!videoId(),
@@ -58,8 +73,7 @@ export function useVideoTaxonsQuery(videoId: () => string | undefined) {
 
 /** taxons attached directly to a video series entity (not its videos'
  * taxons — see useVideoSeriesAggregateTaxonsQuery for the combined
- * view). remote-only, same limitation as useVideoTaxonsQuery above:
- * video taxons have no local (indexeddb) storage yet. */
+ * view). */
 export function useVideoSeriesTaxonsQuery(seriesId: () => string | undefined) {
   return createQuery(() => ({
     queryKey: videoQueryKeys.series.taxons(seriesId() || ""),
@@ -68,8 +82,6 @@ export function useVideoSeriesTaxonsQuery(seriesId: () => string | undefined) {
       if (!id) return [];
 
       const client = await getRemoteClient();
-      if (!client) return [];
-
       return fetchTaxonsForEntity(client, "video_series", id);
     },
     enabled: !!seriesId(),
@@ -92,8 +104,6 @@ export function useVideoSeriesAggregateTaxonsQuery(
       if (!id) return [];
 
       const client = await getRemoteClient();
-      if (!client) return [];
-
       const ids = videoIds();
       const results = await Promise.all([
         fetchTaxonsForEntity(client, "video_series", id),

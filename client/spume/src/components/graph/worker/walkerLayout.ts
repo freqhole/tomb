@@ -163,10 +163,31 @@ export function computeTargets(
 
 // ---- compute which nodes are visible ---------------------------------------
 
+/** the series node a video belongs to (directly or via its season), or
+ *  null for standalone videos / series not yet merged into the graph. */
+function seriesOfVideo(videoId: string): string | null {
+  for (const parentId of parentsOf.get(videoId) ?? []) {
+    const parent = nodeMap.get(parentId);
+    if (parent?.role === "video_series") return parentId;
+    if (parent?.role === "video_season") {
+      for (const gp of parentsOf.get(parentId) ?? []) {
+        if (nodeMap.get(gp)?.role === "video_series") return gp;
+      }
+    }
+  }
+  return null;
+}
+
 export function getVisible(): Set<string> {
   const visible = new Set<string>(state.breadcrumb);
   const piv = pivot();
   const pivRole = nodeMap.get(piv)?.role;
+  // taxon value/group pivots get value -> video edges wired straight in by
+  // createPivotHandler's maybeLoadVideosForPivot, so episodes are direct
+  // children here. they're held back and resolved against the video
+  // budget below (collapsed into their series when there are too many).
+  const pivIsTaxonHub = pivRole === "relation" || pivRole === "value" || pivRole === "group";
+  const directVideos: string[] = [];
   for (const childId of clusterChildrenOf(piv)) {
     const wn = nodeMap.get(childId);
     if (!wn) continue;
@@ -186,6 +207,10 @@ export function getVisible(): Set<string> {
     // this check is largely redundant for them now, but kept as defense
     // in depth.
     if (pivRole === "remote" && wn.role !== "relation") continue;
+    if (pivIsTaxonHub && wn.role === "video") {
+      directVideos.push(childId);
+      continue;
+    }
     visible.add(childId);
   }
   // auto-expand album children only for the pivot artist (or any artist on
@@ -255,43 +280,70 @@ export function getVisible(): Set<string> {
   // stay a manual click regardless of how few values a given kind has.
   const AUTO_EXPAND_MAX_CHILDREN = 12;
   const AUTO_EXPAND_MAX_DEPTH = 4;
+  // video series/seasons only bloom open under a taxon pivot when the
+  // result stays small: if the series + video nodes the bloom would put
+  // on screen exceed this, series/seasons stay collapsed (click one to
+  // open it) instead of dumping every episode around the taxon.
+  const VIDEO_AUTO_EXPAND_MAX_NODES = 10;
   if (pivRole !== "remote") {
-    const isSmallHub = (wn: { role: string; childCount: number } | undefined): boolean =>
+    const isTaxonHubRole = (role: string) =>
+      role === "relation" || role === "value" || role === "group";
+    const isVideoHubRole = (role: string) => role === "video_series" || role === "video_season";
+    const isSmallHub = (
+      wn: { role: string; childCount: number } | undefined,
+      allowVideo: boolean
+    ): boolean =>
       !!wn &&
-      (wn.role === "relation" ||
-        wn.role === "value" ||
-        wn.role === "group" ||
-        wn.role === "video_series" ||
-        wn.role === "video_season") &&
+      (isTaxonHubRole(wn.role) || (allowVideo && isVideoHubRole(wn.role))) &&
       wn.childCount > 0 &&
       wn.childCount <= AUTO_EXPAND_MAX_CHILDREN;
-    let frontier = clusterChildrenOf(piv).filter((id) => isSmallHub(nodeMap.get(id)));
-    const seen = new Set<string>(frontier);
-    for (let depth = 0; depth < AUTO_EXPAND_MAX_DEPTH && frontier.length > 0; depth++) {
-      const next: string[] = [];
-      for (const hubId of frontier) {
-        for (const childId of clusterChildrenOf(hubId)) {
-          if (seen.has(childId)) continue;
-          seen.add(childId);
-          const child = nodeMap.get(childId);
-          if (!child) continue;
-          if (
-            (child.role === "value" || child.role === "relation") &&
-            child.childCount === 0 &&
-            !child.lazy
-          )
-            continue;
-          if (child.role === "album") continue; // handled via artist pass below
-          visible.add(childId);
-          if (child.role === "artist") {
-            eagerArtists.add(childId);
-          }
-          if (isSmallHub(child)) {
-            next.push(childId);
+    const isEmptyTaxon = (wn: { role: string; childCount: number; lazy?: boolean }) =>
+      (wn.role === "value" || wn.role === "relation") && wn.childCount === 0 && !wn.lazy;
+
+    // the set of nodes the bloom below would surface (albums excluded,
+    // they're handled by the artist pass).
+    const bloom = (allowVideo: boolean): string[] => {
+      const out: string[] = [];
+      let frontier = clusterChildrenOf(piv).filter((id) => isSmallHub(nodeMap.get(id), allowVideo));
+      const seen = new Set<string>(frontier);
+      for (let depth = 0; depth < AUTO_EXPAND_MAX_DEPTH && frontier.length > 0; depth++) {
+        const next: string[] = [];
+        for (const hubId of frontier) {
+          for (const childId of clusterChildrenOf(hubId)) {
+            if (seen.has(childId)) continue;
+            seen.add(childId);
+            const child = nodeMap.get(childId);
+            if (!child || isEmptyTaxon(child) || child.role === "album") continue;
+            out.push(childId);
+            if (isSmallHub(child, allowVideo)) next.push(childId);
           }
         }
+        frontier = next;
       }
-      frontier = next;
+      return out;
+    };
+
+    let allowVideo = true;
+    if (pivIsTaxonHub) {
+      const videoNodes = new Set<string>();
+      for (const id of [...clusterChildrenOf(piv), ...bloom(true)]) {
+        const role = nodeMap.get(id)?.role;
+        if (role === "video_series" || role === "video") videoNodes.add(id);
+      }
+      for (const id of directVideos) {
+        const series = seriesOfVideo(id);
+        if (series) videoNodes.add(series);
+      }
+      allowVideo = videoNodes.size <= VIDEO_AUTO_EXPAND_MAX_NODES;
+      for (const id of directVideos) {
+        const series = allowVideo ? null : seriesOfVideo(id);
+        visible.add(series ?? id);
+      }
+    }
+
+    for (const childId of bloom(allowVideo)) {
+      visible.add(childId);
+      if (nodeMap.get(childId)?.role === "artist") eagerArtists.add(childId);
     }
   }
   for (const id of [...visible]) {

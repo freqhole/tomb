@@ -335,6 +335,7 @@ export function VideoTaxonsEditor(props: VideoTaxonsEditorProps) {
         <NewTaxonKindForm
           client={taxonomyClientResource() ?? null}
           domain="video"
+          existingSlugs={(kindsResource() ?? []).map((k) => k.slug)}
           onCreated={() => setKindsVersion((v) => v + 1)}
           ref={(handle) => setKindFormHandle(handle)}
         />

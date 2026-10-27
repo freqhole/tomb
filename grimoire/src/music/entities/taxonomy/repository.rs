@@ -491,7 +491,41 @@ pub async fn find_or_create_taxon_kind(slug: &str, label: &str) -> GrimoireRespo
     )
 }
 
-/// create a user-defined taxon kind.
+/// widen a taxon's kind to `universal` when it gets linked from a domain
+/// other than the one it's scoped to (e.g. a music-only `theme` taxon
+/// attached to a video). `domain` acts as soft guidance for which kinds
+/// an editor lists by default, never as a restriction - actual usage in a
+/// second domain promotes the kind so it's listed in both from then on.
+/// no-op when the kind already matches `domain` or is `universal`.
+pub(crate) async fn widen_taxon_kind_for_link<'e, E>(
+    executor: E,
+    taxon_id: &str,
+    domain: &str,
+) -> Result<(), sqlx::Error>
+where
+    E: sqlx::SqliteExecutor<'e>,
+{
+    sqlx::query!(
+        r#"UPDATE taxon_kindz
+            SET domain = 'universal'
+            WHERE id = (SELECT kind_id FROM taxonz WHERE id = ?1)
+              AND domain <> ?2
+              AND domain <> 'universal'"#,
+        taxon_id,
+        domain,
+    )
+    .execute(executor)
+    .await
+    .map(|_| ())
+}
+
+/// create a user-defined taxon kind, or adopt an existing one.
+///
+/// `taxon_kindz.slug` is globally unique (not per-domain), so asking for a
+/// slug that already exists returns that existing kind instead of failing.
+/// when the existing kind is scoped to a different domain than requested
+/// (e.g. the seeded music-only `theme` kind requested from a video
+/// editor), it's widened to `universal` so it's listed in both domains.
 pub async fn create_taxon_kind(req: CreateTaxonKindRequest) -> GrimoireResponse<TaxonKind> {
     let slug = req.slug.trim().to_string();
     if slug.is_empty() {
@@ -526,6 +560,54 @@ pub async fn create_taxon_kind(req: CreateTaxonKindRequest) -> GrimoireResponse<
             );
         }
     };
+
+    let existing = match sqlx::query!(
+        r#"SELECT id as "id!", domain as "domain!"
+           FROM taxon_kindz
+           WHERE slug = ? AND deleted_at IS NULL"#,
+        slug,
+    )
+    .fetch_optional(&pool)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to look up taxon kind",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+    };
+
+    if let Some(existing) = existing {
+        if existing.domain != domain && existing.domain != UNIVERSAL_DOMAIN {
+            if let Err(e) = sqlx::query!(
+                r#"UPDATE taxon_kindz SET domain = 'universal' WHERE id = ?"#,
+                existing.id,
+            )
+            .execute(&pool)
+            .await
+            {
+                return GrimoireResponse::failure(
+                    "failed to widen taxon kind domain",
+                    vec![ErrorDetail::from(e)],
+                );
+            }
+        }
+        // re-read via list_taxon_kinds so the returned row carries real
+        // album/video counts (mirrors set_taxon_kind_color).
+        let kinds = list_taxon_kinds(None, false).await;
+        if !kinds.success {
+            return GrimoireResponse::failure("failed to re-read taxon kind", kinds.errors);
+        }
+        return match kinds
+            .data
+            .and_then(|all| all.into_iter().find(|k| k.id == existing.id))
+        {
+            Some(kind) => GrimoireResponse::success("taxon kind already exists", kind),
+            None => GrimoireResponse::failure("taxon kind disappeared after lookup", vec![]),
+        };
+    }
 
     let row = match sqlx::query!(
         r#"INSERT INTO taxon_kindz
@@ -1255,6 +1337,10 @@ pub async fn add_album_taxon(req: AddAlbumTaxonRequest) -> GrimoireResponse<()> 
         );
     }
 
+    if let Err(e) = widen_taxon_kind_for_link(&pool, &req.taxon_id, MUSIC_DOMAIN).await {
+        tracing::warn!(taxon_id = %req.taxon_id, error = %e, "failed to widen taxon kind domain");
+    }
+
     GrimoireResponse::success("album taxon linked", ())
 }
 
@@ -1352,6 +1438,12 @@ pub async fn set_album_taxons(req: SetAlbumTaxonsRequest) -> GrimoireResponse<Ve
         {
             return GrimoireResponse::failure(
                 "failed to insert album taxon link",
+                vec![ErrorDetail::from(e)],
+            );
+        }
+        if let Err(e) = widen_taxon_kind_for_link(&mut *tx, &link.taxon_id, MUSIC_DOMAIN).await {
+            return GrimoireResponse::failure(
+                "failed to widen taxon kind domain",
                 vec![ErrorDetail::from(e)],
             );
         }
@@ -1847,5 +1939,116 @@ mod tests {
         assert_eq!(slugify_taxon_label("---"), "untitled");
         assert_eq!(slugify_taxon_label(""), "untitled");
         assert_eq!(slugify_taxon_label("Detroit, MI"), "detroit-mi");
+    }
+
+    async fn init_test_env(data_dir: &std::path::Path) {
+        let config_toml = format!(
+            r#"data_dir = "{data_dir}"
+
+[database]
+filename = "grimoire.db"
+
+[media]
+max_fs_file_size = 104857600
+supported_audio_formats = ["mp3", "flac"]
+
+[musicbrainz]
+enabled = false
+
+[logging]
+level = "warn"
+"#,
+            data_dir = data_dir.display()
+        );
+        let config_path = data_dir.join("freqhole-config.toml");
+        std::fs::write(&config_path, config_toml).expect("write config");
+        std::fs::write(data_dir.join("grimoire.db"), b"").expect("touch grimoire.db");
+        crate::config::init_config(Some(config_path)).expect("init config");
+        crate::database::run_migrations()
+            .await
+            .expect("run migrations");
+    }
+
+    fn kind_req(slug: &str, domain: &str) -> CreateTaxonKindRequest {
+        CreateTaxonKindRequest {
+            slug: slug.to_string(),
+            label: slug.to_string(),
+            description: None,
+            color: None,
+            value_type: None,
+            unit: None,
+            display_order: None,
+            domain: Some(domain.to_string()),
+        }
+    }
+
+    async fn kind_domain(slug: &str) -> String {
+        let kinds = list_taxon_kinds(None, false).await.data.expect("list kinds");
+        kinds
+            .into_iter()
+            .find(|k| k.slug == slug)
+            .expect("kind exists")
+            .domain
+    }
+
+    // touches the real db pool singleton - run one at a time, own process:
+    // cargo test -p grimoire --lib -- --ignored --exact music::entities::taxonomy::repository::tests::test_taxon_kind_domain_adopt_and_widen
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singleton"]
+    async fn test_taxon_kind_domain_adopt_and_widen() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+
+        // seeded kinds are music-only (migration 067), so a video-scoped
+        // listing hides `theme` until it's adopted.
+        assert_eq!(kind_domain("theme").await, "music");
+        let video_kinds = list_taxon_kinds(Some("video"), false).await.data.unwrap();
+        assert!(!video_kinds.iter().any(|k| k.slug == "theme"));
+
+        // "new kind: theme" from a video editor adopts + widens the
+        // existing kind instead of failing on the unique slug.
+        let resp = create_taxon_kind(kind_req("theme", "video")).await;
+        assert!(resp.success, "{}", resp.message);
+        assert_eq!(resp.data.unwrap().domain, "universal");
+        let video_kinds = list_taxon_kinds(Some("video"), false).await.data.unwrap();
+        assert!(video_kinds.iter().any(|k| k.slug == "theme"));
+        let music_kinds = list_taxon_kinds(Some("music"), false).await.data.unwrap();
+        assert!(music_kinds.iter().any(|k| k.slug == "theme"));
+
+        // same-domain re-create is idempotent and keeps the scope.
+        let resp = create_taxon_kind(kind_req("mood", "music")).await;
+        assert!(resp.success, "{}", resp.message);
+        assert_eq!(kind_domain("mood").await, "music");
+
+        // linking a music-only kind's taxon to a video widens the kind.
+        let mood = find_or_create_taxon("mood", "melancholy")
+            .await
+            .data
+            .expect("mood taxon");
+        let resp = crate::video::add_entity_taxon(
+            crate::video::VideoEntityType::VideoSeries,
+            "some-series-id",
+            &mood.id,
+            "user",
+            None,
+            None,
+        )
+        .await;
+        assert!(resp.success, "{}", resp.message);
+        assert_eq!(kind_domain("mood").await, "universal");
+
+        // a video-only kind stays video-scoped until a music link uses it.
+        let resp = create_taxon_kind(kind_req("cinematography", "video")).await;
+        assert!(resp.success, "{}", resp.message);
+        assert_eq!(kind_domain("cinematography").await, "video");
+        let shot = find_or_create_taxon("cinematography", "handheld")
+            .await
+            .data
+            .expect("cinematography taxon");
+        let pool = database::connect().await.expect("connect");
+        widen_taxon_kind_for_link(&pool, &shot.id, MUSIC_DOMAIN)
+            .await
+            .expect("widen");
+        assert_eq!(kind_domain("cinematography").await, "universal");
     }
 }

@@ -44,3 +44,4 @@ pub use repository::{
     set_taxon_kind_color, set_taxon_kind_label, set_taxon_label, slugify_taxon_label,
     sync_album_user_taxon,
 };
+pub(crate) use repository::widen_taxon_kind_for_link;
