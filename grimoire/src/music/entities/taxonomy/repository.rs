@@ -1983,7 +1983,10 @@ level = "warn"
     }
 
     async fn kind_domain(slug: &str) -> String {
-        let kinds = list_taxon_kinds(None, false).await.data.expect("list kinds");
+        let kinds = list_taxon_kinds(None, false)
+            .await
+            .data
+            .expect("list kinds");
         kinds
             .into_iter()
             .find(|k| k.slug == slug)

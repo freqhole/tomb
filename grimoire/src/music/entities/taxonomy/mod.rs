@@ -35,6 +35,7 @@ pub use models::{
     SetTaxonKindLabelRequest, SetTaxonLabelRequest, Taxon, TaxonKind, TaxonNode, TaxonParentEdge,
     TaxonRef, TaxonWithStats, TaxonsQueryResult,
 };
+pub(crate) use repository::widen_taxon_kind_for_link;
 pub use repository::{
     add_album_taxon, add_taxon_parent, create_taxon, create_taxon_kind, delete_taxon,
     find_or_create_taxon, find_or_create_taxon_kind, get_album_taxon_links, get_taxon,
@@ -44,4 +45,3 @@ pub use repository::{
     set_taxon_kind_color, set_taxon_kind_label, set_taxon_label, slugify_taxon_label,
     sync_album_user_taxon,
 };
-pub(crate) use repository::widen_taxon_kind_for_link;
