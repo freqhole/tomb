@@ -47,6 +47,7 @@
 //!   process, near-instant), but worth knowing about.
 
 mod dispatch;
+mod source_access;
 mod state;
 
 pub use dispatch::{

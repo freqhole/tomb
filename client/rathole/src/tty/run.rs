@@ -1650,8 +1650,9 @@ fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender
         AppAction::PairingTuneRadio {
             peer_addr,
             station_id,
+            ready,
         } => {
-            super::radio::start(app, peer_addr, station_id, action_tx.clone());
+            super::radio::start(app, peer_addr, station_id, action_tx.clone(), ready);
         }
         AppAction::PairingStopRadio => {
             super::radio::stop(app);
@@ -2917,7 +2918,7 @@ fn on_action_menu_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<A
                         Some(ReplStatus::err("row has no peer_addr to tune into"));
                     return;
                 }
-                super::radio::start(app, peer_addr, station_id, tx.clone());
+                super::radio::start(app, peer_addr, station_id, tx.clone(), None);
                 app.state.ephemeral.repl.status = Some(ReplStatus::info("tuning in\u{2026}"));
                 return;
             }
@@ -4997,7 +4998,7 @@ fn execute_slash_with_player(
             // difference is where peer_addr/station_id came from (a
             // locally-typed `/radio listen` instead of a remote
             // controller).
-            super::radio::start(app, peer_addr, station_id, tx.clone());
+            super::radio::start(app, peer_addr, station_id, tx.clone(), None);
             app.state.ephemeral.repl.status = Some(ReplStatus::info("tuning in\u{2026}"));
             app.state.ephemeral.repl.clear_input();
             rk::leave(&mut app.state);
