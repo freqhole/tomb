@@ -339,6 +339,16 @@ pub enum PlayerCommand {
         station_id: Option<String>,
     },
     StopRadio,
+    /// asks the player to send its OWN access request (a knock) to the
+    /// remote at `peer_addr` - e.g. after a `TuneRadio` acked
+    /// [`CommandAckReason::SourceAccessDenied`]. has to come from the
+    /// player's node, since that's the identity the source will approve.
+    RequestSourceAccess {
+        peer_addr: String,
+        username: String,
+        #[serde(default)]
+        message: Option<String>,
+    },
     /// request a one-shot list of the player's currently-available audio
     /// output devices (e.g. a pi's hdmi vs. 3.5mm jack vs. a usb dac) -
     /// replied with on [`CommandAck::devices`], since device names have
@@ -388,6 +398,11 @@ pub fn command_summary(command: &PlayerCommand) -> String {
             station_id,
         } => format!("TuneRadio {{ peer_addr: {peer_addr}, station_id: {station_id:?} }}"),
         PlayerCommand::StopRadio => "StopRadio".to_string(),
+        PlayerCommand::RequestSourceAccess {
+            peer_addr,
+            username,
+            ..
+        } => format!("RequestSourceAccess {{ peer_addr: {peer_addr}, username: {username:?} }}"),
         PlayerCommand::ListOutputDevices => "ListOutputDevices".to_string(),
         PlayerCommand::SetOutputDevice { name } => {
             format!("SetOutputDevice {{ name: {name:?} }}")
@@ -544,6 +559,10 @@ pub enum PlayerStatus {
         artist: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         kind: Option<MediaKind>,
+        /// true while the player's radio session is paused (still tuned
+        /// to this station, just not listening) - omitted/false otherwise.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        paused: bool,
         #[serde(flatten)]
         common: StatusCommon,
     },
@@ -574,6 +593,14 @@ pub enum CommandAckReason {
     Untrusted,
     InvalidCommand,
     NotInSession,
+    /// the remaining reasons are about a third peer the player had to
+    /// reach on its own (e.g. a radio broadcaster), not controller<->player
+    /// trust - produced by the JS dispatcher and round-tripped through
+    /// here on charnel players.
+    SourceAccessDenied,
+    SourceUnreachable,
+    TuneFailed,
+    RequestAccessFailed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -586,6 +613,10 @@ pub struct CommandAck {
     pub ok: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<CommandAckReason>,
+    /// optional human-readable context for a failed ack (e.g. a source
+    /// remote's own knock rejection message).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<PlayerStatus>,
     /// reply to [`PlayerCommand::ListOutputDevices`] - `None` for every
@@ -607,6 +638,7 @@ impl CommandAck {
             kind: "command_ack",
             ok: true,
             reason: None,
+            detail: None,
             status: Some(status),
             devices: None,
         }
@@ -621,6 +653,7 @@ impl CommandAck {
             kind: "command_ack",
             ok: true,
             reason: None,
+            detail: None,
             status: Some(status),
             devices: Some(devices),
         }
@@ -630,6 +663,7 @@ impl CommandAck {
             kind: "command_ack",
             ok: false,
             reason: Some(reason),
+            detail: None,
             status: None,
             devices: None,
         }
@@ -819,6 +853,48 @@ mod tests {
         assert_eq!(json["ok"], false);
         assert_eq!(json["reason"], "not_in_session");
         assert!(json.get("status").is_none());
+        assert!(json.get("detail").is_none());
+    }
+
+    #[test]
+    fn source_access_ack_round_trips_from_js_dispatcher_json() {
+        // the shape the JS dispatcher replies with on charnel players -
+        // must deserialize (not fall back to invalid_command) so the
+        // controller sees the real reason + detail.
+        let ack: CommandAck = serde_json::from_str(
+            r#"{"type":"command_ack","ok":false,"reason":"request_access_failed","detail":"knocking is disabled on this server"}"#,
+        )
+        .unwrap();
+        assert_eq!(ack.reason, Some(CommandAckReason::RequestAccessFailed));
+        assert_eq!(ack.detail.as_deref(), Some("knocking is disabled on this server"));
+        for (reason, wire) in [
+            (CommandAckReason::SourceAccessDenied, "source_access_denied"),
+            (CommandAckReason::SourceUnreachable, "source_unreachable"),
+            (CommandAckReason::TuneFailed, "tune_failed"),
+        ] {
+            let json = serde_json::to_value(CommandAck::err(reason)).unwrap();
+            assert_eq!(json["reason"], wire);
+        }
+    }
+
+    #[test]
+    fn request_source_access_command_parses() {
+        let cmd: PlayerCommand = serde_json::from_str(
+            r#"{"type":"control","command":"request_source_access","peer_addr":"abc","username":"den"}"#,
+        )
+        .unwrap();
+        match cmd {
+            PlayerCommand::RequestSourceAccess {
+                peer_addr,
+                username,
+                message,
+            } => {
+                assert_eq!(peer_addr, "abc");
+                assert_eq!(username, "den");
+                assert!(message.is_none());
+            }
+            other => panic!("wrong variant: {other:?}"),
+        }
     }
 
     #[test]

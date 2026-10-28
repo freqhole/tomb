@@ -31,6 +31,7 @@ import {
 } from "./services/remotes/connectionProgress";
 import { createRemoteSwitchingHandlers } from "./services/remotes/remoteSwitching";
 import { selectLocalPlaybackTarget } from "./services/players/selectPlaybackTarget";
+import { tuneRadio } from "./services/players/playerRadio";
 import { openPlayerImageCarousel } from "./services/playerImageCarousel";
 import { createDebouncedBoolean } from "../utils/createDebouncedBoolean";
 import { isTouchDevice } from "../utils/isMobile";
@@ -242,6 +243,8 @@ import {
   radioUseTimelineMode,
   getRadioVideoElement,
   setRadioAudioSink,
+  setRadioAudioSinkHome,
+  reclaimRadioVideoElement,
   setRadioFavorite,
   tuneIntoRadio,
 } from "./services/radio/radioService";
@@ -1392,7 +1395,7 @@ export function AppLayout(props: AppLayoutProps) {
       label: "resume",
       icon: IconNames.play,
       onClick: () => {
-        void tuneIntoRadio(station.peer_addr, {
+        void tuneRadio(station.peer_addr, {
           stationId: station.station_id,
           stationName: station.station_name,
           isLocal: station.is_local,
@@ -1628,6 +1631,7 @@ export function AppLayout(props: AppLayoutProps) {
   };
 
   return (
+    <>
     <Show
       when={!isPlayerRoute()}
       fallback={
@@ -1849,7 +1853,7 @@ export function AppLayout(props: AppLayoutProps) {
               void clearQueue();
             }}
             onRadioQueueEntryClick={(station) => {
-              void tuneIntoRadio(station.peer_addr, {
+              void tuneRadio(station.peer_addr, {
                 stationId: station.station_id,
                 stationName: station.station_name,
                 isLocal: station.is_local,
@@ -1941,7 +1945,7 @@ export function AppLayout(props: AppLayoutProps) {
               }
               if (entry.type === "radio_station" && entry.radio_station_ref) {
                 const ref = entry.radio_station_ref;
-                void tuneIntoRadio(ref.peer_addr, {
+                void tuneRadio(ref.peer_addr, {
                   stationId: ref.station_id,
                   stationName: ref.station_name,
                   isLocal: ref.is_local,
@@ -2558,12 +2562,6 @@ export function AppLayout(props: AppLayoutProps) {
           }}
         </Show>
 
-        {/* persistent <video> for radio playback (also carries audio-only
-          stations - see RadioAudioSink's doc comment). lives at app root so
-          navigation never tears it down. wired into radioService via
-          setRadioAudioSink in onMount. */}
-        <RadioAudioSink />
-
         {/* mobile first-run setup (username/library name/image) - see the
           onMount gate above. */}
         <FirstRunSetupModal
@@ -2624,25 +2622,14 @@ export function AppLayout(props: AppLayoutProps) {
         </Portal>
       </div>
     </Show>
+    {/* persistent <video> for radio playback (also carries audio-only
+      stations - see RadioAudioSink's doc comment). mounted OUTSIDE the
+      player-route <Show> above so it survives navigating to/from `#/player`
+      and exists on that route too - a cenotaph player tuned into radio by a
+      controller plays through this same html sink (never libmpv). */}
+    <RadioAudioSink />
+    </>
   );
-}
-
-// the hidden mount `RadioAudioSink` appends its `<video>` element into by
-// default - tracked at module scope (singleton, mirrors `audioSink` in
-// radioService.ts) so `reclaimRadioVideoElement` can move the element back
-// here after the floating `VideoMiniPlayer` (which re-parents it elsewhere
-// while a video-kind track is visible) closes. the element must always
-// stay attached to a real, non-`display:none` parent - see the
-// ManagedMediaSource doc comments below - so simply letting it go
-// orphaned when the mini player unmounts is not an option here.
-let radioVideoSinkMount: HTMLDivElement | null = null;
-
-/** moves the radio video element back into its hidden default parent -
- * passed as `VideoMiniPlayer`'s `onElementDetach` for the radio case. */
-function reclaimRadioVideoElement(el: HTMLVideoElement): void {
-  if (radioVideoSinkMount && el.parentElement !== radioVideoSinkMount) {
-    radioVideoSinkMount.appendChild(el);
-  }
 }
 
 /**
@@ -2653,7 +2640,7 @@ function reclaimRadioVideoElement(el: HTMLVideoElement): void {
  * unregisters on unmount. hidden here by default; the floating
  * `VideoMiniPlayer` (see AppLayout's render body) re-parents it into a
  * visible panel via `appendChild` while a video-kind track is playing,
- * then moves it back here (`reclaimRadioVideoElement`, above) afterward -
+ * then moves it back here (radioService.ts's `reclaimRadioVideoElement`) afterward -
  * same technique as the non-radio video backend's element.
  */
 function RadioAudioSink() {
@@ -2685,11 +2672,11 @@ function RadioAudioSink() {
   }
   onMount(() => {
     if (mount && videoEl.parentElement !== mount) mount.appendChild(videoEl);
-    radioVideoSinkMount = mount;
+    setRadioAudioSinkHome(mount);
   });
   onCleanup(() => {
     setRadioAudioSink(null);
-    radioVideoSinkMount = null;
+    setRadioAudioSinkHome(null);
   });
   return <div ref={(el) => (mount = el)} class="hidden" />;
 }

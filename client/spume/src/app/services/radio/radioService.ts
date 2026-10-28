@@ -118,6 +118,16 @@ function describeBufferedRanges(ranges: TimeRanges): string {
 
 export type RadioStatus = "idle" | "connecting" | "playing" | "paused" | "error";
 
+/** thrown by `tuneIntoRadio` when a newer tune replaced this attempt
+ * mid-flight - not a real failure (the newer tune owns radio state now),
+ * so callers that report tune errors can skip it via `instanceof`. */
+export class RadioTuneSupersededError extends Error {
+  constructor() {
+    super("radio tune superseded by a newer attempt");
+    this.name = "RadioTuneSupersededError";
+  }
+}
+
 interface RadioSession {
   peerAddr: string;
   stationId: string | null;
@@ -618,6 +628,27 @@ export function getRadioVideoElement(): HTMLVideoElement | null {
   return audioSink;
 }
 
+// the hidden default parent `RadioAudioSink` (AppLayout.tsx) appends the
+// sink into - tracked here (not in AppLayout) so any surface that
+// re-parents the element to show real frames (AppLayout's floating mini
+// player, the cenotaph player route's inline now-playing slot) can hand it
+// back without importing AppLayout itself.
+let audioSinkHome: HTMLElement | null = null;
+
+/** registers (or, with null, clears) the radio sink's hidden default parent. */
+export function setRadioAudioSinkHome(el: HTMLElement | null): void {
+  audioSinkHome = el;
+}
+
+/** moves the radio video element back into its hidden default parent -
+ * meant as `VideoMiniPlayer`'s `onElementDetach` for radio, since the
+ * MediaSource pipe needs the element to stay attached somewhere. */
+export function reclaimRadioVideoElement(el: HTMLVideoElement): void {
+  if (audioSinkHome && el.parentElement !== audioSinkHome) {
+    audioSinkHome.appendChild(el);
+  }
+}
+
 /**
  * set the radio sink's volume (0..1). no-op when no sink is registered
  * or the value is non-finite. clamps to [0,1].
@@ -1000,7 +1031,7 @@ export async function tuneIntoRadio(
   if (!opts.preservePlayback) {
     await stopMusicForRadio();
     if (!isActiveTune()) {
-      throw new Error("radio tune superseded by a newer attempt");
+      throw new RadioTuneSupersededError();
     }
   }
 
@@ -1045,7 +1076,7 @@ export async function tuneIntoRadio(
   if (!useCharnel) {
     const middenNode = await getMiddenNode();
     if (!isActiveTune()) {
-      throw new Error("radio tune superseded by a newer attempt");
+      throw new RadioTuneSupersededError();
     }
     if (typeof middenNode.tune_radio !== "function") {
       batch(() => {
@@ -1595,7 +1626,7 @@ export async function tuneIntoRadio(
     }
     if (!isActiveTune()) {
       cleanupFailedTune();
-      throw new Error("radio tune superseded by a newer attempt");
+      throw new RadioTuneSupersededError();
     }
     // NOTE: addSourceBuffer is deliberately NOT called here - it needs the
     // station's actual codec string, which only arrives via Hello (see
@@ -2776,7 +2807,7 @@ export async function tuneIntoRadio(
       } catch {
         // best effort
       }
-      throw new Error("radio tune superseded by a newer attempt");
+      throw new RadioTuneSupersededError();
     }
   } catch (e) {
     console.error(`[radio] tune_radio rejected after ${Date.now() - tuneCallStartedAtMs}ms:`, e);

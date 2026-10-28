@@ -7,7 +7,7 @@ import { createSignal } from "solid-js";
 import { PlayerCommandSchema, type AudioDeviceInfo, type CommandAck } from "./schema";
 import { broadcastStatus } from "./statusSubscribers";
 import { markActivity } from "./activityIndicator";
-import type { PlaybackBackend } from "./playbackBackend";
+import { PlaybackCommandError, type PlaybackBackend } from "./playbackBackend";
 import { debug, error, warn } from "../../utils/logger";
 import { CENOTAPH_QUEUE_TRACE } from "../queueTrace";
 
@@ -98,6 +98,9 @@ export async function dispatchCommand<TNode = unknown>(
       case "stop_radio":
         backend.stopRadio();
         break;
+      case "request_source_access":
+        await backend.requestSourceAccess(command.peer_addr, command.username, command.message);
+        break;
       case "set_auto_download_enabled":
         backend.setAutoDownloadEnabled(command.enabled);
         break;
@@ -141,6 +144,22 @@ export async function dispatchCommand<TNode = unknown>(
         `${CENOTAPH_QUEUE_TRACE} dispatchCommand: "${command.command}" threw after ${Date.now() - dispatchStart}ms:`,
         err
       );
+    }
+    if (err instanceof PlaybackCommandError) {
+      // an expected, classified failure (e.g. no access on a radio
+      // broadcaster) - report the real reason so the controller can
+      // explain it, and push the resulting status (e.g. radio "error")
+      // so every controller reflects it right away.
+      warn("dispatcher", `command "${command.command}" failed: ${err.message}`);
+      const status = backend.currentStatus();
+      broadcastStatus(status);
+      return {
+        type: "command_ack",
+        ok: false,
+        reason: err.reason,
+        detail: err.detail,
+        status,
+      };
     }
     error("dispatcher", `command "${command.command}" threw:`, err);
     return { type: "command_ack", ok: false, reason: "invalid_command" };

@@ -122,6 +122,7 @@ export type RemoteStatus =
       title?: string;
       artist?: string;
       kind?: "audio" | "video";
+      paused?: boolean;
       queue: RemoteMediaRef[];
       auto_download_enabled: boolean;
       volume: number;
@@ -209,10 +210,13 @@ export interface RemoteAudioDeviceInfo {
   description: string;
 }
 
-interface CommandAck {
+export interface CommandAck {
   type: "command_ack";
   ok: boolean;
   reason?: string;
+  /** free-form failure detail (e.g. the source remote's own error message
+   * for a failed `request_source_access`) - see cenotaph's dispatcher.ts. */
+  detail?: string;
   status?: RemoteStatus;
   devices?: RemoteAudioDeviceInfo[];
 }
@@ -510,7 +514,13 @@ export function resetRemoteStatus(): void {
   setRemoteAnnouncedOffline(false);
   setConsecutiveFailures(0);
 }
-export const remoteIsPlaying = () => remoteStatus()?.state === "now_playing";
+export const remoteIsPlaying = () => {
+  const s = remoteStatus();
+  // a tuned (and not paused) radio session counts as playing too - without
+  // it the play/pause button read "paused" and sent `resume`, which the
+  // player applied to its (paused) queue underneath the radio instead.
+  return s?.state === "now_playing" || (s?.state === "playing_radio" && !s.paused);
+};
 
 // local ticking clock (phase 13): `now_playing` status carries a
 // `server_time_ms` (the player's own `Date.now()` when it built that
@@ -629,14 +639,21 @@ export async function remoteTrackPending<T>(work: Promise<T>): Promise<T> {
 
 async function sendControl(
   command: Record<string, unknown>,
-  opts?: { trackPending?: boolean }
+  opts?: {
+    trackPending?: boolean;
+    /** ack reasons the caller reports itself - skips the generic
+     * "reconnect" warning toast for those (it'd be misleading, e.g. for a
+     * radio source the player can't reach, re-pairing wouldn't help). */
+    quietReasons?: readonly string[];
+  }
 ): Promise<CommandAck | null> {
   const nodeId = activeTargetNodeId();
   if (!nodeId) return null;
   if (opts?.trackPending) setPendingCount((n) => n + 1);
   try {
     const ack = (await sendPlayerCommand(nodeId, { type: "control", ...command })) as CommandAck;
-    if (command.command !== "get_status") reportCommandAckFailure(ack, nodeId);
+    const quiet = !!ack?.reason && !!opts?.quietReasons?.includes(ack.reason);
+    if (command.command !== "get_status" && !quiet) reportCommandAckFailure(ack, nodeId);
     if (ack?.status) applyRemoteStatus(ack.status);
     return ack;
   } catch (err) {
@@ -665,10 +682,38 @@ export async function remoteResume(): Promise<void> {
  * tuning into radio locally interrupts local queue playback - see
  * `playbackCoordinator.ts`); the remote's own `startRadio` is what
  * actually enforces that on its end. */
-export async function remoteTuneRadio(peerAddr: string, stationId?: string): Promise<void> {
-  await sendControl(
+export async function remoteTuneRadio(
+  peerAddr: string,
+  stationId?: string
+): Promise<CommandAck | null> {
+  return sendControl(
     { command: "tune_radio", peer_addr: peerAddr, station_id: stationId },
-    { trackPending: true }
+    { trackPending: true, quietReasons: RADIO_SOURCE_ACK_REASONS }
+  );
+}
+
+/** ack reasons a player reports when it couldn't tune into a radio
+ * station's broadcasting remote itself (see cenotaph's radioSourceAccess.ts)
+ * - handled by playerRadio.ts with its own, more specific toasts. */
+export const RADIO_SOURCE_ACK_REASONS = [
+  "source_access_denied",
+  "source_unreachable",
+  "tune_failed",
+  "request_access_failed",
+] as const;
+
+/** asks the active remote target to send its OWN access request (knock) to
+ * the remote at `peerAddr` - used after a `tune_radio` came back
+ * `source_access_denied`, since only the player itself can ask to be let
+ * in under its own node id. */
+export async function remoteRequestSourceAccess(
+  peerAddr: string,
+  username: string,
+  message?: string
+): Promise<CommandAck | null> {
+  return sendControl(
+    { command: "request_source_access", peer_addr: peerAddr, username, message },
+    { trackPending: true, quietReasons: RADIO_SOURCE_ACK_REASONS }
   );
 }
 

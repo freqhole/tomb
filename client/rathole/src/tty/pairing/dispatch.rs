@@ -250,6 +250,9 @@ pub(crate) fn command_summary(command: &PairingCommand) -> String {
             station_id,
         } => format!("TuneRadio {{ peer_addr: {peer_addr}, station_id: {station_id:?} }}"),
         PairingCommand::StopRadio => "StopRadio".to_string(),
+        PairingCommand::RequestSourceAccess { peer_addr, .. } => {
+            format!("RequestSourceAccess {{ peer_addr: {peer_addr} }}")
+        }
         PairingCommand::ListOutputDevices => "ListOutputDevices".to_string(),
         PairingCommand::SetOutputDevice { name } => {
             format!("SetOutputDevice {{ name: {name:?} }}")
@@ -391,6 +394,13 @@ async fn dispatch_pairing_command_inner(
             }
             status_ack(&ctx, None)
         }
+        // sending a knock from rathole's own node isn't wired up - say so
+        // explicitly rather than `invalid_command`, so the controller can
+        // show a meaningful "couldn't send an access request" message.
+        PairingCommand::RequestSourceAccess { .. } => CommandAck {
+            detail: Some("access requests aren't supported on this player yet".to_string()),
+            ..CommandAck::err(CommandAckReason::RequestAccessFailed)
+        },
         // not yet supported - see module doc / plan doc follow-ups.
         PairingCommand::SetAutoDownloadEnabled { .. } => {
             CommandAck::err(CommandAckReason::InvalidCommand)

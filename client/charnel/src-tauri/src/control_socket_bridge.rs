@@ -241,13 +241,14 @@ async fn get_state_json() -> String {
             title,
             artist,
             kind,
+            paused,
             ..
         } => serde_json::json!({
             "kind": kind.map(media_kind_str).unwrap_or("song"),
             "title": title,
             "artist": artist,
             "album": serde_json::Value::Null,
-            "is_playing": true,
+            "is_playing": !paused,
             "volume": volume,
         }),
         PlayerStatus::Buffering { .. } | PlayerStatus::Stopped { .. } => serde_json::json!({

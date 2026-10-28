@@ -94,6 +94,19 @@ import { PlaybackProgressBar } from "../../components/player/PlaybackProgressBar
 import { QueueSongRow } from "../../components/player/QueueSongRow";
 import { VideoQueueRow } from "../../components/player/VideoQueueRow";
 import { getQueueItemProgress } from "../../music/services/queue/queueProgress";
+import {
+  getRadioVideoElement,
+  radioArtUrl,
+  radioConnectPhase,
+  radioCurrentPeerAddr,
+  radioElapsedMs,
+  radioHasVideoCapability,
+  radioNowPlaying,
+  radioPause,
+  radioResume,
+  radioStatus,
+  reclaimRadioVideoElement,
+} from "../../app/services/radio/radioService";
 import { getVisibleLoadingIds } from "../../music/services/download";
 import type { ImageMetadata } from "../../music/services/storage/types";
 
@@ -336,8 +349,46 @@ export function CenotaphPlayerApp() {
     if (isCharnelMode() && pairingConfigEnabled() === false) return false;
     return (
       forceShowQr() ||
-      ((appState()?.queue.length ?? 0) === 0 && pendingQueuePreviews().length === 0)
+      ((appState()?.queue.length ?? 0) === 0 &&
+        pendingQueuePreviews().length === 0 &&
+        !radioActive())
     );
+  };
+
+  /** true while a controller-started radio tune-in owns playback here -
+   * radio runs as its own session separate from the queue (see
+   * charnelPlaybackAdapter.ts's `currentStatus`), so it gets its own
+   * now-playing card (`radioView()` below) that takes precedence over the
+   * (paused) queue underneath it, and keeps the pairing qr hidden even
+   * when that queue is empty. */
+  const radioActive = () => {
+    const st = radioStatus();
+    return !!radioCurrentPeerAddr() && (st === "connecting" || st === "playing" || st === "paused");
+  };
+
+  const toggleRadioPlayback = () => {
+    if (radioStatus() === "paused") radioResume();
+    else radioPause();
+  };
+
+  /** the radio now-playing card's data - `null` when no radio session. */
+  const radioView = () => {
+    if (!radioActive()) return null;
+    const np = radioNowPlaying();
+    const connecting = radioStatus() === "connecting";
+    return {
+      // video-capable stations render the radio sink's own html <video>
+      // inline (same element AppLayout's mini player re-parents) - never
+      // the libmpv video window, which radio deliberately doesn't use.
+      isVideo: radioHasVideoCapability(),
+      artworkUrl: radioArtUrl() ?? undefined,
+      title: np?.title || (connecting ? "tuning in\u2026" : "radio"),
+      artist: np?.artist ?? (connecting ? radioConnectPhase() : ""),
+      elapsedSeconds: radioElapsedMs() / 1000,
+      durationSeconds: np?.duration_ms ? np.duration_ms / 1000 : 0,
+      isPlaying: radioStatus() === "playing",
+      connecting,
+    };
   };
 
   /** the queue rows below the current "now playing" item - deliberately a
@@ -464,7 +515,8 @@ export function CenotaphPlayerApp() {
   // card - shifts the whole layout up (see the root container's
   // classList/style below) so more of it fits on screen instead of
   // staying centered (which pushes rows further down as the queue grows).
-  const hasQueueRest = () => realQueueRowsMemo().length > 0 || pendingQueueRowsMemo().length > 0;
+  const hasQueueRest = () =>
+    !radioActive() && (realQueueRowsMemo().length > 0 || pendingQueueRowsMemo().length > 0);
 
   return (
     <div
@@ -649,7 +701,91 @@ export function CenotaphPlayerApp() {
           (linux + libmpv backend) - that's its own OS-level surface and
           already the actual display, so this slot stays empty then
           (docs/linux-video-window-plan.md). */}
-      <Show when={nowPlayingView()}>
+      <Show when={radioView()}>
+        {(view) => (
+          <div
+            class="group relative z-[90] flex w-full max-w-md flex-col items-center gap-4"
+            data-testid="radio-now-playing"
+          >
+            <Show
+              when={view().isVideo && getRadioVideoElement()}
+              fallback={
+                <Show
+                  when={view().artworkUrl}
+                  fallback={
+                    <div
+                      class="flex h-64 w-64 items-center justify-center rounded-lg bg-neutral-800"
+                      classList={{ "animate-pulse": view().connecting }}
+                      data-testid="radio-artwork-fallback"
+                    >
+                      <Icon name={IconNames.radioTower} size={80} className="text-neutral-600" />
+                    </div>
+                  }
+                >
+                  {(url) => (
+                    <img
+                      src={url()}
+                      alt=""
+                      class="h-64 w-64 rounded-lg object-cover shadow-lg"
+                      data-testid="radio-artwork"
+                    />
+                  )}
+                </Show>
+              }
+            >
+              {(el) => (
+                <div class="h-64 w-64 rounded-lg" data-testid="radio-inline-video">
+                  <VideoMiniPlayer
+                    videoElement={el()}
+                    variant="inline"
+                    isPlaying={() => radioStatus() === "playing"}
+                    onTogglePlayback={toggleRadioPlayback}
+                    onPause={() => radioPause()}
+                    onElementDetach={reclaimRadioVideoElement}
+                  />
+                </div>
+              )}
+            </Show>
+
+            <p class="text-xl font-semibold" data-testid="radio-now-playing-title">
+              {view().title}
+            </p>
+            <p class="text-sm text-neutral-400" data-testid="radio-now-playing-artist">
+              {view().artist}
+            </p>
+            <Show when={!view().connecting}>
+              <div class="w-full" data-testid="radio-now-playing-time">
+                <PlaybackProgressBar
+                  currentTime={view().elapsedSeconds}
+                  duration={view().durationSeconds}
+                  hideBarAndDuration
+                  showPlayhead={false}
+                  class="w-full"
+                />
+              </div>
+            </Show>
+
+            <div
+              class="flex items-center gap-8 py-2 transition-opacity"
+              classList={{
+                "opacity-100": isTouchDevice(),
+                "opacity-0 group-hover:opacity-100": !isTouchDevice(),
+              }}
+              data-testid="radio-playback-controls"
+            >
+              <button
+                type="button"
+                onClick={toggleRadioPlayback}
+                data-testid="radio-play-pause-button"
+              >
+                <Icon name={view().isPlaying ? IconNames.pause : IconNames.play} size={32} />
+              </button>
+            </div>
+          </div>
+        )}
+      </Show>
+
+      <Show when={!radioActive() && nowPlayingView()}>
         {(view) => (
           <div
             class="group relative z-[90] flex w-full max-w-md flex-col items-center gap-4"
