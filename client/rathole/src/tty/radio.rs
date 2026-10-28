@@ -42,7 +42,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, ChildStdin, Command};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use grimoire::federation::p2p_client::{get_endpoint_arc, parse_peer_address};
 use grimoire::radio::messages::{ControlMessage, TuneMessage};
@@ -73,11 +73,16 @@ fn generation_is_current(generation: u64) -> bool {
 /// failure (mpv missing, failed to spawn, etc.) surfaces as a normal
 /// `AppAction::RadioEnded` error through the same path as any other
 /// session failure.
+///
+/// `ready`, if given, resolves once the broadcaster's handshake succeeds
+/// (or the session is superseded first) or fails - see
+/// `AppAction::PairingTuneRadio`'s doc comment.
 pub fn start(
     app: &mut App,
     peer_addr: String,
     station_id: Option<String>,
     tx: mpsc::UnboundedSender<AppAction>,
+    ready: Option<oneshot::Sender<Result<(), String>>>,
 ) {
     // mutually exclusive with regular queue playback, same reasoning
     // as switching between audio/video queue entries - see
@@ -96,7 +101,13 @@ pub fn start(
     };
 
     tokio::task::spawn_local(async move {
-        let result = run_session(generation, peer_addr, station_id, tx.clone()).await;
+        let mut ready = ready;
+        let result = run_session(generation, peer_addr, station_id, tx.clone(), &mut ready).await;
+        // still unresolved = the session ended before (or without) a
+        // successful handshake.
+        if let Some(ready) = ready.take() {
+            let _ = ready.send(result.clone());
+        }
         if generation_is_current(generation) {
             let _ = tx.send(AppAction::RadioEnded {
                 error: result.err(),
@@ -310,6 +321,7 @@ async fn run_session(
     peer_addr: String,
     station_id: Option<String>,
     tx: mpsc::UnboundedSender<AppAction>,
+    ready: &mut Option<oneshot::Sender<Result<(), String>>>,
 ) -> Result<(), String> {
     let _ = tx.send(AppAction::RadioConnectPhase(Some(
         "connecting to peer\u{2026}".to_string(),
@@ -359,6 +371,9 @@ async fn run_session(
     }
     if !generation_is_current(generation) {
         return Ok(());
+    }
+    if let Some(ready) = ready.take() {
+        let _ = ready.send(Ok(()));
     }
     let _ = tx.send(AppAction::RadioStatusUpdate {
         station_name: Some(station_id.clone().unwrap_or_else(|| "default".to_string())),

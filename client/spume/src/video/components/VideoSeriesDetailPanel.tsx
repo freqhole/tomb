@@ -715,7 +715,6 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                       <TaxonChips
                         taxons={aggregateTaxonsQuery.data}
                         class="mt-2 justify-center"
-                        excludeKinds={["genre", "mood", "style", "era", "label"]}
                       />
 
                       <TagChips tags={aggregateTagsQuery.data} class="mt-2 justify-center" />
@@ -803,7 +802,6 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                       <TaxonChips
                         taxons={aggregateTaxonsQuery.data}
                         class="mt-2"
-                        excludeKinds={["genre", "mood", "style", "era", "label"]}
                       />
 
                       <TagChips tags={aggregateTagsQuery.data} class="mt-2" />

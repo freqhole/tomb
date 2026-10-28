@@ -8,6 +8,7 @@ mod orphaned;
 mod reorganize_library;
 pub(crate) mod repair_library_images;
 mod repair_video_images;
+mod retranscode_video_renditions;
 mod video_hard_delete;
 
 pub use crate::blob_data::{
@@ -36,6 +37,9 @@ pub use repair_library_images::{
 pub use repair_video_images::{
     regenerate_video_thumbnails_batch, repair_video_thumbnails_batch, repair_video_waveforms_batch,
     VIDEO_THUMBNAIL_BATCH_SIZE,
+};
+pub use retranscode_video_renditions::{
+    enqueue_retranscode_video_renditions, RetranscodeVideoRenditionsSummary,
 };
 pub use video_hard_delete::{
     hard_delete_old_videos, HardDeleteVideoOptions, HardDeleteVideoSummary,

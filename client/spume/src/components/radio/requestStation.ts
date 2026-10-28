@@ -17,7 +17,7 @@
 //   (reusing the modal's code, without re-checking it against that
 //   spec), which is the bug `submitRequestAndTune` exists to fix.
 import { getClientForRemote } from "../../app/api/client";
-import { tuneIntoRadio } from "../../app/services/radio/radioService";
+import { tuneRadio } from "../../app/services/players/playerRadio";
 import type { RemoteRef } from "../../app/services/storage/types";
 import { toast, type ToastAction } from "../feedback/Toast";
 import type { PublicStation } from "@freqhole/api-client";
@@ -58,7 +58,7 @@ export function listenAction(
   return {
     label: "listen",
     onClick: () => {
-      void tuneIntoRadio(target.peerAddr, {
+      void tuneRadio(target.peerAddr, {
         stationId,
         stationName,
         isLocal: target.isLocal,
@@ -181,7 +181,7 @@ export async function submitRequestAndTune(
     return false;
   }
   try {
-    await tuneIntoRadio(target.peerAddr, {
+    await tuneRadio(target.peerAddr, {
       stationId: station.station_id,
       stationName: station.name,
       isLocal: target.isLocal,

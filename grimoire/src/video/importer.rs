@@ -605,6 +605,7 @@ pub async fn import_video_file(
     let transcode_params = TranscodeVideoParams {
         media_blob_id: media_blob_id.to_string(),
         video_id: video.id.clone(),
+        force: false,
     };
     let job_response = crate::jobs::create_job(CreateJobRequest {
         job_type: JobType::TranscodeVideo,
@@ -740,6 +741,7 @@ pub async fn reprocess_video(
     let transcode_params = TranscodeVideoParams {
         media_blob_id: video.media_blob_id.clone(),
         video_id: video.id.clone(),
+        force: false,
     };
     let params_json = match serde_json::to_value(&transcode_params) {
         Ok(v) => v,

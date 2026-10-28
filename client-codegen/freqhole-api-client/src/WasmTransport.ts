@@ -208,7 +208,15 @@ export interface ActiveTransferLike {
 export interface RadioResumeHint {
   kind: "song" | "video";
   item_id: string;
+  /** best-effort track position, used only when the exact chunk below
+   *  can't be resolved by the broadcaster. */
   position_seconds: number;
+  /** init seq of the track playing at pause time. */
+  init_seq?: number;
+  /** seq of the media chunk playing at pause time. */
+  seq?: number;
+  /** how far into that chunk playback was. */
+  offset_ms?: number;
 }
 
 /**

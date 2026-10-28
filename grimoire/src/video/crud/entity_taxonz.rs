@@ -93,6 +93,14 @@ pub async fn add_entity_taxon(
         return GrimoireResponse::failure("Failed to add entity taxon", vec![ErrorDetail::from(e)]);
     }
 
+    // every video-domain entity type (video/series/season) shares the
+    // "video" kind domain - see widen_taxon_kind_for_link's doc comment.
+    if let Err(e) =
+        crate::music::entities::taxonomy::widen_taxon_kind_for_link(&pool, taxon_id, "video").await
+    {
+        tracing::warn!(taxon_id = %taxon_id, error = %e, "failed to widen taxon kind domain");
+    }
+
     GrimoireResponse::success_unit("Entity taxon added successfully")
 }
 

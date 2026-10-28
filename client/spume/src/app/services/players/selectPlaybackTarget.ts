@@ -12,15 +12,16 @@ import {
   fetchRemoteStatus,
   remoteSeek,
   remoteTrackPending,
-  remoteTuneRadio,
   resetRemoteStatus,
 } from "./remotePlaybackControl";
 import {
   leaveRadio,
+  radioCurrentIsLocal,
   radioCurrentPeerAddr,
   radioCurrentStationId,
   radioStatus,
 } from "../radio/radioService";
+import { tuneRadioOnPlayer } from "./playerRadio";
 import { toast } from "../../../components/feedback/Toast";
 
 /** songs and/or videos from the current queue, starting at whatever's
@@ -44,24 +45,24 @@ export async function selectLocalPlaybackTarget(): Promise<void> {
  * whatever's sitting (paused) in the queue underneath it. mirrors
  * `selectPlayerPlaybackTarget`'s queue path: stop listening locally right
  * away (same "don't play in two places at once" reasoning as its `pause()`
- * call), fall back to local on failure so the picker never gets stuck
- * pointed at an unreachable target. */
+ * call), fall back to local when the player can't be reached so the picker
+ * never gets stuck pointed at an unreachable target. a player that IS
+ * reachable but can't access the station's remote stays selected -
+ * playerRadio.ts already explained that (and offered an access request). */
 async function selectPlayerPlaybackTargetForRadio(
   player: { node_id: string; username: string },
   peerAddr: string,
-  stationId: string | null
+  stationId: string | null,
+  isLocal: boolean
 ): Promise<void> {
   setActiveTargetToPlayer(player);
   resetRemoteStatus();
   leaveRadio();
-  try {
-    await remoteTrackPending(remoteTuneRadio(peerAddr, stationId ?? undefined));
-  } catch (e) {
-    toast.error(e instanceof Error ? e.message : "failed to send radio station to player", {
-      title: "remote-player-connection-error",
-    });
-    setActiveTargetToLocal();
-  }
+  const reached = await tuneRadioOnPlayer(player, peerAddr, {
+    stationId: stationId ?? undefined,
+    isLocal,
+  });
+  if (!reached) setActiveTargetToLocal();
 }
 
 export async function selectPlayerPlaybackTarget(player: {
@@ -70,7 +71,12 @@ export async function selectPlayerPlaybackTarget(player: {
 }): Promise<void> {
   const radioPeerAddr = radioCurrentPeerAddr();
   if (radioPeerAddr && radioStatus() !== "idle") {
-    return selectPlayerPlaybackTargetForRadio(player, radioPeerAddr, radioCurrentStationId());
+    return selectPlayerPlaybackTargetForRadio(
+      player,
+      radioPeerAddr,
+      radioCurrentStationId(),
+      radioCurrentIsLocal()
+    );
   }
 
   const items = mediaToHandOff();

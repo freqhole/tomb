@@ -62,6 +62,30 @@ def replace_splash(image, target):
     return backup
 
 
+def restore_splash(themes=Path("/usr/share/plymouth/themes")):
+    """puts back every original image setup backed up; returns the restored paths."""
+    restored = []
+    for backup in sorted(themes.glob("*/splash.png.before-freqhole-pi")):
+        target = backup.with_name("splash.png")
+        if backup.is_symlink() or target.is_symlink() or not backup.is_file():
+            print(f"skipping unexpected splash backup: {backup}", flush=True)
+            continue
+        with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as output:
+            staged = Path(output.name)
+            try:
+                with backup.open("rb") as source:
+                    shutil.copyfileobj(source, output)
+                output.flush()
+                os.fsync(output.fileno())
+                staged.chmod(0o644)
+                staged.replace(target)
+            finally:
+                staged.unlink(missing_ok=True)
+        backup.unlink()
+        restored.append(target)
+    return restored
+
+
 def install_splash(image, boot=Path("/boot")):
     if not shutil.which("plymouth-set-default-theme") or not shutil.which("update-initramfs"):
         raise ValueError("existing Plymouth and initramfs-tools are required; boot configuration was not changed")
@@ -77,10 +101,24 @@ def install_splash(image, boot=Path("/boot")):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("image", type=Path)
+    parser.add_argument("image", type=Path, nargs="?")
+    parser.add_argument("--restore", action="store_true", help="put back the original splash image")
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error("run through setup.sh with sudo")
+    if args.restore:
+        try:
+            restored = restore_splash()
+            if restored and shutil.which("update-initramfs"):
+                print("original splash restored; rebuilding initramfs...", flush=True)
+                subprocess.run(["update-initramfs", "-u", "-k", "all"], check=True)
+            elif not restored:
+                print("no replaced splash image found; nothing to restore.", flush=True)
+        except (OSError, subprocess.SubprocessError) as error:
+            parser.exit(1, f"splash restore failed: {error}\n")
+        return
+    if args.image is None:
+        parser.error("image is required unless --restore is given")
     try:
         install_splash(args.image)
     except (OSError, ValueError, configparser.Error, subprocess.SubprocessError) as error:

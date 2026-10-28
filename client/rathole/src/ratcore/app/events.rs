@@ -841,6 +841,14 @@ pub enum AppAction {
     PairingTuneRadio {
         peer_addr: String,
         station_id: Option<String>,
+        /// resolved once the broadcaster's handshake (Hello) succeeds or
+        /// fails - lets dispatch report a denied/unreachable source back
+        /// to the controller instead of acking ok blindly. `Ok` also
+        /// covers a tune superseded before its Hello arrived.
+        /// tty-only: tokio isn't available to ratcore on the wasm32 web
+        /// shell, which never tunes radio itself.
+        #[cfg(not(target_arch = "wasm32"))]
+        ready: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     },
     /// a `freqhole-player/1` `stop_radio` command - see
     /// `tty::radio::stop`'s doc comment.

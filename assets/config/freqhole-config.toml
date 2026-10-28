@@ -176,7 +176,18 @@ label = "compatible"
 # for HEVC/HDR rips) produces "H.264 High 10" output instead of standard
 # 8-bit H.264 - a valid h264 stream by every check this job does, but not
 # a profile any browser's decoder actually supports.
-args = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart -f mp4 -y {output}"
+# the rest is tuned for streaming, so radio can send the rendition as-is
+# instead of re-encoding it in real time:
+# - -force_key_frames expr:gte(t,n_forced*3): a keyframe at least every 3s
+#   (also makes seeking snappier).
+# - -crf 23 -maxrate 4000k -bufsize 8000k: quality-based, with a ceiling
+#   that only trims bitrate spikes in busy scenes.
+# - the scale filter shrinks anything with a long edge over 1920 (4K ->
+#   1080p, portrait too); smaller videos are never upscaled.
+# - -profile:v main: decodes everywhere, including weak devices.
+# renditions made before this can be regenerated with the re-transcode
+# maintenance job.
+args = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -profile:v main -crf 23 -maxrate 4000k -bufsize 8000k -vf \"scale='min(iw,1920)':'min(ih,1920)':force_original_aspect_ratio=decrease:force_divisible_by=2\" -pix_fmt yuv420p -force_key_frames expr:gte(t,n_forced*3) -c:a aac -b:a 192k -movflags +faststart -f mp4 -y {output}"
 # OPTIONAL: output file extension (no leading dot) - must match whatever
 # container/muxer `args` actually produces (e.g. `-f mp4` -> "mp4", `-f
 # webm` -> "webm"). used for the rendition's stored filename/mime, and
@@ -744,6 +755,24 @@ max_concurrent_audio_streams = 2
 # audio limit above by default since video encoding is far more
 # cpu-expensive. default: 1
 max_concurrent_video_streams = 1
+
+# ============================================================================
+# player_pairing: lets other peers pair with this device as a remote
+# player (charnel's cenotaph player screen, rathole's `--player`). this
+# section must stay declared here even with default values: `config
+# upgrade` only carries over keys the template declares, so leaving it out
+# silently turned pairing back off after every upgrade.
+# ============================================================================
+[player_pairing]
+# OPTIONAL: auto-start the pairing endpoint on launch (default: false).
+# toggled live by charnel's "turn on player pairing" button and rathole's
+# player settings screen.
+enabled = false
+
+# OPTIONAL: rathole only - how the pairing qr code and now-playing art
+# render: "terminal" (default, unicode in the tui) or "framebuffer" (real
+# image via mpv).
+image_mode = "terminal"
 
 # ============================================================================
 # control_socket: local unix domain socket for simple media-control

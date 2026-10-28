@@ -1974,5 +1974,305 @@ class TmuxTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
 
 
+class BootAndProfileConfigTests(unittest.TestCase):
+    def test_power_led_block_is_idempotent(self):
+        result = configure.power_led_config("[all]\ndtparam=audio=on\n")
+        self.assertIn("dtparam=audio=on", result)
+        self.assertEqual(result.count("dtparam=pwr_led_trigger=none"), 1)
+        self.assertEqual(configure.power_led_config(result), result)
+
+    def test_fan_replaces_raspi_config_gpio_fan_and_validates_pin(self):
+        original = "[all]\ndtoverlay=gpio-fan,gpiopin=14,temp=80000\ndtparam=audio=on\n"
+        result = configure.fan_config(original, 14)
+        self.assertNotIn("dtoverlay=gpio-fan", result)
+        self.assertIn("dtparam=audio=on", result)
+        self.assertEqual(result.count("dtoverlay=pwm-gpio-fan,fan_gpio=14"), 1)
+        self.assertEqual(configure.fan_config(result, 14), result)
+        changed = configure.fan_config(result, 18)
+        self.assertNotIn("fan_gpio=14", changed)
+        self.assertIn("dtoverlay=pwm-gpio-fan,fan_gpio=18", changed)
+        for pin in (1, 28, "14"):
+            with self.subTest(pin=pin), self.assertRaises(ValueError):
+                configure.fan_config(original, pin)
+
+    def test_boot_cleanup_removes_only_setup_blocks(self):
+        original = "# mine\n[all]\ndtparam=audio=on\n"
+        text = configure.fan_config(configure.power_led_config(configure.i2c_config(original)), 14)
+        cleaned = configure.boot_cleanup(text)
+        self.assertNotIn("freqhole-pi", cleaned)
+        self.assertNotIn("pwr_led_trigger", cleaned)
+        self.assertNotIn("pwm-gpio-fan", cleaned)
+        self.assertIn("# mine", cleaned)
+        self.assertIn("dtparam=audio=on", cleaned)
+
+    def test_shell_path_block_round_trips(self):
+        for original in ("# my profile\nexport FOO=1\n", ""):
+            with self.subTest(original=original):
+                added = configure.shell_path_config(original)
+                self.assertNotEqual(added, original)
+                self.assertEqual(configure.remove_shell_path(added), original)
+        edited = configure.shell_path_config("x\n").replace("esac", "esac # mine")
+        self.assertEqual(configure.remove_shell_path(edited), edited)
+
+    def test_console_restore_puts_back_only_the_original_font(self):
+        original = 'CHARMAP="UTF-8"\nFONT="Lat15-Fixed16.psf.gz"\n'
+        changed = configure.console_config(original) + 'CODESET="guess"\n'
+        restored = configure.console_restore(changed, original)
+        self.assertIn('FONT="Lat15-Fixed16.psf.gz"', restored)
+        self.assertNotIn("Uni2-VGA14", restored)
+        self.assertIn('CODESET="guess"', restored)
+
+    def test_pairing_config_enables_existing_or_missing_table(self):
+        for text in ('data_dir = "./data"\n',
+                     '[player_pairing]\nenabled = false\nimage_mode = "terminal"\n\n[logging]\nlevel = "info"\n',
+                     '[player_pairing]\nimage_mode = "terminal"\n'):
+            with self.subTest(text=text):
+                result = configure.pairing_config(text)
+                parsed = tomllib.loads(result)
+                self.assertIs(parsed["player_pairing"]["enabled"], True)
+                if "image_mode" in text:
+                    self.assertEqual(parsed["player_pairing"]["image_mode"], "terminal")
+                self.assertEqual(configure.pairing_config(result), result)
+        with self.assertRaises(ValueError):
+            configure.pairing_config("player_pairing = 1\n")
+
+
+class PlayerPairingLaunchTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name) / "root"
+        self.root.mkdir()
+        self.data = Path(temp.name) / "data"
+        self.data.mkdir()
+        patcher = patch.object(charnel, "ROOT", self.root)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.installation = {"charnel_data": str(self.data), "charnel_config": str(self.data),
+                             "menu_player": "charnel", "hardware": False, "player_pairing": "pending"}
+
+    def test_waits_for_the_wizard_then_applies_once(self):
+        with patch("sys.stdout", new_callable=io.StringIO):
+            charnel.prepare_pairing(self.installation)
+            self.assertEqual(self.installation["player_pairing"], "pending")
+            config = self.data / "freqhole-config.toml"
+            config.write_text('[player_pairing]\nenabled = false\n')
+            charnel.prepare_pairing(self.installation)
+        self.assertIs(tomllib.loads(config.read_text())["player_pairing"]["enabled"], True)
+        saved = json.loads((self.root / "installation.json").read_text())
+        self.assertEqual(saved["player_pairing"], "applied")
+        # a later opt-out in charnel sticks.
+        config.write_text('[player_pairing]\nenabled = false\n')
+        charnel.prepare_pairing(saved)
+        self.assertIs(tomllib.loads(config.read_text())["player_pairing"]["enabled"], False)
+
+    def test_failure_never_blocks_launch(self):
+        (self.data / "freqhole-config.toml").write_text("player_pairing = 1\n")
+        with patch("sys.stdout", new_callable=io.StringIO) as output:
+            charnel.prepare_launch(self.installation)
+        self.assertIn("could not enable player pairing", output.getvalue())
+        self.assertEqual(self.installation["player_pairing"], "pending")
+
+
+class SplashRestoreTests(unittest.TestCase):
+    def test_restores_and_removes_backups(self):
+        with tempfile.TemporaryDirectory() as directory:
+            themes = Path(directory)
+            (themes / "pix").mkdir()
+            (themes / "pix/splash.png").write_bytes(b"replaced")
+            (themes / "pix/splash.png.before-freqhole-pi").write_bytes(b"original")
+            self.assertEqual(splash.restore_splash(themes), [themes / "pix/splash.png"])
+            self.assertEqual((themes / "pix/splash.png").read_bytes(), b"original")
+            self.assertFalse((themes / "pix/splash.png.before-freqhole-pi").exists())
+            self.assertEqual(splash.restore_splash(themes), [])
+
+
+class MenuFeedbackTests(unittest.TestCase):
+    def test_no_see_logs_on_the_oled(self):
+        self.assertNotIn("see logs", (HERE / "menu.py").read_text())
+
+    def test_play_pause_send_reports_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "s.sock"
+            with closing(socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)) as server:
+                server.bind(str(path))
+                server.listen(1)
+                for state, expected in (({"volume": 1, "is_playing": True, "kind": "song"}, "playing"),
+                                        ({"volume": 1, "is_playing": False, "kind": "video"}, "paused"),
+                                        ({"volume": 1, "is_playing": False, "kind": None}, "idle")):
+                    with self.subTest(expected=expected), \
+                         patch.object(menu, "current_socket_path", return_value=str(path)), \
+                         patch.object(menu, "PLAY_STATE_DELAY_SECONDS", 0), \
+                         patch.object(menu, "read_state", return_value=state), \
+                         patch("sys.stdout", new_callable=io.StringIO) as output:
+                        self.assertEqual(menu.send_socket_command("play_pause"), 0)
+                        server.accept()[0].close()
+                        self.assertIn(f"state: {expected}", output.getvalue())
+
+    def finished_socket_menu(self, state, result=0):
+        screen = menu.Menu.__new__(menu.Menu)
+        screen.process = Mock()
+        screen.process.poll.return_value = result
+        screen.running_label = "play / pause"
+        screen.running_socket = True
+        screen.running_shutdown = False
+        screen.running_state = state
+        screen.oled = Mock(width=128)
+        return screen
+
+    def test_play_pause_shows_state_briefly_then_returns_to_menu(self):
+        for state, message in (("paused", ("paused!",)), ("playing", ("playing...",)), (None, ("play / pause", "sent"))):
+            with self.subTest(state=state), patch.object(menu.time, "monotonic", return_value=100.0), \
+                 patch("sys.stdout", new_callable=io.StringIO):
+                screen = self.finished_socket_menu(state)
+                screen.poll_command()
+            self.assertEqual(screen.screen, "success")
+            self.assertEqual(screen.message, message)
+            self.assertEqual(screen.message_until, 100.0 + menu.TOAST_SECONDS)
+
+    def test_failed_send_sticks_without_log_hint(self):
+        with patch("sys.stdout", new_callable=io.StringIO):
+            screen = self.finished_socket_menu(None, result=1)
+            screen.poll_command()
+        self.assertEqual(screen.screen, "error")
+        self.assertIsNone(screen.message_until)
+        self.assertEqual(screen.message, ("send failed", "play / pause", "is the player running?"))
+
+    def live_menu(self):
+        with patch.object(menu, "StorageMenu") as storage:
+            storage.return_value.tick.return_value = False
+            screen = menu.Menu(Mock(width=128), Mock(), 0)
+        self.addCleanup(screen.close)
+        screen.poll_state = Mock()
+        screen.poll_network = Mock()
+        screen.poll_updates = Mock()
+        screen.poll_wifi = Mock()
+        return screen
+
+    def test_toast_auto_dismisses(self):
+        screen = self.live_menu()
+        screen.screen = "success"
+        screen.message = ("paused!",)
+        screen.message_until = 5.0
+        screen.tick(4.9, 0, False)
+        self.assertEqual(screen.screen, "success")
+        screen.tick(5.0, 0, False)
+        self.assertEqual(screen.screen, "menu")
+        self.assertIsNone(screen.message_until)
+
+    def test_update_keeps_screen_awake_and_shows_progress(self):
+        screen = self.live_menu()
+        screen.process = Mock()
+        screen.process.poll.return_value = None
+        screen.process.stdout = None
+        screen.screen = "running"
+        screen.running_label = "install update"
+        screen.running_started = 0.0
+        screen.running_output = "snapshotting charnel data/config to /home/pi/backups"
+        screen.oled.reset_mock()
+        with patch.object(menu.time, "monotonic", return_value=menu.IDLE_SECONDS * 4):
+            screen.tick(menu.IDLE_SECONDS * 4, 0, False)
+        self.assertFalse(screen.asleep)
+        self.assertIsNone(screen.sleep_started)
+        text = [call.args[0] for call in screen.oled.text.call_args_list]
+        self.assertEqual(text[0], "updating | 2:00")
+        self.assertEqual(text[1], "snapshotting charnel ")
+        self.assertEqual(text[3], "do not power off!")
+
+    def test_pump_output_tracks_last_line_and_play_state(self):
+        screen = menu.Menu.__new__(menu.Menu)
+        stream = io.BytesIO(b"Reading package lists...\n\nstate: paused\n")
+        with patch("sys.stdout", new_callable=io.StringIO) as output:
+            screen.pump_output(stream)
+        self.assertEqual(screen.running_output, "reading package lists...")
+        self.assertEqual(screen.running_state, "paused")
+        self.assertIn("Reading package lists", output.getvalue())
+
+
+class UninstallTests(unittest.TestCase):
+    def run_uninstall(self, home, answers):
+        script = (HERE / "setup.sh").read_text()
+        function = script[script.index("uninstall() {"):script.index('case "${1:-}" in\n    uninstall')]
+        log = home / "commands.log"
+        prefix = f"""
+set -euo pipefail
+die() {{ echo "$*" >&2; exit 1; }}
+ask() {{ local answer; read -r answer; [ "$answer" = y ]; }}
+user=pi
+root="{home}/.local/share/freqhole-pi"
+source_dir="{HERE}"
+sudo() {{ echo "sudo $*" >> "{log}"; case "$1" in rm|test|cmp|python3) "$@" ;; esac; }}
+systemctl() {{ echo "systemctl $*" >> "{log}"; }}
+dpkg-query() {{ return 1; }}
+"""
+        environment = {**os.environ, "HOME": str(home)}
+        environment.pop("XDG_CONFIG_HOME", None)
+        environment.pop("XDG_DATA_HOME", None)
+        result = subprocess.run(["bash", "-c", prefix + function + "\nuninstall\n"],
+                                input=answers, capture_output=True, text=True, env=environment)
+        return result, log.read_text() if log.exists() else ""
+
+    def install_tree(self, home):
+        root = home / ".local/share/freqhole-pi"
+        root.mkdir(parents=True)
+        for name in ("menu.py", "configure.py", "installation.json", "menu.json", "freqhole-config.toml"):
+            (root / name).write_text("{}" if name.endswith(".json") else "x")
+        (root / ".venv").mkdir()
+        (root / "backups").mkdir()
+        bin_dir = home / ".local/bin"
+        bin_dir.mkdir(parents=True)
+        for name in ("freqhole-pi", "charnel-session", "freqhole-wifi", "unrelated-tool"):
+            (bin_dir / name).write_text("#!/bin/sh\n")
+        unit = home / ".config/systemd/user/charnel.service"
+        unit.parent.mkdir(parents=True)
+        unit.write_text("[Unit]\n# managed by freqhole-pi setup\n")
+        data = home / ".local/share/net.freqhole.charnel"
+        data.mkdir(parents=True)
+        (data / "grimoire.db").write_text("library")
+        profile = home / ".profile"
+        profile.write_text(configure.shell_path_config("# mine\n"))
+        (home / ".profile.before-freqhole-pi").write_text("# mine\n")
+        return root, data, profile
+
+    def test_removes_setup_files_and_keeps_data_unless_confirmed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            root, data, profile = self.install_tree(home)
+            result, log = self.run_uninstall(home, "y\nkeep\nno\n")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("uninstall finished", result.stdout)
+            self.assertIn("systemctl --user stop charnel.service", log)
+            self.assertIn("sudo rm -f -- /etc/sudoers.d/freqhole-pi-pi", log)
+            self.assertFalse((home / ".config/systemd/user/charnel.service").exists())
+            for name in ("freqhole-pi", "charnel-session", "freqhole-wifi"):
+                self.assertFalse((home / ".local/bin" / name).exists())
+            self.assertTrue((home / ".local/bin/unrelated-tool").exists())
+            self.assertEqual(profile.read_text(), "# mine\n")
+            self.assertFalse((home / ".profile.before-freqhole-pi").exists())
+            self.assertTrue((data / "grimoire.db").exists())
+            self.assertTrue((root / "freqhole-config.toml").exists())
+            self.assertTrue((root / "backups").is_dir())
+            self.assertFalse((root / "menu.py").exists())
+            self.assertFalse((root / ".venv").exists())
+
+    def test_typed_delete_removes_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            root, data, _ = self.install_tree(home)
+            result, _ = self.run_uninstall(home, "y\ndelete\ndelete\n")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(data.exists())
+            self.assertFalse(root.exists())
+
+    def test_declining_changes_nothing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            root, _, _ = self.install_tree(home)
+            result, log = self.run_uninstall(home, "n\n")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(log, "")
+            self.assertTrue((root / "menu.py").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

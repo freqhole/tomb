@@ -31,8 +31,8 @@ import {
   radioListenerCount,
   radioNowPlaying,
   radioStatus,
-  tuneIntoRadio,
 } from "../../app/services/radio/radioService";
+import { tuneRadio } from "../../app/services/players/playerRadio";
 import { openRadioImageCarousel } from "../../app/services/radio/radioImageCarousel";
 import {
   createPendingRemote,
@@ -520,7 +520,7 @@ export function RadioView() {
     }
 
     try {
-      await tuneIntoRadio(peer, {
+      await tuneRadio(peer, {
         stationId: station.station_id,
         stationName: station.name,
         isLocal,

@@ -36,5 +36,14 @@ export async function createTaxonKind(input: {
 export async function getTaxonKindsForDomain(domain: string): Promise<TaxonKindRow[]> {
   const db = await initMusicDB();
   const index = db.transaction(STORE_TAXON_KINDS).store.index("by_domain");
-  return index.getAll(domain);
+  if (domain === "universal") return index.getAll(domain);
+  // universal kinds apply to every domain (mirrors the server's
+  // `domain = ? OR domain = 'universal'` list filter); a same-slug
+  // domain-specific row wins over the universal one.
+  const [scoped, universal] = await Promise.all([
+    index.getAll(domain),
+    index.getAll("universal"),
+  ]);
+  const scopedSlugs = new Set(scoped.map((k) => k.kind_slug));
+  return [...scoped, ...universal.filter((k) => !scopedSlugs.has(k.kind_slug))];
 }

@@ -602,7 +602,6 @@ export function VideoDetailView() {
                   <TaxonChips
                     taxons={taxonsQuery.data}
                     class="mt-2 justify-center"
-                    excludeKinds={["genre", "mood", "style", "era", "label"]}
                   />
 
                   <TagChips tags={tagsQuery.data} class="mt-2 justify-center" />
@@ -666,7 +665,6 @@ export function VideoDetailView() {
                   <TaxonChips
                     taxons={taxonsQuery.data}
                     class="mt-2"
-                    excludeKinds={["genre", "mood", "style", "era", "label"]}
                   />
 
                   <TagChips tags={tagsQuery.data} class="mt-2" />

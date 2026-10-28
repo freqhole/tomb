@@ -115,6 +115,13 @@ pub const ADMIN_COMMANDS: &[AdminCommandInfo] = &[
         response_type: "SessionJobCounts",
         auth: AdminAuth::Admin,
     },
+    // -- maintenance --
+    AdminCommandInfo {
+        name: "maintenance_retranscode_video_renditions",
+        request_type: "RetranscodeVideoRenditionsRequest",
+        response_type: "RetranscodeVideoRenditionsSummary",
+        auth: AdminAuth::Admin,
+    },
     // -- knocks --
     AdminCommandInfo {
         name: "knocks_list",

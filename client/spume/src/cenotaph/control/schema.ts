@@ -130,6 +130,17 @@ export const PlayerCommandSchema = z.discriminatedUnion("command", [
     station_id: z.string().optional(),
   }),
   z.object({ type: z.literal("control"), command: z.literal("stop_radio") }),
+  // asks the player to send its OWN access request (a knock) to the remote
+  // at `peer_addr` - e.g. after a `tune_radio` acked `source_access_denied`.
+  // the knock has to come from the player's node (not the controller's),
+  // since that's the identity the source remote will approve.
+  z.object({
+    type: z.literal("control"),
+    command: z.literal("request_source_access"),
+    peer_addr: z.string(),
+    username: z.string(),
+    message: z.string().optional(),
+  }),
   z.object({ type: z.literal("control"), command: z.literal("list_output_devices") }),
   z.object({
     type: z.literal("control"),
@@ -267,6 +278,8 @@ export const PlayerStatusSchema = z.discriminatedUnion("state", [
     title: z.string().optional(),
     artist: z.string().optional(),
     kind: z.enum(["audio", "video"]).optional(),
+    /** true while the radio session is paused (still tuned, not listening). */
+    paused: z.boolean().optional(),
     queue: z.array(MediaRefSchema),
     auto_download_enabled: z.boolean(),
     volume: z.number().min(0).max(1),
@@ -276,10 +289,31 @@ export const PlayerStatusSchema = z.discriminatedUnion("state", [
 ]);
 export type PlayerStatus = z.infer<typeof PlayerStatusSchema>;
 
+export const CommandAckReasonSchema = z.enum([
+  "untrusted",
+  "invalid_command",
+  "not_in_session",
+  // the remaining reasons are about a THIRD peer the player had to reach
+  // on its own (e.g. a radio broadcaster), not about controller<->player
+  // trust - see `PlaybackCommandError` in playbackBackend.ts.
+  /** the player isn't allowed on the source remote (probed via whoami). */
+  "source_access_denied",
+  /** the player couldn't reach the source remote at all. */
+  "source_unreachable",
+  /** tuning failed for some other reason (station gone, etc). */
+  "tune_failed",
+  /** `request_source_access`'s knock was refused (see `detail`). */
+  "request_access_failed",
+]);
+export type CommandAckReason = z.infer<typeof CommandAckReasonSchema>;
+
 export const CommandAckSchema = z.object({
   type: z.literal("command_ack"),
   ok: z.boolean(),
-  reason: z.enum(["untrusted", "invalid_command", "not_in_session"]).optional(),
+  reason: CommandAckReasonSchema.optional(),
+  /** optional human-readable context for a failed ack (e.g. the source
+   * remote's own knock rejection message). */
+  detail: z.string().optional(),
   status: PlayerStatusSchema.optional(),
   /** reply to `list_output_devices` - omitted for every other command.
    * never cached beyond a single ack, since devices can be plugged/

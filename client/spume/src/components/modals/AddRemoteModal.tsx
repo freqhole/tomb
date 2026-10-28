@@ -20,6 +20,7 @@ import {
 import type {
   AddPeerFlow,
   AddPeerState,
+  PeerServerInfo,
   PendingRemote,
   SavedRemote,
 } from "@freqhole/haruspex/flows";
@@ -153,9 +154,9 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   // so this asks each peer directly over p2p once it's found.
   // best-effort: an entry just stays absent (falls back to the raw node
   // id in the render below) if the peek fails or hasn't resolved yet.
-  const [nearbyPeerDetails, setNearbyPeerDetails] = createSignal<
-    Record<string, NearbyPeerDetails>
-  >({});
+  const [nearbyPeerDetails, setNearbyPeerDetails] = createSignal<Record<string, NearbyPeerDetails>>(
+    {}
+  );
   createEffect(
     on(
       () => props.isOpen,
@@ -452,7 +453,8 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   const [playerAccess] = createResource(
     (): string | null => {
       const s = state();
-      return s.step === "auth" && s.serverInfo?.player_device && s.peerAddr ? s.peerAddr : null;
+      const onPairingStep = s.step === "auth" || (s.step === "url" && s.subStep === "knock_form");
+      return onPairingStep && s.serverInfo?.player_device && s.peerAddr ? s.peerAddr : null;
     },
     async (peerAddr): Promise<PlayerAccessCheck> => {
       const existing = await getRemoteByPeerAddr(peerAddr);
@@ -488,7 +490,8 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
       (result) => {
         if (!result?.authorized) return;
         const s = state();
-        if (s.step !== "auth" || !s.peerAddr) return;
+        const onPairingStep = s.step === "auth" || (s.step === "url" && s.subStep === "knock_form");
+        if (!onPairingStep || !s.peerAddr) return;
         const peerAddr = s.peerAddr;
         const displayName =
           result.remoteName ?? s.serverInfo?.name ?? `player ${peerAddr.slice(0, 8)}`;
@@ -713,7 +716,14 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
     // being submitted, so a QR scan (or the origin hint) is visible/
     // editable rather than a no-op-looking empty field if the test fails.
     setInputValue(resolved);
-    void dispatch({ type: "SUBMIT_URL", input: resolved });
+    // a player qr (or a player-intent open) means "pair with this player":
+    // the flow then lands a knockable player_device peer on the pin form
+    // ("auth") instead of its default knock form.
+    void dispatch({
+      type: "SUBMIT_URL",
+      input: resolved,
+      intent: playerQr || props.initialIntent === "player" ? "player" : undefined,
+    });
   };
 
   const handleRequestAccess = (username: string, message: string) => {
@@ -742,6 +752,121 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
 
   const handleDeletePending = (pending: PendingRemote) => {
     void dispatch({ type: "DELETE_PENDING", pending });
+  };
+
+  // freqhole-player pin pairing ui, rendered alongside the normal remote
+  // flow on both the "auth" step and the knock form (a player_device peer
+  // with knocking enabled lands on the knock form by default - see the
+  // add-peer machine's CONNECTION_RESULT). `divider` separates it from the
+  // remote ui above; off when it's the only thing shown (playerOnly()).
+  const PlayerPairingSection = (props: {
+    peerAddr: string | null;
+    serverInfo: PeerServerInfo | null;
+    divider: boolean;
+  }) => {
+    const pair = () => {
+      if (!props.peerAddr || !playerPin().trim() || playerPairStatus() === "pairing") return;
+      void handlePairPlayer(
+        props.peerAddr,
+        props.serverInfo?.name ?? `player ${props.peerAddr.slice(0, 8)}`
+      );
+    };
+    return (
+      <div class={props.divider ? "pt-4 mt-4 border-t border-[var(--color-border-default)]" : ""}>
+        <Show
+          when={!playerAccess.loading && !playerAccess()?.authorized}
+          fallback={
+            <div class="flex items-center justify-center gap-2 py-4 text-sm text-[var(--color-text-secondary)]">
+              <div class="w-4 h-4 border-2 border-[var(--color-accent-primary)] border-t-transparent rounded-full animate-spin" />
+              {playerAccess.loading ? "checking player access..." : "reconnecting as player..."}
+            </div>
+          }
+        >
+          <p class="text-sm text-[var(--color-text-secondary)] mb-4 text-center">
+            {playerAccess()?.alreadyPaired
+              ? "re-enter this player's pairing pin to reconnect"
+              : "this device also supports pairing as a player"}
+          </p>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">
+                pin (shown on the player's screen)
+              </label>
+              <input
+                type="text"
+                inputmode="numeric"
+                value={playerPin()}
+                onInput={(e) => setPlayerPin(e.currentTarget.value)}
+                // the knock form wraps this in a <form>: enter here pairs, never
+                // submits the knock request.
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  e.preventDefault();
+                  pair();
+                }}
+                placeholder="123456"
+                class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] font-mono text-lg tracking-widest"
+                disabled={playerPairStatus() === "pairing"}
+              />
+            </div>
+            <Show when={!playerAccess()?.alreadyPaired}>
+              <div>
+                <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">
+                  your name (shown on the player)
+                </label>
+                <input
+                  type="text"
+                  value={playerControllerName()}
+                  onInput={(e) => setPlayerControllerName(e.currentTarget.value)}
+                  class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] text-sm"
+                  disabled={playerPairStatus() === "pairing"}
+                />
+              </div>
+            </Show>
+            <Show when={playerPairStatus() === "error"}>
+              <div class="p-3 bg-[var(--color-status-error)]/10 border border-[var(--color-status-error)] rounded-md">
+                <p class="text-sm text-[var(--color-status-error)]">{playerPairError()}</p>
+              </div>
+            </Show>
+            <Show when={isCharnelAvailable()}>
+              <div class="flex flex-col gap-2">
+                <label class="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
+                  <input
+                    type="checkbox"
+                    checked={setUpLocalUser()}
+                    onChange={(e) => void handleToggleLocalUser(e.currentTarget.checked)}
+                    disabled={playerPairStatus() === "pairing"}
+                  />
+                  set up a local user for this node id
+                </label>
+                <Show when={setUpLocalUser()}>
+                  <select
+                    value={localUserRole()}
+                    onChange={(e) =>
+                      setLocalUserRole(e.currentTarget.value as "admin" | "member" | "viewer")
+                    }
+                    class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] text-sm"
+                    disabled={playerPairStatus() === "pairing"}
+                  >
+                    <option value="viewer">viewer</option>
+                    <option value="member">member</option>
+                    <option value="admin">admin</option>
+                  </select>
+                </Show>
+              </div>
+            </Show>
+            <Button
+              type="button"
+              disabled={playerPairStatus() === "pairing" || !playerPin().trim()}
+              class="w-full"
+              onClick={pair}
+            >
+              {playerPairStatus() === "pairing" ? "pairing..." : "pair"}
+            </Button>
+          </div>
+        </Show>
+      </div>
+    );
   };
 
   return (
@@ -1089,6 +1214,17 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                           </Show>
                         </div>
                       </Show>
+                      {/* a knockable player_device peer lands here by default
+                          (see the add-peer machine's CONNECTION_RESULT) -
+                          keep its pin pairing reachable alongside the
+                          knock request, same as the "auth" step. */}
+                      <Show when={s.subStep === "knock_form" && s.serverInfo?.player_device}>
+                        <PlayerPairingSection
+                          peerAddr={s.peerAddr}
+                          serverInfo={s.serverInfo}
+                          divider
+                        />
+                      </Show>
                       {/* hint: use current origin if it's a valid server */}
                       <Show when={originHint() && s.subStep !== "knock_form"}>
                         <div class="text-center pt-2 border-t border-[var(--color-border-default)]">
@@ -1351,7 +1487,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                               <button
                                 type="button"
                                 class="text-sm text-[var(--color-accent-primary)] hover:underline"
-                                onClick={() => void dispatch({ type: "BACK" })}
+                                onClick={() => void dispatch({ type: "REQUEST_ACCESS" })}
                               >
                                 request access from the admin
                               </button>
@@ -1398,113 +1534,11 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
                           it would be a floating rule with nothing above to
                           separate from. */}
                       <Show when={s.serverInfo?.player_device}>
-                        <div
-                          class={
-                            playerOnly()
-                              ? ""
-                              : "pt-4 mt-4 border-t border-[var(--color-border-default)]"
-                          }
-                        >
-                          <Show
-                            when={!playerAccess.loading && !playerAccess()?.authorized}
-                            fallback={
-                              <div class="flex items-center justify-center gap-2 py-4 text-sm text-[var(--color-text-secondary)]">
-                                <div class="w-4 h-4 border-2 border-[var(--color-accent-primary)] border-t-transparent rounded-full animate-spin" />
-                                {playerAccess.loading
-                                  ? "checking player access..."
-                                  : "reconnecting as player..."}
-                              </div>
-                            }
-                          >
-                            <p class="text-sm text-[var(--color-text-secondary)] mb-4 text-center">
-                              {playerAccess()?.alreadyPaired
-                                ? "re-enter this player's pairing pin to reconnect"
-                                : "this device also supports pairing as a player"}
-                            </p>
-                            <div class="space-y-4">
-                              <div>
-                                <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">
-                                  pin (shown on the player's screen)
-                                </label>
-                                <input
-                                  type="text"
-                                  inputmode="numeric"
-                                  value={playerPin()}
-                                  onInput={(e) => setPlayerPin(e.currentTarget.value)}
-                                  placeholder="123456"
-                                  class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] font-mono text-lg tracking-widest"
-                                  disabled={playerPairStatus() === "pairing"}
-                                />
-                              </div>
-                              <Show when={!playerAccess()?.alreadyPaired}>
-                                <div>
-                                  <label class="block text-sm font-medium text-[var(--color-text-primary)] mb-2">
-                                    your name (shown on the player)
-                                  </label>
-                                  <input
-                                    type="text"
-                                    value={playerControllerName()}
-                                    onInput={(e) => setPlayerControllerName(e.currentTarget.value)}
-                                    class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] text-sm"
-                                    disabled={playerPairStatus() === "pairing"}
-                                  />
-                                </div>
-                              </Show>
-                              <Show when={playerPairStatus() === "error"}>
-                                <div class="p-3 bg-[var(--color-status-error)]/10 border border-[var(--color-status-error)] rounded-md">
-                                  <p class="text-sm text-[var(--color-status-error)]">
-                                    {playerPairError()}
-                                  </p>
-                                </div>
-                              </Show>
-                              <Show when={isCharnelAvailable()}>
-                                <div class="flex flex-col gap-2">
-                                  <label class="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
-                                    <input
-                                      type="checkbox"
-                                      checked={setUpLocalUser()}
-                                      onChange={(e) =>
-                                        void handleToggleLocalUser(e.currentTarget.checked)
-                                      }
-                                      disabled={playerPairStatus() === "pairing"}
-                                    />
-                                    set up a local user for this node id
-                                  </label>
-                                  <Show when={setUpLocalUser()}>
-                                    <select
-                                      value={localUserRole()}
-                                      onChange={(e) =>
-                                        setLocalUserRole(
-                                          e.currentTarget.value as "admin" | "member" | "viewer"
-                                        )
-                                      }
-                                      class="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border-default)] rounded-md text-[var(--color-text-primary)] text-sm"
-                                      disabled={playerPairStatus() === "pairing"}
-                                    >
-                                      <option value="viewer">viewer</option>
-                                      <option value="member">member</option>
-                                      <option value="admin">admin</option>
-                                    </select>
-                                  </Show>
-                                </div>
-                              </Show>
-                              <Button
-                                type="button"
-                                disabled={playerPairStatus() === "pairing" || !playerPin().trim()}
-                                class="w-full"
-                                onClick={() =>
-                                  s.peerAddr &&
-                                  void handlePairPlayer(
-                                    s.peerAddr,
-                                    s.serverInfo?.name ?? `player ${s.peerAddr.slice(0, 8)}`
-                                  )
-                                }
-                              >
-                                {playerPairStatus() === "pairing" ? "pairing..." : "pair"}
-                              </Button>
-                            </div>
-                          </Show>
-                        </div>
+                        <PlayerPairingSection
+                          peerAddr={s.peerAddr}
+                          serverInfo={s.serverInfo}
+                          divider={!playerOnly()}
+                        />
                       </Show>
                     </div>
                   );

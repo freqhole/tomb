@@ -246,7 +246,6 @@ export function BulkEditVideosModal(props: BulkEditVideosModalProps) {
           <div class="border-t border-[var(--color-border-subtle)] pt-3">
             <BulkVideoTaxonsEditor
               videoIds={props.videoIds}
-              excludeKinds={["genre", "mood", "style", "era", "label"]}
             />
           </div>
 

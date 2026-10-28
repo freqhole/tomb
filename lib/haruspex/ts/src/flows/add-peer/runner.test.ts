@@ -166,7 +166,7 @@ describe("createAddPeerFlow (bundled runner)", () => {
     expect(state.step === "auth" && state.serverInfo?.player_device).toBe(true);
   });
 
-  it("routes to auth (not the knock form) for a player_device peer, even when knocking is also enabled", async () => {
+  it("defaults to the knock form for a knockable player_device peer, with request access <-> invite code round-tripping", async () => {
     const { deps } = makeDeps({
       getServerInfo: async () => ({ ...INFO, player_device: true, knocking_enabled: true }),
     });
@@ -174,9 +174,47 @@ describe("createAddPeerFlow (bundled runner)", () => {
 
     await flow.dispatch({ type: "SUBMIT_URL", input: NODE_ID });
 
+    let state = flow.state();
+    expect(state.step === "url" && state.subStep).toBe("knock_form");
+    expect(state.step === "url" && state.serverInfo?.player_device).toBe(true);
+
+    await flow.dispatch({ type: "USE_INVITE_CODE" });
+    expect(flow.state().step).toBe("auth");
+
+    // "don't have an invite code? request access from the admin"
+    await flow.dispatch({ type: "REQUEST_ACCESS" });
+    state = flow.state();
+    expect(state.step === "url" && state.subStep).toBe("knock_form");
+    expect(state.step === "url" && state.peerAddr).toBe(NODE_ID);
+  });
+
+  it("routes a knockable player_device peer to auth (pin form) when submitted with player intent", async () => {
+    const { deps } = makeDeps({
+      getServerInfo: async () => ({ ...INFO, player_device: true, knocking_enabled: true }),
+    });
+    const flow = createAddPeerFlow(deps);
+
+    await flow.dispatch({ type: "SUBMIT_URL", input: NODE_ID, intent: "player" });
+
     const state = flow.state();
     expect(state.step).toBe("auth");
     expect(state.step === "auth" && state.serverInfo?.player_device).toBe(true);
+  });
+
+  it("routes an auth-rejected, non-knockable player_device probe to auth", async () => {
+    let calls = 0;
+    const { deps } = makeDeps({
+      getServerInfo: async () => {
+        calls++;
+        if (calls === 1) throw new Error("403 Forbidden");
+        return { ...INFO, player_device: true };
+      },
+    });
+    const flow = createAddPeerFlow(deps);
+
+    await flow.dispatch({ type: "SUBMIT_URL", input: NODE_ID });
+
+    expect(flow.state().step).toBe("auth");
   });
 
   it("marks the pending record failed with a mapped error when the probe throws", async () => {

@@ -15,6 +15,7 @@ export {
 } from "./control/playerConnectionHandler";
 export { dispatchCommand, commandInFlight } from "./control/dispatcher";
 export type { PlaybackBackend } from "./control/playbackBackend";
+export { PlaybackCommandError } from "./control/playbackBackend";
 export {
   PlayerCommandSchema,
   PlayerStatusSchema,

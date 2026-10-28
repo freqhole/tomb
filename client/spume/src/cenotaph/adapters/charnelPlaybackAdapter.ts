@@ -47,13 +47,17 @@ import { resolveMediaRefToSong, resolveMediaRefToVideo } from "./mediaRefResolve
 import { CENOTAPH_QUEUE_TRACE } from "../queueTrace";
 import {
   leaveRadio,
+  radioPause,
+  radioResume,
   radioCurrentPeerAddr,
   radioCurrentStationId,
   radioNowPlaying,
   radioStatus,
-  tuneIntoRadio,
 } from "../../app/services/radio/radioService";
+import { requestSourceAccess, tuneRadioWithAccessCheck } from "./radioSourceAccess";
 import { debug, error, warn } from "../../utils/logger";
+
+const isRadioListening = () => radioStatus() === "playing" || radioStatus() === "connecting";
 
 /** one item from a queue push that hasn't resolved to a real queueable
  * `MediaItem` yet - shown by `CenotaphPlayerApp.tsx` immediately (title/
@@ -430,6 +434,7 @@ function currentStatus(): PlayerStatus {
       title: np?.title,
       artist: np?.artist ?? undefined,
       kind: np?.kind === "video" ? "video" : np ? "audio" : undefined,
+      paused: rStatus === "paused" || undefined,
       ...common,
     };
   }
@@ -544,10 +549,20 @@ export const charnelPlaybackAdapter: PlaybackBackend<unknown> = {
     }
   },
   async pause() {
+    // a tuned radio session runs separately from the queue (see
+    // currentStatus's radio branch) - pause THAT, not the queue under it.
+    if (radioCurrentPeerAddr() && isRadioListening()) {
+      radioPause();
+      return;
+    }
     pausePlayback();
     await waitForPlaybackState(false);
   },
   async resume() {
+    if (radioCurrentPeerAddr() && radioStatus() === "paused") {
+      radioResume();
+      return;
+    }
     await resumePlayback();
     await waitForPlaybackState(true);
   },
@@ -578,10 +593,17 @@ export const charnelPlaybackAdapter: PlaybackBackend<unknown> = {
     void clearQueue();
   },
   async startRadio(_node, peerAddr, stationId) {
-    await tuneIntoRadio(peerAddr, { stationId });
+    // plays through the same html <video> + MediaSource sink as any other
+    // spume radio tune (RadioAudioSink, mounted on this route too) - never
+    // the libmpv path. a failure is classified (no access / unreachable /
+    // other) so the controller can explain it - see radioSourceAccess.ts.
+    await tuneRadioWithAccessCheck(peerAddr, stationId);
   },
   stopRadio() {
     leaveRadio();
+  },
+  async requestSourceAccess(peerAddr, username, message) {
+    await requestSourceAccess(peerAddr, username, message);
   },
   setAutoDownloadEnabled(enabled) {
     void persistAutoDownloadEnabled(enabled);

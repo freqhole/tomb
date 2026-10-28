@@ -4,6 +4,8 @@ import { debug } from "../../utils/logger";
 import { isTouchDevice } from "../../utils/isMobile";
 import { useChromeSuppression } from "../../app/shell/chromeSuppression";
 import { getTargetOs, setWindowFullscreen } from "../../app/services/charnel/commands";
+import { usePlayerPointerActivity } from "../../cenotaph/app/playerPointerActivity";
+import "../../cenotaph/app/playerCursor.css";
 import {
   isPlaying as musicIsPlaying,
   pause as musicPause,
@@ -93,6 +95,11 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
   // expanded floating player is the one case that visually competes with
   // them; "inline" (kiosk) usage never expands, so it never suppresses.
   useChromeSuppression("video-mini-player", () => !isInline() && expanded());
+
+  // expanded fills the viewport, so the pointer always "hovers" it - fade
+  // the controls + hide the cursor on idle instead of relying on hover.
+  const fillsViewport = () => !isInline() && expanded();
+  const { pointerActive, cursorHidden } = usePlayerPointerActivity(fillsViewport);
 
   onCleanup(() => props.onElementDetach?.(videoEl));
 
@@ -304,6 +311,17 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
     </>
   );
 
+  // hover has no touch equivalent - keep the controls always visible on
+  // touch devices instead of hiding them behind an unreachable hover state.
+  // expanded fades them on pointer idle (a tap/move brings them back).
+  const controlsVisibility = () => {
+    if (fillsViewport()) {
+      return pointerActive() ? "opacity-100 transition-opacity" : "opacity-0 pointer-events-none transition-opacity";
+    }
+    if (isTouchDevice() || isInline()) return "opacity-100";
+    return "opacity-0 group-hover:opacity-100 transition-opacity";
+  };
+
   // controls sit above the video (own row, no overlap) only when
   // collapsed on a touch device - expanded has no "above" space to move
   // into (the panel already fills the viewport), so it keeps the overlay.
@@ -341,7 +359,11 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
         classList={
           isInline()
             ? { "w-full h-full rounded-lg": true }
-            : { "aspect-video": !expanded(), "h-full": expanded() }
+            : {
+                "aspect-video": !expanded(),
+                "h-full": expanded(),
+                "player-cursor-idle": expanded() && cursorHidden(),
+              }
         }
         style={
           isInline() || expanded()
@@ -363,15 +385,8 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
         />
         <Show when={!controlsAboveVideo()}>
           <div
-            class="absolute right-2 flex items-center gap-1"
-            classList={{
-              // hover has no touch equivalent - keep the controls always
-              // visible on touch devices instead of hiding them behind an
-              // unreachable hover state.
-              "opacity-100": isTouchDevice() || isInline(),
-              "opacity-0 group-hover:opacity-100 transition-opacity":
-                !isTouchDevice() && !isInline(),
-            }}
+            class={`absolute right-2 flex items-center gap-1 ${controlsVisibility()}`}
+            data-testid="video-mini-player-controls"
             style={{
               // while expanded, this panel fills the viewport, so its
               // controls need to clear whatever's reserved at the real

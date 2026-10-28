@@ -1095,7 +1095,6 @@ export function EditVideoModal(props: EditVideoModalProps) {
               ref={(h) => (taxonsHandle = h)}
               onDirtyChange={setTaxonsDirty}
               disabled={!canUpdateVideo()}
-              excludeKinds={["genre", "mood", "style", "era", "label"]}
             />
           </div>
 

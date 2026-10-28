@@ -24,6 +24,11 @@ use crate::ratcore::app::{AppAction, QueueEntry, QueuedVideoRow, SongRow, Unreso
 use crate::ratcore::transport::{PlayerCmd, VideoPlayer};
 
 use super::now_ms;
+use super::source_access;
+
+/// how long a `tune_radio` waits for the broadcaster's handshake before
+/// acking anyway - see the `TuneRadio` dispatch arm.
+const TUNE_HANDSHAKE_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// which backend a generic (kind-less) command like pause/resume/seek
 /// should target - derived from the unified queue's current entry's
@@ -250,6 +255,9 @@ pub(crate) fn command_summary(command: &PairingCommand) -> String {
             station_id,
         } => format!("TuneRadio {{ peer_addr: {peer_addr}, station_id: {station_id:?} }}"),
         PairingCommand::StopRadio => "StopRadio".to_string(),
+        PairingCommand::RequestSourceAccess { peer_addr, .. } => {
+            format!("RequestSourceAccess {{ peer_addr: {peer_addr} }}")
+        }
         PairingCommand::ListOutputDevices => "ListOutputDevices".to_string(),
         PairingCommand::SetOutputDevice { name } => {
             format!("SetOutputDevice {{ name: {name:?} }}")
@@ -377,13 +385,27 @@ async fn dispatch_pairing_command_inner(
             // same "no &mut App here" reasoning as PairingSkip - routed
             // through an AppAction so `run.rs`'s loop (which does have
             // `&mut App`) can call `tty::radio::start` directly.
-            if let Some(tx) = &ctx.action_tx {
-                let _ = tx.send(AppAction::PairingTuneRadio {
-                    peer_addr,
-                    station_id,
-                });
+            let Some(tx) = &ctx.action_tx else {
+                return status_ack(&ctx, None);
+            };
+            let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+            let _ = tx.send(AppAction::PairingTuneRadio {
+                peer_addr: peer_addr.clone(),
+                station_id,
+                ready: Some(ready_tx),
+            });
+            // wait for the broadcaster's handshake so a refused/unreachable
+            // source is reported to the controller (which can then grant
+            // access or offer an access request) - see source_access.rs.
+            // capped so a slow-but-progressing connect still acks; anything
+            // that fails after that surfaces through the player's own ui.
+            match tokio::time::timeout(TUNE_HANDSHAKE_WAIT, ready_rx).await {
+                Ok(Ok(Err(detail))) => {
+                    let probe = source_access::probe_source_access(&peer_addr).await;
+                    source_access::tune_failure_ack(probe, detail)
+                }
+                _ => status_ack(&ctx, None),
             }
-            status_ack(&ctx, None)
         }
         PairingCommand::StopRadio => {
             if let Some(tx) = &ctx.action_tx {
@@ -391,6 +413,14 @@ async fn dispatch_pairing_command_inner(
             }
             status_ack(&ctx, None)
         }
+        PairingCommand::RequestSourceAccess {
+            peer_addr,
+            username,
+            message,
+        } => match source_access::send_knock(&peer_addr, &username, message.as_deref()).await {
+            Ok(()) => status_ack(&ctx, None),
+            Err(detail) => source_access::request_access_failed_ack(detail),
+        },
         // not yet supported - see module doc / plan doc follow-ups.
         PairingCommand::SetAutoDownloadEnabled { .. } => {
             CommandAck::err(CommandAckReason::InvalidCommand)
@@ -859,6 +889,46 @@ mod tests {
             unresolved_items: vec![],
             output_devices_snapshot: vec![],
         }
+    }
+
+    #[tokio::test]
+    async fn tune_radio_waits_for_the_broadcaster_handshake() {
+        // dispatch futures aren't `Send` (Rc'd backends) - same LocalSet
+        // run.rs uses via `spawn_local`.
+        tokio::task::LocalSet::new()
+            .run_until(tune_radio_waits_for_the_broadcaster_handshake_inner())
+            .await;
+    }
+
+    async fn tune_radio_waits_for_the_broadcaster_handshake_inner() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let ctx = DispatchContext {
+            action_tx: Some(tx),
+            ..empty_ctx()
+        };
+        let dispatch = tokio::task::spawn_local(dispatch_pairing_command(
+            ctx,
+            PairingCommand::TuneRadio {
+                peer_addr: "peer-a".into(),
+                station_id: Some("s1".into()),
+            },
+        ));
+        let Some(AppAction::PairingTuneRadio {
+            peer_addr,
+            station_id,
+            ready: Some(ready),
+        }) = rx.recv().await
+        else {
+            panic!("expected a PairingTuneRadio action with a ready channel");
+        };
+        assert_eq!(peer_addr, "peer-a");
+        assert_eq!(station_id.as_deref(), Some("s1"));
+        // the ack isn't sent until the handshake resolves.
+        tokio::task::yield_now().await;
+        assert!(!dispatch.is_finished());
+        ready.send(Ok(())).unwrap();
+        let ack = dispatch.await.unwrap();
+        assert!(ack.ok);
     }
 
     #[tokio::test]

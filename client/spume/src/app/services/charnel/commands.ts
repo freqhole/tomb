@@ -365,6 +365,25 @@ export async function setWindowFullscreen(fullscreen: boolean): Promise<void> {
 }
 
 /**
+ * show/hide the native cursor over the current window.
+ *
+ * CSS `cursor: none` only takes effect once the webview has seen real
+ * pointer motion, so a linux player that booted without a mouse keeps the
+ * compositor's arrow parked over the video forever. a blank cursor on the
+ * native window covers that case; webkit's own CSS cursor takes over again
+ * as soon as a real mouse moves.
+ */
+export async function setNativeCursorVisible(visible: boolean): Promise<void> {
+  try {
+    // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().setCursorVisible(visible);
+  } catch (error) {
+    // silently fail - not critical
+  }
+}
+
+/**
  * close the current window.
  */
 export async function closeWindow(): Promise<void> {

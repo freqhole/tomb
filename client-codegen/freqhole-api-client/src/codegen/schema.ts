@@ -6366,6 +6366,19 @@ export const RequeryOverrideSchema = z.object({
 });
 export type RequeryOverride = z.infer<typeof RequeryOverrideSchema>;
 
+export const RetranscodeVideoRenditionsRequestSchema = z.object({
+  video_id: z.string().nullish()
+});
+export type RetranscodeVideoRenditionsRequest = z.infer<typeof RetranscodeVideoRenditionsRequestSchema>;
+
+export const RetranscodeVideoRenditionsSummarySchema = z.object({
+  videos_with_renditions: z.number(),
+  jobs_enqueued: z.number(),
+  pending_jobs_skipped: z.number(),
+  enqueue_failures: z.number()
+});
+export type RetranscodeVideoRenditionsSummary = z.infer<typeof RetranscodeVideoRenditionsSummarySchema>;
+
 export const RevokeOwnInviteRequestSchema = z.object({
   code: z.string()
 });

@@ -7,7 +7,21 @@
 // `charnelPlaybackAdapter.ts`, the only implementation of this interface
 // in use.
 
-import type { AudioDeviceInfo, MediaRef, PlayerStatus } from "./schema";
+import type { AudioDeviceInfo, CommandAckReason, MediaRef, PlayerStatus } from "./schema";
+
+/** thrown by a backend method to fail its command with a specific ack
+ * `reason` (and optional `detail`) instead of the dispatcher's generic
+ * `invalid_command` - e.g. `startRadio` reporting that the player itself
+ * isn't allowed on the broadcasting remote. */
+export class PlaybackCommandError extends Error {
+  constructor(
+    readonly reason: CommandAckReason,
+    readonly detail?: string
+  ) {
+    super(detail ? `${reason}: ${detail}` : reason);
+    this.name = "PlaybackCommandError";
+  }
+}
 
 // generic over the host's own node/identity handle type (`TNode`) -
 // cenotaph's dispatcher never calls any method on `node` itself, it's
@@ -29,6 +43,8 @@ export interface PlaybackBackend<TNode = unknown> {
   stop(): void;
   startRadio(node: TNode, peerAddr: string, stationId?: string): Promise<void>;
   stopRadio(): void;
+  /** sends the player's own access request (knock) to `peerAddr`. */
+  requestSourceAccess(peerAddr: string, username: string, message?: string): Promise<void>;
   setAutoDownloadEnabled(enabled: boolean): void;
   currentStatus(): PlayerStatus;
   /** fresh (never cached) query of the host's current audio output
