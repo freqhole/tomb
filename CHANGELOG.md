@@ -1,5 +1,25 @@
 # freqhole-release
 
+## 0.3.22
+
+### Patch Changes
+
+- 39fa432: fix buggy taxon editor so that taxons can be cross-domain (shared between music + video); improve graph viz logic a bit so seasons' vidz don't always flyout;
+- 01f1040: try to wire up radio station streamz thru cenotaph player
+- 10e5d01: re-wire add remote flow so knock form workz
+- 5d4b20d: try to further tune video streamz and re-write rendition encoder so it's easy to stream (should just be able to copy, not need heavy cpu to re-encode for the radio stream)
+- 509d44d: pi setup + charnel player polish
+
+  pi setup turns off the red power LED, can set up a GPIO fan with speed
+  control (default pin 14) and unattended-upgrades, and adds
+  `freqhole-setup.sh uninstall`. player pairing now stays on after updates,
+  because the config template was missing [player_pairing]. the OLED menu
+  stays awake during updates and shows progress with "do not power off!",
+  shows "playing..."/"paused!" briefly after play/pause, yank
+  "see logs". charnel hides the cursor on linux even when booted without a
+  mouse, and the expanded mini video player hides its buttons and the cursor
+  when the pointer is idle.
+
 ## 0.3.21
 
 ### Patch Changes
