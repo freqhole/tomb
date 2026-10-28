@@ -38,7 +38,10 @@ permission for those commands (or root). failures appear on the ui and in logs.
 a failed shutdown fades the led back in and displays the error. socket commands run as the menu user.
 this script does not change sudo permissions or install services.
 when the Pi updater is installed, update checks run in the background; installing
-an update requires confirmation and temporarily stops playback.
+an update requires confirmation and temporarily stops playback. the check covers
+the player app and the pi scripts (this menu, helpers, services); installing
+updates the app, then the scripts. when the menu's own files changed, it shows
+the result briefly and restarts itself to load them.
 """
 
 
@@ -48,7 +51,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 import json
 import math
+import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import socket
@@ -140,6 +145,9 @@ IDLE_SECONDS = 30.0
 TOAST_SECONDS = 3.0  # how long a successful send stays up before the menu returns.
 PLAY_STATE_DELAY_SECONDS = 0.4  # let the player apply a toggle before reading it back.
 PROGRESS_LABELS = {"install update": "updating", "recover failed update": "restoring"}
+# curl's progress bar (\r-separated "#### 12.3%" frames) and its unknown-size animation.
+PERCENT_PATTERN = re.compile(r"^[#\s]*(\d{1,3}(?:\.\d+)?)%$")
+PROGRESS_NOISE = frozenset("#=O- ")
 SPINNER = "|/-\\"
 WIFI_IDLE_SECONDS = 600.0
 SLEEP_ANIMATION_SECONDS = 10.0
@@ -415,9 +423,9 @@ class Button:
         return None
 
 
-def read_update_status():
+def read_status(*target):
     result = subprocess.run(
-        (str(PI_UPDATER), "status", *UPDATE_ARGUMENTS), capture_output=True, text=True, check=True, timeout=45,
+        (str(PI_UPDATER), "status", *target), capture_output=True, text=True, check=True, timeout=45,
     )
     status = json.loads(result.stdout)
     if (
@@ -428,6 +436,33 @@ def read_update_status():
     ):
         raise ValueError("invalid update status")
     return status
+
+
+def read_update_status():
+    """app status, with update_available also covering newer pi scripts."""
+    status = read_status(*UPDATE_ARGUMENTS)
+    try:
+        scripts = read_status("scripts")
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        # a failed (or not yet supported) scripts check must not hide app updates.
+        detail = error.stderr if isinstance(error, subprocess.CalledProcessError) else str(error)
+        print(f"pi scripts check failed: {detail}", file=sys.stderr, flush=True)
+        scripts = None
+    status["app_update_available"] = status["update_available"]
+    status["scripts"] = scripts
+    status["update_available"] = status["update_available"] or bool(scripts and scripts["update_available"])
+    return status
+
+
+def update_summary(status):
+    """one oled row describing what install update will change."""
+    scripts = status.get("scripts")
+    scripts_newer = bool(scripts and scripts["update_available"])
+    if status.get("app_update_available", status["update_available"]):
+        return f'{status["installed"]} -> {status["available"]}' + (" +pi" if scripts_newer else "")
+    if scripts_newer:
+        return f'pi scripts {scripts["available"]}'
+    return status["installed"]
 
 
 def read_wifi_status():
@@ -446,8 +481,11 @@ class Menu:
     running_output = ""
     running_state = None
     running_frame = None
+    running_progress = ""
     output_thread = None
     message_until = None
+    restart_pending = False
+    restart_requested = False
 
     def __init__(self, oled, pixel, now, button_pressed=False):
         self.oled = oled
@@ -568,7 +606,7 @@ class Menu:
                      "update? stops playback" if self.confirm_update else "u sure? shut down pi?")
             lines = [title]
             if self.confirm_update and self.update_status:
-                lines.append(f'{self.update_status["installed"]} -> {self.update_status["available"]}')
+                lines.append(update_summary(self.update_status))
             lines += [
                 ("> " if index == self.confirm_selected else "  ") + label
                 for index, label in enumerate((
@@ -594,15 +632,16 @@ class Menu:
                 elapsed = int(time.monotonic() - self.running_started)
                 spinner = SPINNER[elapsed % len(SPINNER)]
                 output = self.running_output or "starting..."
+                percent = f" {self.running_progress}" if self.running_progress else ""
                 lines = [
-                    f"{PROGRESS_LABELS[self.running_label]} {spinner} {elapsed // 60}:{elapsed % 60:02}",
+                    f"{PROGRESS_LABELS[self.running_label]} {spinner} {elapsed // 60}:{elapsed % 60:02}{percent}",
                     output[:columns], output[columns:columns * 2], "do not power off!",
                 ]
             else:
                 lines = ["sending..." if self.running_socket else "running...", self.running_label]
             color = (255, 100, 0)
         elif self.screen == "update-check":
-            lines = ["checking update...", PLAYER, "please wait"]
+            lines = ["checking update...", f"{PLAYER} + pi scripts", "please wait"]
             color = (255, 160, 0)
         else:
             # short-lived confirmations disappear on their own; no back hint needed.
@@ -727,6 +766,8 @@ class Menu:
             command = (sys.executable, str(Path(__file__).resolve()), "--send", command)
         self.running_started = time.monotonic()
         self.running_output = ""
+        self.running_progress = ""
+        self.restart_pending = False
         self.running_state = None
         self.running_frame = None
         self.message_until = None
@@ -740,6 +781,8 @@ class Menu:
                 command, stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE if capture else None,
                 stderr=subprocess.STDOUT if progress else None,
+                # lets freqhole-pi ask this menu to restart itself after a scripts update.
+                env={**os.environ, "FREQHOLE_PI_MENU": "1"} if progress else None,
             )
         except OSError as error:
             print(f"could not start {label}: {error}", flush=True)
@@ -757,20 +800,39 @@ class Menu:
 
     def pump_output(self, stream):
         """tees the child's output to the journal and keeps its latest line for the screen."""
+        pending = b""
         try:
-            for raw in iter(stream.readline, b""):
-                line = raw.decode("utf-8", "replace")
-                sys.stdout.write(line)
-                sys.stdout.flush()
-                text = " ".join(line.split())
-                if text.startswith("state: "):
-                    self.running_state = text[len("state: "):]
-                elif text:
-                    self.running_output = text.lower().encode("ascii", "replace").decode("ascii")
+            # split on \r too: progress bars redraw one line without ever ending it.
+            for chunk in iter(lambda: stream.read1(4096), b""):
+                *lines, pending = re.split(rb"\r\n?|\n", pending + chunk)
+                for raw in lines:
+                    self.handle_output_line(raw)
+            if pending:
+                self.handle_output_line(pending)
         except (OSError, ValueError):
             pass
         finally:
             stream.close()
+
+    def handle_output_line(self, raw):
+        line = raw.decode("utf-8", "replace")
+        text = " ".join(line.split())
+        percent = PERCENT_PATTERN.match(text)
+        if percent:
+            # keep download progress off the journal; the header shows it instead.
+            self.running_progress = f"{min(100, round(float(percent.group(1))))}%"
+            return
+        if text and set(text) <= PROGRESS_NOISE:
+            return
+        sys.stdout.write(line + "\n")
+        sys.stdout.flush()
+        if text.startswith("state: "):
+            self.running_state = text[len("state: "):]
+        elif text == "menu: restart":
+            self.restart_pending = True
+        elif text:
+            self.running_output = text.lower().encode("ascii", "replace").decode("ascii")
+            self.running_progress = ""
 
     def poll_command(self):
         if self.process is None:
@@ -819,8 +881,17 @@ class Menu:
         elif self.running_socket:
             self.message = ("send failed", self.running_label, "is the player running?")
         elif self.running_label in PROGRESS_LABELS and result != 0:
+            self.restart_pending = False
             self.message = (f"{self.running_label.split()[0]} failed", f"exit code: {result}",
                             (self.running_output or "")[:self.oled.width // 6])
+        elif self.running_label in PROGRESS_LABELS:
+            columns = self.oled.width // 6
+            output = self.running_output or ""
+            if self.restart_pending:
+                self.message = ("update done!", "restarting menu...", output[:columns])
+                self.message_until = time.monotonic() + TOAST_SECONDS
+            else:
+                self.message = ("update done!", output[:columns], output[columns:columns * 2])
         else:
             self.message = (title, self.running_label, f"exit code: {result}")
         self.dirty = True
@@ -1055,6 +1126,12 @@ class Menu:
     def tick(self, now, delta, raw_pressed):
         edge = self.button.update(raw_pressed, now)
         self.poll_command()
+        if self.restart_pending and self.process is None and (
+            self.message_until is None or now >= self.message_until
+        ):
+            # main() closes the hardware and re-executes the updated menu.py.
+            self.restart_requested = True
+            return
         self.poll_state(now)
         self.poll_network(now)
         self.poll_wifi(now)
@@ -1142,7 +1219,7 @@ class Menu:
             # never doze off mid-command: an update must stay visible until it ends.
             self.last_activity = now
             if self.screen == "running" and self.running_label in PROGRESS_LABELS:
-                frame = (int(now - self.running_started), self.running_output)
+                frame = (int(now - self.running_started), self.running_output, self.running_progress)
                 if frame != self.running_frame:
                     self.running_frame = frame
                     self.dirty = True
@@ -1260,7 +1337,7 @@ def main():
         motion = EncoderMotion()
         menu = Menu(oled, pixel, time.monotonic(), button_pressed=not button.value)
         print("menu ready: turn to select, press to run. ctrl-c to exit.", flush=True)
-        while not menu.shutdown_requested:
+        while not menu.shutdown_requested and not menu.restart_requested:
             position = encoder.position
             pressed = not button.value
             now = time.monotonic()
@@ -1282,6 +1359,9 @@ def main():
                         oled.poweroff()
         finally:
             i2c.deinit()
+    if menu is not None and menu.restart_requested:
+        print("restarting the menu to load updated scripts.", flush=True)
+        os.execv(sys.executable, [sys.executable, "-u", str(Path(__file__).resolve())])
 
 
 if __name__ == "__main__":

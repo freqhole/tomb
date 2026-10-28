@@ -244,6 +244,7 @@ def package_action(action, version=None):
 
 def restart(transaction):
     if transaction["was_running"]:
+        print("starting charnel...", flush=True)
         user_service("start")
         time.sleep(2)
         if user_service("show", "--property=ActiveState", "--value") != "active":
@@ -265,6 +266,7 @@ def update(installation):
     config = config_path(installation)
     if TRANSACTION.exists() and json.loads(TRANSACTION.read_text())["phase"] not in SAFE_PHASES:
         raise ValueError("unfinished update; run freqhole-pi recover charnel before retrying")
+    print("checking + downloading the latest charnel package...", flush=True)
     staged = package_action("prepare")
     if staged["update_available"] is False:
         print(f"charnel {staged['version']}: no newer stable release (available {staged['available']}).", flush=True)
@@ -283,7 +285,9 @@ def update(installation):
     }
     write_json(TRANSACTION, transaction)
     package_started = False
+    print(f"charnel {staged['previous'] or 'none'} -> {version}", flush=True)
     try:
+        print("stopping charnel...", flush=True)
         user_service("stop")
         require_stopped()
         backup = Path(transaction["backup"])
@@ -296,9 +300,11 @@ def update(installation):
         transaction["package_started"] = True
         write_json(TRANSACTION, transaction)
         package_started = True
+        print(f"installing charnel {version}...", flush=True)
         package_action("install", version)
         transaction["phase"] = "migrating"
         write_json(TRANSACTION, transaction)
+        print("migrating charnel config + data...", flush=True)
         migration = subprocess.run(
             ["/usr/bin/charnel", "--config", str(config), "--json-output", "config", "upgrade"],
             cwd=Path.home(), capture_output=True, text=True,
@@ -308,6 +314,7 @@ def update(installation):
         migration.check_returncode()
         result = cli_result(migration.stdout)
         validate_migrations(result, version)
+        print("checking control socket + player pairing...", flush=True)
         prepare_socket(installation)
         prepare_pairing(installation)
         transaction["phase"] = "ready-to-start"

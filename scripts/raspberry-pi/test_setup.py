@@ -424,8 +424,19 @@ elif tool == "curl":
     if os.environ.get("MOCK_OFFLINE"):
         print("network unavailable", file=sys.stderr)
         sys.exit(22)
-    source = "release.json" if "api.github.com" in " ".join(args) else "payload"
-    shutil.copyfile(root / source, args[args.index("-o") + 1])
+    url = next(arg for arg in args if arg.startswith("https://"))
+    output = args[args.index("-o") + 1]
+    if "/commits/" in url:
+        pathlib.Path(output).write_text(json.dumps({{"sha": "a" * 40}}))
+    elif "/contents/scripts" in url:
+        pathlib.Path(output).write_text(json.dumps([
+            {{"name": "raspberry-pi", "type": "dir", "sha": os.environ.get("MOCK_TREE", "b" * 40)}},
+        ]))
+    elif "/scripts/raspberry-pi/" in url:
+        shutil.copyfile(pathlib.Path(os.environ["MOCK_SCRIPTS"]) / url.rsplit("/", 1)[1], output)
+    else:
+        source = "release.json" if "api.github.com" in url else "payload"
+        shutil.copyfile(root / source, output)
 elif tool == "sha256sum":
     if args == ["-c", "-"]:
         digest, filename = sys.stdin.read().strip().split("  ", 1)
@@ -440,6 +451,8 @@ elif tool == "systemctl":
     else:
         sys.exit(int(os.environ.get("MOCK_HEALTH_FAILURE", "0")))
 elif tool == "sudo":
+    if args == ["-n", "true"]:
+        sys.exit(1)
     if args[-1] == "start" and os.environ.get("MOCK_START_FAILURE"):
         sys.exit(1)
 elif tool == "sleep":
@@ -559,7 +572,9 @@ class ReleaseTests(unittest.TestCase):
             path.write_text(MOCK_TOOL.format(python=sys.executable))
             path.chmod(0o755)
         self.env = dict(os.environ, HOME=str(self.home), MOCK_ROOT=str(self.directory),
+                        MOCK_SCRIPTS=str(HERE),
                         PATH=str(self.tools) + os.pathsep + os.environ["PATH"])
+        self.env.pop("FREQHOLE_PI_MENU", None)
         self.payload = b"new rathole binary"
         (self.directory / "payload").write_bytes(self.payload)
         self.release = {
@@ -634,6 +649,91 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.binary.read_bytes(), b"old binary")
         self.assertFalse(any(call[0] == "sudo" for call in self.calls()))
+
+    def run_scripts(self, action, **env):
+        result = subprocess.run(
+            ["bash", str(HERE / "freqhole-pi"), action, "scripts"], env={**self.env, **env},
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertFalse(list(self.root.glob("scripts-update.*")), result.stderr)
+        return result
+
+    def script_downloads(self):
+        return [call for call in self.calls() if call[0] == "curl" and "/scripts/raspberry-pi/" in call[-3]]
+
+    def test_scripts_status_compares_the_recorded_tree(self):
+        for record, expected in ((None, ("none", True)),
+                                 ({"ref": "main", "tree": "b" * 40}, ("bbbbbbb", False)),
+                                 ({"ref": "main", "tree": "c" * 40}, ("ccccccc", True)),
+                                 ({"ref": "main", "tree": "local"}, ("local", False))):
+            with self.subTest(record=record):
+                if record is not None:
+                    (self.root / "scripts.json").write_text(json.dumps(record))
+                result = self.run_scripts("status")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {
+                    "installed": expected[0], "available": "bbbbbbb", "update_available": expected[1],
+                })
+        self.assertFalse(self.script_downloads())
+
+    def test_scripts_update_installs_user_files_and_records_tree(self):
+        (self.root / "menu.py").write_text("old menu")
+        (self.root / "scripts.json").write_text(json.dumps({"ref": "main", "tree": "c" * 40}))
+        result = self.run_scripts("update", FREQHOLE_PI_MENU="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.root / "menu.py").read_text(), (HERE / "menu.py").read_text())
+        updater = self.home / ".local/bin/freqhole-pi"
+        self.assertEqual(updater.read_text(), (HERE / "freqhole-pi").read_text())
+        self.assertEqual(updater.stat().st_mode & 0o777, 0o755)
+        self.assertEqual(json.loads((self.root / "scripts.json").read_text()),
+                         {"ref": "main", "revision": "a" * 40, "tree": "b" * 40})
+        lines = result.stdout.splitlines()
+        self.assertIn("downloading menu.py (1/18)...", lines)
+        self.assertIn("menu: restart", lines)
+        self.assertEqual(lines[-1], "pi scripts updated to bbbbbbb.")
+        self.assertFalse(any(call[0] == "sudo" for call in self.calls()))
+        # a second run is a no-op that downloads nothing.
+        (self.directory / "calls").unlink()
+        result = self.run_scripts("update", FREQHOLE_PI_MENU="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("pi scripts are up to date.", result.stdout)
+        self.assertFalse(self.script_downloads())
+
+    def test_unchanged_menu_files_do_not_restart_the_menu(self):
+        for file in ("menu.py", "storage_menu.py", "configure.py", "requirements.txt"):
+            shutil.copyfile(HERE / file, self.root / file)
+        result = self.run_scripts("update", FREQHOLE_PI_MENU="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("menu: restart", result.stdout.splitlines())
+
+    def test_unparseable_scripts_download_installs_nothing(self):
+        scripts = self.directory / "broken"
+        shutil.copytree(HERE, scripts, ignore=shutil.ignore_patterns("__pycache__"))
+        (scripts / "charnel.py").write_text("def broken(:\n")
+        (self.root / "menu.py").write_text("old menu")
+        result = self.run_scripts("update", MOCK_SCRIPTS=str(scripts))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("charnel.py does not parse", result.stderr)
+        self.assertEqual((self.root / "menu.py").read_text(), "old menu")
+        self.assertFalse((self.root / "scripts.json").exists())
+
+    def test_app_update_tags_the_scripts_update_along(self):
+        self.installed()
+        result = self.run_updater()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.binary.read_bytes(), self.payload)
+        self.assertEqual(json.loads((self.root / "scripts.json").read_text())["tree"], "b" * 40)
+        urls = [call[-3] for call in self.calls() if call[0] == "curl"]
+        self.assertLess(urls.index(next(url for url in urls if "releases/download" in url)),
+                        urls.index(next(url for url in urls if "/commits/" in url)))
+
+    def test_failed_app_update_skips_the_scripts_update(self):
+        self.installed()
+        self.release["assets"][0]["digest"] = "sha256:" + "0" * 64
+        result = self.run_updater()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.root / "scripts.json").exists())
+        self.assertFalse(any("/commits/" in " ".join(call) for call in self.calls()))
 
     def test_bad_digest_preserves_running_install(self):
         self.installed()
@@ -2187,6 +2287,67 @@ class MenuFeedbackTests(unittest.TestCase):
         self.assertEqual(screen.running_output, "reading package lists...")
         self.assertEqual(screen.running_state, "paused")
         self.assertIn("Reading package lists", output.getvalue())
+
+    def test_pump_output_turns_progress_bars_into_a_percentage(self):
+        screen = menu.Menu.__new__(menu.Menu)
+        stream = io.BytesIO(
+            b"downloading rathole 1.2.3...\n\r######     12.3%\r##########    45.6%"
+            b"\r#=#=#\r-=O=-\nmenu: restart\n",
+        )
+        with patch("sys.stdout", new_callable=io.StringIO) as output:
+            screen.pump_output(stream)
+        self.assertEqual(screen.running_output, "downloading rathole 1.2.3...")
+        self.assertEqual(screen.running_progress, "46%")
+        self.assertTrue(screen.restart_pending)
+        self.assertNotIn("%", output.getvalue())
+        screen.handle_output_line(b"verifying rathole checksum...")
+        self.assertEqual(screen.running_progress, "")
+
+    def test_update_status_merges_pi_scripts(self):
+        app = {"installed": "1.0.0", "available": "1.0.0", "update_available": False}
+        scripts = {"installed": "aaaaaaa", "available": "bbbbbbb", "update_available": True}
+        replies = [Mock(stdout=json.dumps(app)), Mock(stdout=json.dumps(scripts))]
+        with patch.object(menu.subprocess, "run", side_effect=replies) as run:
+            status = menu.read_update_status()
+        self.assertEqual(run.call_args_list[1].args[0][-2:], ("status", "scripts"))
+        self.assertTrue(status["update_available"])
+        self.assertEqual(menu.update_summary(status), "pi scripts bbbbbbb")
+        status["app_update_available"] = True
+        status["available"] = "1.0.1"
+        self.assertEqual(menu.update_summary(status), "1.0.0 -> 1.0.1 +pi")
+        failure = subprocess.CalledProcessError(2, "freqhole-pi", stderr="usage")
+        with patch.object(menu.subprocess, "run", side_effect=[Mock(stdout=json.dumps(app)), failure]), \
+             patch("sys.stderr", new_callable=io.StringIO):
+            status = menu.read_update_status()
+        self.assertFalse(status["update_available"])
+        self.assertEqual(menu.update_summary(status), "1.0.0")
+
+    def test_scripts_update_restarts_the_menu_after_a_toast(self):
+        screen = self.live_menu()
+        screen.process = Mock()
+        screen.process.poll.return_value = 0
+        screen.screen = "running"
+        screen.running_label = "install update"
+        screen.running_output = "pi scripts updated to bbbbbbb."
+        screen.restart_pending = True
+        with patch.object(menu.time, "monotonic", return_value=100.0):
+            screen.tick(100.0, 0, False)
+        self.assertEqual(screen.message[:2], ("update done!", "restarting menu..."))
+        self.assertFalse(screen.restart_requested)
+        screen.tick(100.0 + menu.TOAST_SECONDS, 0, False)
+        self.assertTrue(screen.restart_requested)
+
+    def test_finished_update_shows_its_last_line(self):
+        screen = self.live_menu()
+        screen.process = Mock()
+        screen.process.poll.return_value = 0
+        screen.screen = "running"
+        screen.running_label = "install update"
+        screen.running_output = "pi scripts updated to bbbbbbb."
+        screen.tick(1.0, 0, False)
+        self.assertEqual(screen.screen, "success")
+        self.assertEqual(screen.message, ("update done!", "pi scripts updated to", " bbbbbbb."))
+        self.assertFalse(screen.restart_requested)
 
 
 class UninstallTests(unittest.TestCase):

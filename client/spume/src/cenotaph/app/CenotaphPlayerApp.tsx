@@ -48,6 +48,7 @@ import { pendingQueuePreviews } from "../adapters/charnelPlaybackAdapter";
 
 import { appState, getLocalLibraryName } from "../../app/services/storage/db";
 import {
+  enableRemotePlaybackByDefault,
   forceShowQr,
   remotePlaybackEnabled,
   setPlayerRouteMounted,
@@ -60,6 +61,7 @@ import { usePlayerPointerActivity } from "./playerPointerActivity";
 import "./playerCursor.css";
 import { renderPlayerQr } from "./renderPairingQr";
 import { isCharnelMode } from "../../app/services/charnel/mode";
+import { getConfig } from "../../app/services/charnel/commands";
 import { useChromeSuppression } from "../../app/shell/chromeSuppression";
 import {
   currentTime as realCurrentTime,
@@ -280,7 +282,11 @@ export function CenotaphPlayerApp() {
     void (async () => {
       try {
         if (isCharnelMode()) {
-          const enabled = await getCharnelPlayerPairingEnabled();
+          const [enabled, config] = await Promise.all([
+            getCharnelPlayerPairingEnabled(),
+            getConfig(),
+          ]);
+          if (enabled && config?.initial_view === "player") enableRemotePlaybackByDefault();
           setPairingConfigEnabled(enabled);
           if (!enabled) return;
           await loadCharnelPairingUi();
@@ -346,7 +352,10 @@ export function CenotaphPlayerApp() {
   // while items were still pending, even though there was really
   // something (about) to play.
   const showPairingScreen = () => {
-    if (isCharnelMode() && pairingConfigEnabled() === false) return false;
+    // still checking (charnel only): rendering now would flash the "not
+    // accepting connections" fallback before a dedicated player's default
+    // gets applied.
+    if (isCharnelMode() && pairingConfigEnabled() !== true) return false;
     return (
       forceShowQr() ||
       ((appState()?.queue.length ?? 0) === 0 &&
@@ -618,7 +627,7 @@ export function CenotaphPlayerApp() {
           fallback={
             <div class="flex max-w-5xl flex-col items-center gap-16">
               <p class="text-[clamp(1.5rem,5vmin,3rem)] text-neutral-400">
-                this device isn't accepting player connections yet.
+                this device isn't accepting player connections.
               </p>
               <button
                 type="button"
