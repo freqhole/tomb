@@ -1493,6 +1493,14 @@ impl Broadcaster {
         // and eventually stalling, even though delivery stays perfectly
         // on the server's own schedule the whole time.
         let mut cumulative_media_ms: u64 = 0;
+        // media time the backdated `pace_origin` releases immediately (the
+        // warm-up chunks plus the steady-state lead) - chunks starting
+        // inside it are the intended burst, not late.
+        let startup_burst_ms = warmup_chunks_ready * frag_ms + STEADY_STATE_LEAD_MS;
+        // a short fragment is held here until the next one arrives: the
+        // last fragment of every track is a short remainder, which is
+        // expected and not worth a warning.
+        let mut pending_short_fragment: Option<(u32, u64)> = None;
         // wall-clock instant the previous chunk was actually sent (after
         // any pacing wait) - lets the per-chunk diagnostic log below
         // report the REAL measured gap between sends, directly comparable
@@ -1630,7 +1638,15 @@ impl Broadcaster {
             };
 
             match next {
-                Ok(None) => break None,
+                Ok(None) => {
+                    if let Some((seq, ms)) = pending_short_fragment.take() {
+                        debug!(
+                            "[radio-pacer] station {} seq={seq} final fragment of '{}' is {ms}ms (track tail)",
+                            self.station_id, track.title
+                        );
+                    }
+                    break None;
+                }
                 Ok(Some(chunk)) => {
                     // this chunk's real media duration, captured before
                     // `chunk.bytes` moves into the outgoing `Arc<Chunk>`
@@ -1644,26 +1660,25 @@ impl Broadcaster {
                         None => frag_ms,
                     };
                     // a fragment's real duration landing FAR off nominal
-                    // (not the routine +/-10ms AAC-frame-count rounding
-                    // seen on almost every fragment) is itself worth
-                    // flagging loudly - it directly causes a matching
-                    // pacing jolt (this chunk's own release, and the
-                    // NEXT chunk's target, both shift by the same
-                    // amount), which is a concrete, measurable stall
-                    // trigger distinct from the routine small quantization
-                    // drift the cumulative-duration pacing above already
-                    // absorbs smoothly.
-                    let deviation_ms = this_chunk_ms as i64 - frag_ms as i64;
-                    if deviation_ms.unsigned_abs() > frag_ms / 5 {
-                        warn!(
-                            "[radio-pacer] station {} seq={} anomalous fragment duration: \
-                             this_chunk_ms={this_chunk_ms} vs nominal frag_ms={frag_ms} \
-                             (deviation={deviation_ms}ms) - this alone shifts this chunk's \
-                             own release and every later chunk's target by the same amount",
-                            self.station_id,
-                            self.next_seq.load(Ordering::Relaxed)
-                        );
+                    // (not the routine +/-10ms AAC-frame-count rounding)
+                    // mid-track is worth flagging: chunks carrying less
+                    // media shrink the chunk-sized ring's real cushion. a
+                    // short one is only reported once a later fragment
+                    // proves it wasn't the track's natural tail.
+                    if let Some((seq, ms)) = pending_short_fragment.take() {
+                        warn_anomalous_fragment(&self.station_id, seq, ms, frag_ms);
                     }
+                    let chunk_seq = self.next_seq.load(Ordering::Relaxed);
+                    match classify_fragment(this_chunk_ms, frag_ms) {
+                        FragmentLength::Nominal => {}
+                        FragmentLength::Short => {
+                            pending_short_fragment = Some((chunk_seq, this_chunk_ms));
+                        }
+                        FragmentLength::Long => {
+                            warn_anomalous_fragment(&self.station_id, chunk_seq, this_chunk_ms, frag_ms);
+                        }
+                    }
+                    let in_startup_burst = cumulative_media_ms < startup_burst_ms;
                     // pace: wait until this chunk's audio "starts" before
                     // pushing it. the buffered encoder has likely already
                     // produced the next several chunks; that backlog is
@@ -1706,9 +1721,9 @@ impl Broadcaster {
                         // this should be rare in a healthy setup, so
                         // volume itself is the diagnostic signal.
                         //
-                        // chunks still inside the warm-up burst region
-                        // (`media_chunks_emitted < warmup_chunks_ready`)
-                        // are EXPECTED to have `target` in the past - that
+                        // chunks still inside the startup burst (the
+                        // warm-up chunks plus `STEADY_STATE_LEAD_MS`, see
+                        // `startup_burst_ms`) are EXPECTED to have `target` in the past - that
                         // IS the burst (see `pace_origin`'s doc comment
                         // above) - so `target > now` is already false for
                         // literally every one of them by design. checking
@@ -1717,7 +1732,7 @@ impl Broadcaster {
                         // how deep the intentional burst was; skip it
                         // entirely rather than logging N spurious
                         // "encoder running Ns behind" warnings per track.
-                        if media_chunks_emitted >= warmup_chunks_ready {
+                        if !in_startup_burst {
                             let behind = now.duration_since(target);
                             if behind >= Duration::from_millis(frag_ms) {
                                 encoder_behind_schedule_events += 1;
@@ -1759,7 +1774,7 @@ impl Broadcaster {
                     let woke_at = Instant::now();
                     let scheduling_jitter_ms =
                         woke_at.saturating_duration_since(target).as_millis();
-                    if media_chunks_emitted >= warmup_chunks_ready && scheduling_jitter_ms > 50 {
+                    if !in_startup_burst && scheduling_jitter_ms > 50 {
                         warn!(
                             "[radio-pacer] station {} seq-to-be={} woke up {scheduling_jitter_ms}ms \
                              later than its pacing target - the tokio runtime didn't poll this \
@@ -1897,6 +1912,37 @@ impl Broadcaster {
         }
         Ok(())
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum FragmentLength {
+    Nominal,
+    Short,
+    Long,
+}
+
+/// routine +/-10ms aac-frame rounding is nominal; more than a fifth of
+/// `frag_ms` off either way is worth flagging.
+fn classify_fragment(this_chunk_ms: u64, frag_ms: u64) -> FragmentLength {
+    let deviation_ms = this_chunk_ms as i64 - frag_ms as i64;
+    if deviation_ms.unsigned_abs() <= frag_ms / 5 {
+        FragmentLength::Nominal
+    } else if deviation_ms < 0 {
+        FragmentLength::Short
+    } else {
+        FragmentLength::Long
+    }
+}
+
+/// a mid-track fragment far off nominal shrinks (or stretches) how much
+/// media each chunk carries, so the chunk-sized ring holds less cushion.
+fn warn_anomalous_fragment(station_id: &str, seq: u32, this_chunk_ms: u64, frag_ms: u64) {
+    let deviation_ms = this_chunk_ms as i64 - frag_ms as i64;
+    warn!(
+        "[radio-pacer] station {station_id} seq={seq} anomalous mid-track fragment duration: \
+         this_chunk_ms={this_chunk_ms} vs nominal frag_ms={frag_ms} (deviation={deviation_ms}ms) - \
+         usually an extra source keyframe cutting an early fragment"
+    );
 }
 
 fn unix_now_ms() -> i64 {
@@ -2260,6 +2306,17 @@ pub async fn stop_all() -> GrimoireResult<()> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn fragment_classification_flags_only_far_off_lengths() {
+        assert_eq!(classify_fragment(3_000, 3_000), FragmentLength::Nominal);
+        assert_eq!(classify_fragment(2_990, 3_000), FragmentLength::Nominal);
+        assert_eq!(classify_fragment(3_600, 3_000), FragmentLength::Nominal);
+        // a 651ms track tail (648.6s episode) is short, held until a later
+        // fragment shows it was mid-track.
+        assert_eq!(classify_fragment(651, 3_000), FragmentLength::Short);
+        assert_eq!(classify_fragment(6_000, 3_000), FragmentLength::Long);
+    }
     use super::*;
     use crate::radio::playlist::RadioItemKind;
     use bytes::Bytes;
