@@ -73,6 +73,170 @@ uid="$(id -u)"
 [[ "$user" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "unsupported account name for service setup."
 root="$HOME/.local/share/freqhole-pi"
 source_dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+uninstall() {
+    # every step is independent and tolerant: a broken or hand-edited install
+    # still gets as much cleanup as is safe, and unmanaged files are skipped.
+    local warnings=0 unit path file helper profile boot_config data config_dir config_home answer
+    warn() { echo "warning: $*" >&2; warnings=$((warnings + 1)); }
+    step() { local label="$1"; shift; "$@" || warn "$label failed; continuing."; }
+    managed() { [ -f "$1" ] && grep -qx '# managed by freqhole-pi setup' "$1"; }
+    remove_redundant_backup() {
+        local backup="$1.before-freqhole-pi"
+        if sudo test -f "$backup" && sudo cmp -s "$1" "$backup"; then sudo rm -f -- "$backup"; fi
+    }
+    helper_script() {
+        local name="$1"
+        if [ -f "$source_dir/$name" ]; then echo "$source_dir/$name"
+        elif [ -f "$root/$name" ]; then echo "$root/$name"
+        fi
+    }
+    config_home="$HOME/.config"
+    if [ -n "${XDG_CONFIG_HOME:-}" ]; then config_home="$XDG_CONFIG_HOME"; fi
+    data="${XDG_DATA_HOME:-$HOME/.local/share}/net.freqhole.charnel"
+    config_dir="$config_home/net.freqhole.charnel"
+    if [ -f "$root/installation.json" ] && command -v jq >/dev/null; then
+        data="$(jq -er '.charnel_data // empty' "$root/installation.json" 2>/dev/null || echo "$data")"
+        config_dir="$(jq -er '.charnel_config // empty' "$root/installation.json" 2>/dev/null || echo "$config_dir")"
+        config_home="${config_dir%/*}"
+    fi
+    boot_config=/boot/firmware/config.txt
+    if [ ! -f "$boot_config" ]; then boot_config=/boot/config.txt; fi
+
+    echo "uninstall removes freqhole-pi services, helpers, boot config blocks, sudo rules and shell PATH blocks."
+    echo "you'll be asked separately before removing the charnel package or any library data."
+    ask "uninstall freqhole-pi?" || exit 0
+    if [ -f "$root/charnel-transaction.json" ] && command -v jq >/dev/null &&
+        ! jq -e '.phase == "complete" or .phase == "recovered" or .phase == "failed-before-install"' \
+            "$root/charnel-transaction.json" >/dev/null 2>&1; then
+        echo "an unfinished charnel update was found; its backup is kept under $root/backups."
+        ask "continue uninstalling anyway?" || exit 0
+    fi
+    sudo -v || die "uninstall needs sudo."
+
+    echo "stopping + removing services..."
+    path="$config_home/systemd/user/charnel.service"
+    if managed "$path"; then
+        step "stopping charnel" systemctl --user stop charnel.service
+        step "removing $path" rm -f -- "$path"
+        step "reloading user units" systemctl --user daemon-reload
+    elif [ -f "$path" ]; then
+        warn "$path is not managed by setup; left in place."
+    fi
+    path="$config_home/autostart/freqhole-pi-charnel.desktop"
+    if managed "$path"; then step "removing $path" rm -f -- "$path"; fi
+    for unit in rathole-ctrl rathole freqhole-wifi; do
+        path="/etc/systemd/system/$unit.service"
+        if managed "$path"; then
+            # stopping freqhole-wifi runs its recover hook, restoring normal Wi-Fi.
+            step "stopping $unit" sudo systemctl disable --now "$unit.service"
+            step "removing $path" sudo rm -f -- "$path"
+        elif [ -f "$path" ]; then
+            warn "$path is not managed by setup; left in place."
+        fi
+    done
+    step "reloading system units" sudo systemctl daemon-reload
+
+    echo "removing helpers..."
+    step "removing libexec helpers" sudo rm -f -- /usr/local/libexec/freqhole-pi-control \
+        /usr/local/libexec/freqhole-pi-packages /usr/local/libexec/freqhole-pi-wifi-recover
+    if [ -d /usr/local/share/freqhole-pi/wifi-connect ]; then
+        step "removing wifi-connect" sudo rm -f -- /usr/local/bin/wifi-connect
+    fi
+    step "removing shared files" sudo rm -rf -- /usr/local/share/freqhole-pi /var/cache/freqhole-pi
+    step "removing Wi-Fi portal credentials" sudo rm -rf -- /etc/freqhole-pi
+    for file in freqhole-pi charnel-session freqhole-wifi; do
+        step "removing ~/.local/bin/$file" rm -f -- "$HOME/.local/bin/$file"
+    done
+    if [ -f "$HOME/.local/bin/rathole" ] && [ -f "$root/installed.json" ] && command -v jq >/dev/null; then
+        if [ "$(sha256sum "$HOME/.local/bin/rathole" | cut -d' ' -f1)" = "$(jq -r '.sha256' "$root/installed.json")" ]; then
+            step "removing rathole" rm -f -- "$HOME/.local/bin/rathole"
+        else
+            warn "$HOME/.local/bin/rathole differs from its install record; left in place."
+        fi
+    fi
+    for path in /etc/apt/apt.conf.d/51freqhole-pi-unattended-upgrades /etc/apt/apt.conf.d/52freqhole-pi-auto-upgrades; do
+        if [ -f "$path" ] && grep -qx '// managed by freqhole-pi setup' "$path"; then
+            step "removing $path" sudo rm -f -- "$path"
+        fi
+    done
+
+    echo "restoring system config..."
+    helper="$(helper_script configure.py)"
+    if [ -z "$helper" ]; then
+        warn "configure.py is missing; remove '# freqhole-pi' blocks from $boot_config and the PATH block from shell profiles by hand."
+    else
+        if [ -f "$boot_config" ] && grep -q '^# freqhole-pi .* begin$' "$boot_config"; then
+            step "cleaning $boot_config" sudo python3 "$helper" boot-cleanup "$boot_config"
+            remove_redundant_backup "$boot_config"
+        fi
+        for profile in "$HOME/.profile" "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.bashrc"; do
+            if [ -f "$profile" ] && grep -qx '# freqhole-pi user commands' "$profile"; then
+                step "cleaning $profile" python3 "$helper" unpath "$profile"
+                remove_redundant_backup "$profile"
+            fi
+        done
+        if [ -f /etc/default/console-setup.before-freqhole-pi ]; then
+            step "restoring the console font" sudo python3 "$helper" console-restore /etc/default/console-setup
+            remove_redundant_backup /etc/default/console-setup
+        fi
+    fi
+    if ls /usr/share/plymouth/themes/*/splash.png.before-freqhole-pi >/dev/null 2>&1; then
+        helper="$(helper_script splash.py)"
+        if [ -n "$helper" ]; then
+            step "restoring the boot splash" sudo python3 "$helper" --restore
+        else
+            warn "splash.py is missing; restore /usr/share/plymouth/themes/*/splash.png.before-freqhole-pi by hand."
+        fi
+    fi
+    # last: the sudo rules above are no longer needed once helpers are gone.
+    step "removing sudo rules" sudo rm -f -- "/etc/sudoers.d/freqhole-pi-$user"
+
+    if [ "$(dpkg-query -W -f='${Status}' freqhole 2>/dev/null || true)" = "install ok installed" ] &&
+        ask "remove the charnel (freqhole) package? library data is kept unless you remove it next."; then
+        step "removing the freqhole package" sudo apt-get -o DPkg::Lock::Timeout=600 remove -y freqhole
+    fi
+    if [ -d "$data" ] || [ -d "$config_dir" ]; then
+        echo
+        echo "charnel library data + settings: $data $config_dir"
+        echo
+        read -r -p "type 'delete' to permanently remove them (anything else keeps them): " answer || answer=""
+        if [ "$answer" = delete ]; then
+            step "removing charnel data" rm -rf -- "$data" "$config_dir"
+        fi
+    fi
+    if [ -d "$root" ]; then
+        echo
+        echo "$root holds rathole's config/library data and charnel update backups."
+        echo
+        read -r -p "type 'delete' to permanently remove it (anything else keeps only that data): " answer || answer=""
+        if [ "$answer" = delete ]; then
+            step "removing $root" rm -rf -- "$root"
+        else
+            for file in menu.py storage_menu.py requirements.txt configure.py packages.py charnel.py splash.py \
+                font5x8.bin font-LICENSE tmux.conf menu.json installation.json wifi.json installed.json update.lock; do
+                rm -f -- "${root:?}/$file"
+            done
+            step "removing the OLED menu venv" rm -rf -- "${root:?}/.venv"
+        fi
+    fi
+
+    echo
+    echo "group memberships (i2c/gpio/audio/video/render), installed apt packages and i2c stay as they are."
+    if [ "$warnings" -gt 0 ]; then
+        echo "uninstall finished with $warnings warning(s); review them above."
+    else
+        echo "uninstall finished."
+    fi
+    echo "reboot to apply the boot config changes (power LED, fan, i2c speed)."
+}
+case "${1:-}" in
+    uninstall|--uninstall)
+        uninstall
+        exit 0
+        ;;
+    "") ;;
+    *) die "usage: setup.sh [uninstall]" ;;
+esac
 charnel=false
 echo "install/configure: 1) charnel (desktop GUI)  2) rathole (terminal ui)"
 echo
@@ -122,6 +286,20 @@ if ask "install manual Wi-Fi setup (captive wifi portal)?"; then
     [ "$(nmcli -g WIFI-PROPERTIES.AP device show "$interface")" = yes ] || die "selected interface does not support AP mode."
     echo "the portal is started manually; it can interrupt Wi-Fi/SSH and playback."
 fi
+fan_gpio=""
+if ask "configure a PWM fan with temperature-based speed control?"; then
+    echo
+    read -r -p "fan GPIO pin [14]: " fan_gpio
+    fan_gpio="${fan_gpio:-14}"
+    if ! [[ "$fan_gpio" =~ ^[0-9]{1,2}$ ]] || [ "$fan_gpio" -lt 2 ] || [ "$fan_gpio" -gt 27 ]; then
+        die "fan GPIO must be a number between 2 and 27."
+    fi
+    if "$hardware" && [[ "$fan_gpio" = 2 || "$fan_gpio" = 3 ]]; then
+        die "GPIO 2/3 carry the OLED/encoder i2c bus; choose another fan pin."
+    fi
+fi
+unattended=false
+if ask "install + enable automatic system updates (unattended-upgrades)?"; then unattended=true; fi
 autostart=false
 if [ "$mode" != 3 ] && ask "start rathole automatically at boot?"; then autostart=true; fi
 charnel_boot=false
@@ -140,6 +318,13 @@ if "$charnel"; then menu_player=charnel; fi
 if "$hardware"; then
     echo "hardware setup enables i2c at 400 kHz and the menu sets the mixer to 100%."
     echo "select enable control socket in the app's first-run wizard for OLED playback controls."
+fi
+echo "the red power LED is turned off while running, so a dark LED means the Pi has shut down."
+if [ -n "$fan_gpio" ]; then
+    echo "fan: pwm-gpio-fan on GPIO $fan_gpio (speeds up at 55/60/67.5/75 C); replaces any raspi-config gpio-fan line."
+fi
+if "$unattended"; then
+    echo "unattended-upgrades installs Debian + Raspberry Pi OS updates daily; it never reboots on its own."
 fi
 echo "install location: $root; config/data are preserved on reruns."
 echo "updates are explicitly requested; desktop autologin and taskbar settings are not changed."
@@ -216,6 +401,7 @@ if [ "$mode" != 3 ]; then packages+=(mpv ffmpeg); fi
 if [ "$mode" = 1 ]; then packages+=(console-setup console-data kbd); fi
 if [ "$mode" = 2 ]; then packages+=(tmux); fi
 if "$wifi"; then packages+=(dnsmasq-base); fi
+if "$unattended"; then packages+=(unattended-upgrades); fi
 if "$hardware"; then
     packages+=(python3-venv python3-pip python3-dev build-essential swig
         python3-lgpio liblgpio-dev python3-libgpiod libgpiod-dev i2c-tools iproute2 iw)
@@ -243,7 +429,8 @@ files=(menu.py storage_menu.py requirements.txt configure.py packages.py charnel
 cleanup() {
     local file
     for file in "${files[@]}" revision.json splash.png font5x8.bin font-LICENSE sudoers \
-        freqhole-config.toml rathole-rendered.service rathole-ctrl-rendered.service tmux-rendered.conf wifi.json menu.json installation.json; do
+        freqhole-config.toml rathole-rendered.service rathole-ctrl-rendered.service tmux-rendered.conf wifi.json menu.json installation.json \
+        unattended-origins unattended-periodic; do
         rm -f -- "$work/$file"
     done
     rmdir -- "$work"
@@ -282,7 +469,7 @@ if "$splash"; then
     [ -f "$image" ] || die "missing splash image: $image"
     sudo python3 "$source_dir/splash.py" "$image"
 fi
-for file in menu.py storage_menu.py requirements.txt configure.py packages.py charnel.py; do
+for file in menu.py storage_menu.py requirements.txt configure.py packages.py charnel.py splash.py; do
     install -m 644 "$source_dir/$file" "$root/$file"
 done
 python3 "$root/configure.py" menu "$root/menu.json" \
@@ -290,12 +477,21 @@ python3 "$root/configure.py" menu "$root/menu.json" \
 configured_data="$data_home/net.freqhole.charnel"
 configured_config="$config_home/net.freqhole.charnel"
 if ! "$charnel" && [ -f "$root/installation.json" ]; then
-    configured_data="$(jq -er '.charnel_data' "$root/installation.json")"
-    configured_config="$(jq -er '.charnel_config' "$root/installation.json")"
+    configured_data="$(jq -er '.charnel_data // empty' "$root/installation.json")"
+    configured_config="$(jq -er '.charnel_config // empty' "$root/installation.json")"
+fi
+# a charnel player install turns on player pairing once its first-run wizard has
+# written a config (see charnel.py prepare_pairing); other reruns keep the state.
+pairing=null
+if "$charnel" && "$player"; then
+    pairing='"pending"'
+elif [ -f "$root/installation.json" ]; then
+    pairing="$(jq -c '.player_pairing // null' "$root/installation.json")"
 fi
 jq -n --arg data "$configured_data" --arg config "$configured_config" \
-    --arg player "$menu_player" --argjson hardware "$hardware" \
-    '{charnel_data: $data, charnel_config: $config, menu_player: $player, hardware: $hardware}' > "$work/installation.json"
+    --arg player "$menu_player" --argjson hardware "$hardware" --argjson pairing "$pairing" \
+    '{charnel_data: $data, charnel_config: $config, menu_player: $player, hardware: $hardware}
+     + (if $pairing == null then {} else {player_pairing: $pairing} end)' > "$work/installation.json"
 install -m 600 "$work/installation.json" "$root/installation.json"
 install -m 755 "$source_dir/freqhole-pi" "$HOME/.local/bin/freqhole-pi"
 login_profile="$HOME/.profile"
@@ -343,6 +539,31 @@ if [ "$mode" != 3 ]; then
     sudo install -o root -g root -m 644 "$work/rathole-rendered.service" /etc/systemd/system/rathole.service
 fi
 
+boot_config=/boot/firmware/config.txt
+if [ ! -f "$boot_config" ]; then boot_config=/boot/config.txt; fi
+sudo python3 "$root/configure.py" power-led "$boot_config"
+if [ -n "$fan_gpio" ]; then
+    sudo python3 "$root/configure.py" fan "$boot_config" --gpio "$fan_gpio"
+    if grep -Eq '^[[:space:]]*enable_uart=1' "$boot_config" && [[ "$fan_gpio" = 14 || "$fan_gpio" = 15 ]]; then
+        echo "warning: the serial console (enable_uart=1) also uses GPIO 14/15; disable it in raspi-config for the fan." >&2
+    fi
+fi
+if "$unattended"; then
+    # ${distro_codename} is expanded by unattended-upgrades, not the shell.
+    # shellcheck disable=SC2016
+    printf '%s\n' '// managed by freqhole-pi setup' \
+        'Unattended-Upgrade::Origins-Pattern {' \
+        '    "origin=Raspberry Pi Foundation,codename=${distro_codename},label=Raspberry Pi Foundation";' \
+        '    "origin=Raspbian,codename=${distro_codename},label=Raspbian";' \
+        '};' > "$work/unattended-origins"
+    printf '%s\n' '// managed by freqhole-pi setup' \
+        'APT::Periodic::Update-Package-Lists "1";' \
+        'APT::Periodic::Unattended-Upgrade "1";' \
+        'APT::Periodic::AutocleanInterval "7";' > "$work/unattended-periodic"
+    sudo install -o root -g root -m 644 "$work/unattended-origins" /etc/apt/apt.conf.d/51freqhole-pi-unattended-upgrades
+    sudo install -o root -g root -m 644 "$work/unattended-periodic" /etc/apt/apt.conf.d/52freqhole-pi-auto-upgrades
+    sudo systemctl enable --now apt-daily.timer apt-daily-upgrade.timer
+fi
 if "$hardware"; then
     font_ref=6f6c89891de7d96c43028c4fdff5765763dffe16
     font_base="https://raw.githubusercontent.com/adafruit/Adafruit_CircuitPython_framebuf/$font_ref"
@@ -352,8 +573,6 @@ if "$hardware"; then
     install -m 644 "$work/font5x8.bin" "$root/font5x8.bin"
     install -m 644 "$work/font-LICENSE" "$root/font-LICENSE"
     sudo raspi-config nonint do_i2c 0
-    boot_config=/boot/firmware/config.txt
-    if [ ! -f "$boot_config" ]; then boot_config=/boot/config.txt; fi
     sudo python3 "$root/configure.py" i2c "$boot_config"
     for group in i2c gpio audio; do
         getent group "$group" >/dev/null || die "required device group is missing: $group"

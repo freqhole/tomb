@@ -71,6 +71,30 @@ def prepare_launch(installation):
             raise ValueError("an unfinished charnel update blocks startup; run freqhole-pi recover charnel")
     if installation.get("menu_player") == "charnel":
         prepare_socket(installation)
+    prepare_pairing(installation)
+
+
+def prepare_pairing(installation):
+    """turns on `[player_pairing].enabled` once for Pi player installs.
+
+    the server config only exists after charnel's first-run wizard, so setup
+    records the choice and this applies it on the first launch that finds a
+    config. it's applied once: turning pairing off later in charnel sticks."""
+    if installation.get("player_pairing") != "pending":
+        return
+    try:
+        path = config_path(installation)
+    except ConfigNotReady:
+        return
+    try:
+        configure.edit(path, configure.pairing_config)
+        installation["player_pairing"] = "applied"
+        write_json(ROOT / "installation.json", installation)
+    except (OSError, ValueError) as error:
+        # never block a launch or an update over a convenience setting.
+        print(f"could not enable player pairing: {error}", flush=True)
+        return
+    print("charnel player pairing enabled for this Pi player.", flush=True)
 
 
 def validate_migrations(result, version):
@@ -285,6 +309,7 @@ def update(installation):
         result = cli_result(migration.stdout)
         validate_migrations(result, version)
         prepare_socket(installation)
+        prepare_pairing(installation)
         transaction["phase"] = "ready-to-start"
         write_json(TRANSACTION, transaction)
         restart(transaction)

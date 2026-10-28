@@ -757,6 +757,24 @@ max_concurrent_audio_streams = 2
 max_concurrent_video_streams = 1
 
 # ============================================================================
+# player_pairing: lets other peers pair with this device as a remote
+# player (charnel's cenotaph player screen, rathole's `--player`). this
+# section must stay declared here even with default values: `config
+# upgrade` only carries over keys the template declares, so leaving it out
+# silently turned pairing back off after every upgrade.
+# ============================================================================
+[player_pairing]
+# OPTIONAL: auto-start the pairing endpoint on launch (default: false).
+# toggled live by charnel's "turn on player pairing" button and rathole's
+# player settings screen.
+enabled = false
+
+# OPTIONAL: rathole only - how the pairing qr code and now-playing art
+# render: "terminal" (default, unicode in the tui) or "framebuffer" (real
+# image via mpv).
+image_mode = "terminal"
+
+# ============================================================================
 # control_socket: local unix domain socket for simple media-control
 # commands (play/pause/next/volume/etc) - e.g. physical buttons wired to
 # a raspberry pi's GPIO pins, forwarded by a small script that writes a

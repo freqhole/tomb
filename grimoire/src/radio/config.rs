@@ -239,17 +239,22 @@ fn default_video_encode_args() -> String {
 }
 
 /// stream-copy sibling of `default_video_encode_args` - see
-/// `RadioConfig::video_copy_encode_args`. `frag_keyframe` can only cut a
-/// fragment at a keyframe the source already has, which is why
-/// `radio::source_probe` only picks this for sources with short, regular
-/// keyframe spacing. audio/fragmenting flags are identical to the
-/// re-encode template so listeners can't tell the two apart.
+/// `RadioConfig::video_copy_encode_args`. `radio::source_probe` only picks
+/// this for sources with short, regular keyframe spacing; audio flags match
+/// the re-encode template so listeners can't tell the two apart.
+///
+/// fragmenting differs on purpose. a copied source keeps its own keyframes,
+/// and the `compatible` rendition has scene-cut keyframes between its forced
+/// 3s ones. `frag_keyframe` alone cuts at every one of them (sub-second
+/// fragments that shrink the chunk-sized ring/cushion), and `-frag_duration`
+/// cuts mid-gop. `-min_frag_duration` instead cuts at the first keyframe at
+/// least 3s in, so every fragment is ~3s and still starts on a keyframe.
 fn default_video_copy_encode_args() -> String {
     "-hide_banner -loglevel error -fflags +genpts -i {input} -map 0:v:0 -map 0:a:0 -map_chapters -1 \
      -c:v copy \
      -c:a aac -profile:a aac_low -b:a 192k -ar 48000 -ac 2 \
      -movflags frag_keyframe+empty_moov+default_base_moof \
-     -frag_duration 3000000 -avoid_negative_ts make_zero -f mp4 pipe:1"
+     -min_frag_duration 3000000 -avoid_negative_ts make_zero -f mp4 pipe:1"
         .to_string()
 }
 
@@ -448,7 +453,6 @@ mod tests {
         for flag in [
             "-map",
             "-movflags",
-            "-frag_duration",
             "-avoid_negative_ts",
             "-c:a",
             "-profile:a",
@@ -463,6 +467,13 @@ mod tests {
                 "{flag} differs between the re-encode and copy video templates"
             );
         }
+        // copy fragments on the source's own keyframes, but never shorter
+        // than the re-encode template's fragment length.
+        assert_eq!(arg_after(&copy, "-frag_duration"), None);
+        assert_eq!(
+            arg_after(&copy, "-min_frag_duration"),
+            arg_after(&primary, "-frag_duration")
+        );
     }
 
     #[test]
@@ -471,9 +482,10 @@ mod tests {
         assert_eq!(cfg.video_copy_encode_args, default_video_copy_encode_args());
     }
 
-    /// stream-copies a source that already has 3s keyframes (what the
-    /// `compatible` rendition now produces) and checks the fragments come
-    /// out at the same ~3s cadence the pacer expects.
+    /// stream-copies a source with 3s keyframes plus extra scene-cut ones
+    /// (what the `compatible` rendition produces) and checks the fragments
+    /// still come out at the ~3s cadence the pacer expects - the extras
+    /// used to each cut their own sub-second fragment.
     #[test]
     #[ignore = "requires ffmpeg and ffprobe on PATH"]
     fn video_copy_template_fragments_on_source_keyframes() {
@@ -497,8 +509,12 @@ mod tests {
                 "veryfast",
                 "-pix_fmt",
                 "yuv420p",
+                // forced 3s keyframes plus two scene-cut-style extras, like
+                // a `compatible` rendition of content with hard cuts.
+                "-x264-params",
+                "scenecut=0",
                 "-force_key_frames",
-                "expr:gte(t,n_forced*3)",
+                "0,1.2,3,6,7.7,9",
                 "-c:a",
                 "aac",
                 "-movflags",

@@ -17,6 +17,8 @@ from urllib.request import Request, urlopen
 
 
 WIFI_VERSION = "v4.11.90"
+# unattended-upgrades may hold the dpkg lock; wait for it instead of failing an update.
+APT_GET = ("apt-get", "-o", "DPkg::Lock::Timeout=600")
 APT_ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/root", "DEBIAN_FRONTEND": "noninteractive"}
 WIFI_HASHES = {
     "aarch64": "4b2321e61895ab1afed5125ed70276845fcb48967e647454812ae336020ce14e",
@@ -196,8 +198,8 @@ def prepare_charnel(cache):
     if manifest["previous"] != current or manifest["uid"] != os.environ.get("SUDO_UID", "0"):
         raise ValueError("staged update belongs to another version/account; administrator must review the package cache")
     # resolve/cache dependencies before the app is stopped; stdout remains a JSON-only protocol.
-    subprocess.run(["apt-get", "update", "-qq"], check=True, env=APT_ENV, stdout=sys.stderr)
-    subprocess.run(["apt-get", "install", "--download-only", "--no-remove", "-y",
+    subprocess.run([*APT_GET, "update", "-qq"], check=True, env=APT_ENV, stdout=sys.stderr)
+    subprocess.run([*APT_GET, "install", "--download-only", "--no-remove", "-y",
                     str(destination / "candidate.deb")], check=True, env=APT_ENV, stdout=sys.stderr)
     return {**manifest, "update_available": True}
 
@@ -220,7 +222,7 @@ def apply_charnel(cache, version, rollback=False):
         raise ValueError("staged package checksum mismatch")
     validate_deb(deb, target)
     subprocess.run(
-        ["apt-get", "-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold",
+        [*APT_GET, "-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold",
          "install", "-y", "--no-remove", "--allow-downgrades", str(deb)],
         env=APT_ENV,
         check=True,
@@ -247,7 +249,7 @@ def install_charnel(work, architecture):
     # apt's sandboxed download user must be able to read the staged package.
     work.chmod(0o755)
     deb.chmod(0o644)
-    subprocess.run(["apt-get", "install", "-y", str(deb)], check=True)
+    subprocess.run([*APT_GET, "install", "-y", str(deb)], check=True)
     print(f"installed charnel {version}; complete first-run setup in the desktop app")
 
 

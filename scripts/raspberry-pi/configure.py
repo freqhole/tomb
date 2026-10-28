@@ -45,9 +45,52 @@ def i2c_config(text):
     return "\n".join(lines).rstrip() + "\n\n" + I2C_BLOCK
 
 
+BOOT_BLOCKS = ("i2c", "power-led", "fan")
+FAN_OVERLAY = re.compile(r"^\s*dtoverlay=(?:pwm-)?gpio-fan\b")
+
+
+def strip_block(text, name):
+    return re.sub(
+        rf"(?m)^# freqhole-pi {re.escape(name)} begin\n.*?^# freqhole-pi {re.escape(name)} end\n?",
+        "", text, flags=re.DOTALL,
+    )
+
+
+def append_block(text, name, lines):
+    block = f"# freqhole-pi {name} begin\n[all]\n" + "".join(f"{line}\n" for line in lines)
+    return strip_block(text, name).rstrip() + "\n\n" + block + f"# freqhole-pi {name} end\n"
+
+
+def power_led_config(text):
+    # the red power led stays dark while running, so "off" clearly means shut down.
+    return append_block(text, "power-led", ["dtparam=pwr_led_trigger=none"])
+
+
+def fan_config(text, gpio):
+    if not (isinstance(gpio, int) and 2 <= gpio <= 27):
+        raise ValueError("fan GPIO must be a number between 2 and 27")
+    # drop raspi-config's on/off gpio-fan line too; two overlays can't share one pin.
+    text = "\n".join(line for line in strip_block(text, "fan").splitlines() if not FAN_OVERLAY.match(line))
+    # pwm-gpio-fan ramps through four speed steps (55/60/67.5/75 C by default).
+    return append_block(text, "fan", [f"dtoverlay=pwm-gpio-fan,fan_gpio={gpio}"])
+
+
+def boot_cleanup(text):
+    for name in BOOT_BLOCKS:
+        text = strip_block(text, name)
+    return text.rstrip() + "\n"
+
+
 def console_config(text):
     lines = [line for line in text.splitlines() if not re.match(r"^\s*FONT=", line)]
     return "\n".join(lines).rstrip() + '\nFONT="Uni2-VGA14.psf.gz"\n'
+
+
+def console_restore(text, original):
+    # put back only the FONT line setup replaced; keep any other later edits.
+    fonts = [line for line in original.splitlines() if re.match(r"^\s*FONT=", line)]
+    lines = [line for line in text.splitlines() if not re.match(r"^\s*FONT=", line)]
+    return "\n".join(lines + fonts).rstrip() + "\n"
 
 
 def shell_path_config(text):
@@ -62,6 +105,40 @@ def shell_path_config(text):
     )
     # put this before interactive-only guards in shell startup files.
     return block + "\n" + text
+
+
+def remove_shell_path(text):
+    marker = "# freqhole-pi user commands\n"
+    block = (
+        marker + 'case ":$PATH:" in\n'
+        '    *":$HOME/.local/bin:"*) ;;\n'
+        '    *) export PATH="$HOME/.local/bin:$PATH" ;;\n'
+        'esac\n'
+    )
+    # only the exact block setup wrote; anything hand-edited is left alone.
+    return text.replace(block + "\n", "", 1) if block + "\n" in text else text.replace(block, "", 1)
+
+
+def pairing_config(text):
+    parsed = tomllib.loads(text)
+    if not isinstance(parsed.get("player_pairing", {}), dict):
+        raise ValueError("player_pairing must be a TOML table")
+    match = re.search(r"(?m)^\[player_pairing\][ \t]*(?:#.*)?$", text)
+    if match:
+        start = match.end()
+        next_table = re.search(r"(?m)^\[", text[start:])
+        end = start + next_table.start() if next_table else len(text)
+        body, count = re.subn(r"(?m)^[ \t]*enabled[ \t]*=.*$", "enabled = true", text[start:end])
+        if not count:
+            body = "\nenabled = true" + body
+        result = text[:start] + body + text[end:]
+    elif "player_pairing" not in parsed:
+        result = text.rstrip() + "\n\n[player_pairing]\nenabled = true\n"
+    else:
+        raise ValueError("use a [player_pairing] table to enable player pairing")
+    if tomllib.loads(result)["player_pairing"]["enabled"] is not True:
+        raise ValueError("failed to enable player pairing")
+    return result
 
 
 def socket_config(text, default_path=None):
@@ -198,11 +275,14 @@ def update_menu_settings(path, updates):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("kind", choices=("i2c", "console", "socket", "player", "fullscreen", "maximized", "wifi", "path", "menu"))
+    parser.add_argument("kind", choices=("i2c", "console", "socket", "player", "fullscreen", "maximized", "wifi", "path", "menu",
+                                         "power-led", "fan", "boot-cleanup", "unpath", "pairing",
+                                         "console-restore"))
     parser.add_argument("path", type=Path)
     parser.add_argument("--interface")
     parser.add_argument("--player", choices=("charnel", "rathole"))
     parser.add_argument("--socket-path")
+    parser.add_argument("--gpio", type=int)
     args = parser.parse_args()
     if args.kind == "menu":
         if not args.player or not args.socket_path:
@@ -219,8 +299,18 @@ def main():
         args.path.write_text("{}" if args.kind != "player" else "")
         args.path.chmod(0o600)
     transforms = {"i2c": i2c_config, "console": console_config, "socket": socket_config,
-                  "player": initial_player, "path": shell_path_config}
-    if args.kind in ("fullscreen", "maximized"):
+                  "player": initial_player, "path": shell_path_config, "power-led": power_led_config,
+                  "boot-cleanup": boot_cleanup, "unpath": remove_shell_path, "pairing": pairing_config}
+    if args.kind == "console-restore":
+        backup = args.path.with_name(args.path.name + ".before-freqhole-pi")
+        if not backup.is_file():
+            parser.exit(0, "no console-setup backup; leaving it unchanged\n")
+        edit(args.path, lambda text: console_restore(text, backup.read_text()))
+    elif args.kind == "fan":
+        if args.gpio is None:
+            parser.error("fan requires --gpio")
+        edit(args.path, lambda text: fan_config(text, args.gpio))
+    elif args.kind in ("fullscreen", "maximized"):
         edit(args.path, lambda text: window_config(text, args.kind))
     else:
         edit(args.path, transforms[args.kind])

@@ -26,6 +26,7 @@
     "core:window:allow-set-focus",
     "core:window:allow-set-title",
     "core:window:allow-set-fullscreen",
+    "core:window:allow-set-cursor-visible",
     "core:window:allow-get-all-windows",
     "core:window:allow-start-dragging",
     "core:window:allow-start-resize-dragging",

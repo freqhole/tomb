@@ -2503,6 +2503,35 @@ mod tests {
     }
 
     #[test]
+    fn config_upgrade_keeps_player_pairing_and_control_socket_settings() {
+        let mut doc = CONFIG_TEMPLATE.parse::<DocumentMut>().unwrap();
+        let user: toml::Value = toml::from_str(
+            "[player_pairing]\nenabled = true\nimage_mode = \"framebuffer\"\n\n[control_socket]\nenabled = true\n",
+        )
+        .unwrap();
+        merge_values_into_doc(&mut doc, user.as_table().unwrap(), "");
+
+        let merged: toml::Value = toml::from_str(&doc.to_string()).unwrap();
+        assert_eq!(merged["player_pairing"]["enabled"].as_bool(), Some(true));
+        assert_eq!(merged["player_pairing"]["image_mode"].as_str(), Some("framebuffer"));
+        assert_eq!(merged["control_socket"]["enabled"].as_bool(), Some(true));
+    }
+
+    #[test]
+    fn config_template_declares_every_runtime_toggled_section() {
+        // `upgrade_config` drops tables the template doesn't declare, so any
+        // section the apps write at runtime has to be in the template.
+        let template: toml::Value = toml::from_str(CONFIG_TEMPLATE).unwrap();
+        for section in ["player_pairing", "control_socket", "updates", "federation", "server", "media"] {
+            assert!(template.get(section).and_then(|v| v.as_table()).is_some(), "missing [{section}]");
+        }
+        let parsed: PlayerPairingConfig =
+            template["player_pairing"].clone().try_into().unwrap();
+        assert!(!parsed.enabled);
+        assert_eq!(parsed.image_mode, ImageDisplayMode::Terminal);
+    }
+
+    #[test]
     fn config_upgrade_fixes_stale_video_transcode_args_from_pre_0_3_10() {
         let mut doc = format!(
             "[media]\nvideo_transcode_renditions = [{{ label = \"compatible\", extension = \"mp4\", args = {:?} }}]\n",

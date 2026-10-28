@@ -23,8 +23,11 @@ a string action sends that line to rathole's unix socket; an argument tuple runs
 a system command without a shell. None opens the volume screen: turn to adjust,
 press to return. its bar uses get_state replies, not an estimated volume.
 NETWORK_SCREEN opens local network status: turn to scroll, press to return.
-other socket actions have no reply: "sent" means sent, not acknowledged.
-input polling and sleep continue while commands run.
+other socket actions have no reply: "sent" means sent, not acknowledged; play /
+pause reads the state back to show "playing..." or "paused!". successful sends
+show briefly, then return to the menu on their own.
+input polling continues while commands run; the screen stays awake (no sleep)
+until a running command finishes. updates show their latest output line.
 output/errors go to the terminal, or the journal when running as a service.
 on ui startup, the system mixer is set to 100%; the volume screen still controls
 only rathole's app volume. socket-only client invocations do not touch the mixer.
@@ -51,6 +54,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 import configure
 from storage_menu import StorageMenu
@@ -133,6 +137,10 @@ SHUTDOWN_COMMAND = ("sudo", "-n", PI_CONTROL, "poweroff")
 SHUTDOWN_COLOR = (255, 0, 0)
 CANCEL_COLOR = (0, 230, 255)
 IDLE_SECONDS = 30.0
+TOAST_SECONDS = 3.0  # how long a successful send stays up before the menu returns.
+PLAY_STATE_DELAY_SECONDS = 0.4  # let the player apply a toggle before reading it back.
+PROGRESS_LABELS = {"install update": "updating", "recover failed update": "restoring"}
+SPINNER = "|/-\\"
 WIFI_IDLE_SECONDS = 600.0
 SLEEP_ANIMATION_SECONDS = 10.0
 SLEEP_FADE_SECONDS = 3.0  # a long fade makes the low 8-bit brightness steps linger.
@@ -252,7 +260,24 @@ def send_socket_command(command):
         print(f"could not send {command} to {path}: {error}", file=sys.stderr, flush=True)
         return 1
     print(f"sent {command} to {path} (no reply expected)", flush=True)
+    if command == "play_pause":
+        time.sleep(PLAY_STATE_DELAY_SECONDS)
+        try:
+            state = read_state()
+        except (OSError, ValueError) as error:
+            print(f"could not read play state: {error}", file=sys.stderr, flush=True)
+        else:
+            print(f"state: {play_state(state)}", flush=True)
     return 0
+
+
+def play_state(state):
+    if state.get("is_playing") is True:
+        return "playing"
+    return "paused" if state.get("kind") in ("song", "video") else "idle"
+
+
+PLAY_STATE_MESSAGES = {"playing": "playing...", "paused": "paused!", "idle": "nothing playing"}
 
 
 def read_state(steps=0):
@@ -416,6 +441,14 @@ def read_wifi_status():
 
 
 class Menu:
+    # command-progress state; class defaults keep partially built test menus usable.
+    running_started = 0.0
+    running_output = ""
+    running_state = None
+    running_frame = None
+    output_thread = None
+    message_until = None
+
     def __init__(self, oled, pixel, now, button_pressed=False):
         self.oled = oled
         self.pixel = pixel
@@ -443,6 +476,12 @@ class Menu:
         self.running_label = ""
         self.running_shutdown = False
         self.running_socket = False
+        self.running_started = now
+        self.running_output = ""
+        self.running_state = None
+        self.running_frame = None
+        self.output_thread = None
+        self.message_until = None
         self.shutdown_requested = False
         self.volume = None
         self.volume_error = False
@@ -511,7 +550,7 @@ class Menu:
             color = (255, 0, 0) if self.storage.error else (80, 160, 255)
         elif self.screen == "volume":
             title = "volume --" if self.volume is None else f"volume {self.volume:.0%}"
-            detail = "unavailable: see logs" if self.volume_error else "reading..."
+            detail = "player unavailable" if self.volume_error else "reading..."
             if self.volume is not None:
                 detail = "0%      100%     200%"
             lines = [title, detail, "", "turn +/-  press: back"]
@@ -550,13 +589,24 @@ class Menu:
             ]
             color = (255, 160, 0)
         elif self.screen == "running":
-            lines = ["sending..." if self.running_socket else "running...", self.running_label, "see logs"]
+            columns = self.oled.width // 6
+            if self.running_label in PROGRESS_LABELS:
+                elapsed = int(time.monotonic() - self.running_started)
+                spinner = SPINNER[elapsed % len(SPINNER)]
+                output = self.running_output or "starting..."
+                lines = [
+                    f"{PROGRESS_LABELS[self.running_label]} {spinner} {elapsed // 60}:{elapsed % 60:02}",
+                    output[:columns], output[columns:columns * 2], "do not power off!",
+                ]
+            else:
+                lines = ["sending..." if self.running_socket else "running...", self.running_label]
             color = (255, 100, 0)
         elif self.screen == "update-check":
             lines = ["checking update...", PLAYER, "please wait"]
             color = (255, 160, 0)
         else:
-            lines = [*self.message, "turn/press: back"]
+            # short-lived confirmations disappear on their own; no back hint needed.
+            lines = [*self.message] if self.message_until is not None else [*self.message, "turn/press: back"]
             color = (0, 255, 0) if self.screen == "success" else (255, 0, 0)
 
         self.oled.fill(0)
@@ -675,16 +725,52 @@ class Menu:
         if self.running_socket:
             # reuse this script as a short-lived client so socket waits don't block the ui.
             command = (sys.executable, str(Path(__file__).resolve()), "--send", command)
+        self.running_started = time.monotonic()
+        self.running_output = ""
+        self.running_state = None
+        self.running_frame = None
+        self.message_until = None
+        # progress and play state come from the child's output; everything else
+        # (notably wifi setup, which must keep credentials out of the journal)
+        # inherits stdout/stderr instead.
+        progress = label in PROGRESS_LABELS
+        capture = progress or self.running_socket
         try:
-            # inherit stdout/stderr rather than filling an unread output pipe.
-            self.process = subprocess.Popen(command, stdin=subprocess.DEVNULL)
+            self.process = subprocess.Popen(
+                command, stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE if capture else None,
+                stderr=subprocess.STDOUT if progress else None,
+            )
         except OSError as error:
             print(f"could not start {label}: {error}", flush=True)
             self.screen = "error"
-            self.message = ("could not start", label, "see logs")
+            self.message = ("could not start", label)
             if shutdown:
                 self.wake_lights(time.monotonic())
             self.dirty = True
+            return
+        if capture:
+            self.output_thread = threading.Thread(
+                target=self.pump_output, args=(self.process.stdout,), daemon=True,
+            )
+            self.output_thread.start()
+
+    def pump_output(self, stream):
+        """tees the child's output to the journal and keeps its latest line for the screen."""
+        try:
+            for raw in iter(stream.readline, b""):
+                line = raw.decode("utf-8", "replace")
+                sys.stdout.write(line)
+                sys.stdout.flush()
+                text = " ".join(line.split())
+                if text.startswith("state: "):
+                    self.running_state = text[len("state: "):]
+                elif text:
+                    self.running_output = text.lower().encode("ascii", "replace").decode("ascii")
+        except (OSError, ValueError):
+            pass
+        finally:
+            stream.close()
 
     def poll_command(self):
         if self.process is None:
@@ -693,6 +779,10 @@ class Menu:
         if result is None:
             return
         self.process = None
+        if self.output_thread is not None:
+            # the child has exited; its last lines are already in the pipe.
+            self.output_thread.join(timeout=1)
+            self.output_thread = None
         if self.running_label == "set up wifi" and result == 0:
             if self.wifi_future is not None:
                 self.wifi_future.cancel()
@@ -722,12 +812,17 @@ class Menu:
         if self.running_shutdown:
             title = "onoz! shutdown failed"
             self.wake_lights(time.monotonic())
-        if self.running_socket:
-            title = "sent" if result == 0 else "send failed"
-            detail = "no reply expected" if result == 0 else "see logs"
-            self.message = (title, self.running_label, detail)
+        if self.running_socket and result == 0:
+            message = PLAY_STATE_MESSAGES.get(self.running_state)
+            self.message = (message,) if message else (self.running_label, "sent")
+            self.message_until = time.monotonic() + TOAST_SECONDS
+        elif self.running_socket:
+            self.message = ("send failed", self.running_label, "is the player running?")
+        elif self.running_label in PROGRESS_LABELS and result != 0:
+            self.message = (f"{self.running_label.split()[0]} failed", f"exit code: {result}",
+                            (self.running_output or "")[:self.oled.width // 6])
         else:
-            self.message = (title, f"exit code: {result}", "see logs")
+            self.message = (title, self.running_label, f"exit code: {result}")
         self.dirty = True
 
     def queue_volume(self, delta):
@@ -777,7 +872,7 @@ class Menu:
             except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
                 if not self.network_error:
                     print(f"network status failed: {error}", file=sys.stderr, flush=True)
-                rows = ["unavailable", "see logs"]
+                rows = ["unavailable", "try again shortly"]
                 self.network_error = True
             if self.screen != "network":
                 self.network_future = None
@@ -856,7 +951,7 @@ class Menu:
                 self.update_requested = False
                 if self.update_error:
                     self.screen = "error"
-                    self.message = ("update check failed", "see logs")
+                    self.message = ("update check failed", "check the network")
                 elif self.update_status["update_available"]:
                     self.screen = "confirm"
                     self.confirm_selected = 1
@@ -888,7 +983,7 @@ class Menu:
                     except (OSError, ValueError) as error:
                         print(f"could not save wheel direction: {error}", file=sys.stderr, flush=True)
                         self.screen = "error"
-                        self.message = ("could not save", "wheel direction", "see logs")
+                        self.message = ("could not save", "wheel direction")
                     else:
                         DIRECTION = direction
                         self.screen = "success"
@@ -954,6 +1049,7 @@ class Menu:
                 self.screen = "menu"
         elif self.screen in ("success", "error"):
             self.screen = "menu"
+            self.message_until = None
         self.dirty = True
 
     def tick(self, now, delta, raw_pressed):
@@ -1033,9 +1129,23 @@ class Menu:
                 self.confirm_selected = max(0, min(1, self.confirm_selected + delta))
             elif self.screen in ("success", "error"):
                 self.screen = "menu"
+                self.message_until = None
             self.dirty = True
         elif edge is True:
             self.activate()
+
+        if self.message_until is not None and self.screen in ("success", "error") and now >= self.message_until:
+            self.screen = "menu"
+            self.message_until = None
+            self.dirty = True
+        if self.process is not None:
+            # never doze off mid-command: an update must stay visible until it ends.
+            self.last_activity = now
+            if self.screen == "running" and self.running_label in PROGRESS_LABELS:
+                frame = (int(now - self.running_started), self.running_output)
+                if frame != self.running_frame:
+                    self.running_frame = frame
+                    self.dirty = True
 
         if self.screen == "storage" and self.storage.mode != "known":
             self.last_activity = now

@@ -3,8 +3,9 @@
 //! instead of being re-encoded in real time.
 //!
 //! copying costs next to nothing, so it can never fall behind real time
-//! the way a full libx264 re-encode can on a slow box. but `frag_keyframe`
-//! can only cut fragments where the source already has keyframes, so the
+//! the way a full libx264 re-encode can on a slow box. but fragments can
+//! only be cut where the source already has keyframes (extra scene-cut
+//! keyframes are fine - `-min_frag_duration` skips them), so the
 //! source has to look like what the pacer and MSE clients expect: h264,
 //! 4:2:0, and keyframes every few seconds. it also has to be light enough
 //! to stream: no bigger than 1080p (long edge 1920) and no heavier than
