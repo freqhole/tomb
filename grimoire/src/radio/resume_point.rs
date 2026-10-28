@@ -5,8 +5,8 @@
 //! freeze loop in `Broadcaster::play_track`). the broadcaster runs ahead
 //! of what the listener has actually played (warm-up plus the steady
 //! lead), so "where the server froze" is not "where the listener paused".
-//! the client therefore reports the exact chunk it was playing (`init_seq`
-//! + `seq` + `offset_ms` on the resume hint) and this module turns that
+//! the client therefore reports the exact chunk it was playing (`init_seq`,
+//! `seq` and `offset_ms` on the resume hint) and this module turns that
 //! into a concrete plan:
 //!
 //! - frozen, and the paused chunk is still in the catchup ring: replay the

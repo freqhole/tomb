@@ -1675,7 +1675,12 @@ impl Broadcaster {
                             pending_short_fragment = Some((chunk_seq, this_chunk_ms));
                         }
                         FragmentLength::Long => {
-                            warn_anomalous_fragment(&self.station_id, chunk_seq, this_chunk_ms, frag_ms);
+                            warn_anomalous_fragment(
+                                &self.station_id,
+                                chunk_seq,
+                                this_chunk_ms,
+                                frag_ms,
+                            );
                         }
                     }
                     let in_startup_burst = cumulative_media_ms < startup_burst_ms;

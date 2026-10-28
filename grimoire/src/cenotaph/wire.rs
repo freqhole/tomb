@@ -866,7 +866,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(ack.reason, Some(CommandAckReason::RequestAccessFailed));
-        assert_eq!(ack.detail.as_deref(), Some("knocking is disabled on this server"));
+        assert_eq!(
+            ack.detail.as_deref(),
+            Some("knocking is disabled on this server")
+        );
         for (reason, wire) in [
             (CommandAckReason::SourceAccessDenied, "source_access_denied"),
             (CommandAckReason::SourceUnreachable, "source_unreachable"),

@@ -57,7 +57,10 @@ pub(crate) fn tune_failure_ack(probe: SourceAccessProbe, detail: String) -> Comm
 }
 
 pub(crate) fn request_access_failed_ack(detail: String) -> CommandAck {
-    with_detail(CommandAck::err(CommandAckReason::RequestAccessFailed), detail)
+    with_detail(
+        CommandAck::err(CommandAckReason::RequestAccessFailed),
+        detail,
+    )
 }
 
 fn with_detail(ack: CommandAck, detail: String) -> CommandAck {
