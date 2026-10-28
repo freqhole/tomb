@@ -53,8 +53,8 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 0.3.21
-        CFBundleVersion: "0.3.21"
+        CFBundleShortVersionString: 0.3.22
+        CFBundleVersion: "0.3.22"
         # ios.md known gap #8: tauri.ios.conf.json / Info.ios.plist merging
         # is confirmed broken for this tauri-cli version (same issue as the
         # SystemConfiguration.framework and minimumSystemVersion fixes
