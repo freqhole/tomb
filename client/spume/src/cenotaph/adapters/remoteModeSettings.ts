@@ -36,6 +36,22 @@ export function setRemotePlaybackEnabled(enabled: boolean): void {
   }
 }
 
+/**
+ * turns remote playback on for a device set up as a dedicated player (charnel
+ * with `initial_view = "player"`, e.g. the raspberry pi setup), unless someone
+ * already chose on/off here - that choice always wins. setup scripts can't
+ * reach the webview's localStorage, so this is how they opt the device in.
+ */
+export function enableRemotePlaybackByDefault(): void {
+  let stored: string | null = null;
+  try {
+    stored = localStorage.getItem(STORAGE_KEY);
+  } catch {
+    // localStorage unavailable - treat as no stored choice.
+  }
+  if (stored === null && !remotePlaybackEnabled()) setRemotePlaybackEnabled(true);
+}
+
 /** synchronous read for non-reactive call sites (e.g. `isEnabled()`
  * callbacks that run once per inbound connection attempt). */
 export function isRemotePlaybackEnabled(): boolean {
