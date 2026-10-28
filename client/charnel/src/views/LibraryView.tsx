@@ -378,6 +378,7 @@ export default function LibraryView() {
   // regenerates posters that ALREADY exist, not just fills gaps. off by
   // default like the other non-routine/heavier operations here.
   const [maintRegenerateVideoThumbnails, setMaintRegenerateVideoThumbnails] = createSignal(false);
+  const [maintRetranscodeVideoRenditions, setMaintRetranscodeVideoRenditions] = createSignal(false);
   const anyMaintenanceTaskChecked = () =>
     maintCleanupOrphanedData() ||
     maintBackfillThumbnails() ||
@@ -387,7 +388,8 @@ export default function LibraryView() {
     maintCleanupContentlessBlobs() ||
     maintHardDeleteOldRecords() ||
     maintHardDeleteOldVideos() ||
-    maintRegenerateVideoThumbnails();
+    maintRegenerateVideoThumbnails() ||
+    maintRetranscodeVideoRenditions();
   const [maintenanceRunning, setMaintenanceRunning] = createSignal(false);
   const [maintenanceResults, setMaintenanceResults] = createSignal<string[]>([]);
   const [maintenanceError, setMaintenanceError] = createSignal("");
@@ -1532,6 +1534,9 @@ export default function LibraryView() {
         if (maintRegenerateVideoThumbnails()) {
           await run("maintenance_regenerate_library_video_thumbnails");
         }
+        if (maintRetranscodeVideoRenditions()) {
+          await run("maintenance_retranscode_video_renditions");
+        }
         setMaintenanceResults(results);
         await loadDirectories();
         await refreshMaintenancePreviews(true);
@@ -1561,6 +1566,7 @@ export default function LibraryView() {
         hardDeleteOldRecords: maintHardDeleteOldRecords(),
         hardDeleteOldVideos: maintHardDeleteOldVideos(),
         regenerateVideoThumbnails: maintRegenerateVideoThumbnails(),
+        retranscodeVideoRenditions: maintRetranscodeVideoRenditions(),
       });
       if (!result.success || !result.session_id) {
         setMaintenanceError(result.message);
@@ -2357,6 +2363,25 @@ export default function LibraryView() {
                       {maintenancePreviewText("regenerate_video_thumbnails")}
                     </span>
                   </Show>
+                </span>
+              </label>
+              <label class="checkbox-toggle">
+                <input
+                  type="checkbox"
+                  checked={maintRetranscodeVideoRenditions()}
+                  onChange={(e) => setMaintRetranscodeVideoRenditions(e.currentTarget.checked)}
+                />
+                <span class="checkbox-box">
+                  <svg viewBox="0 0 14 14">
+                    <polyline points="2.5 7 5.5 10 11.5 4" />
+                  </svg>
+                </span>
+                <span class="checkbox-content">
+                  <span class="checkbox-label">re-transcode video renditions</span>
+                  <span class="checkbox-hint">
+                    one-off: enqueue fresh renditions using the current ffmpeg settings. existing
+                    files stay in place unless a replacement transcode succeeds. off by default.
+                  </span>
                 </span>
               </label>
             </div>

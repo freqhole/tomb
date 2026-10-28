@@ -73,6 +73,17 @@ pub struct RadioConfig {
     #[serde(default = "default_video_encode_args")]
     pub video_encode_args: String,
 
+    /// ffmpeg template used instead of `video_encode_args` when a video
+    /// track's source is already stream-ready h264 (see
+    /// `radio::source_probe`) - typically a `compatible` rendition. copies
+    /// the video stream as-is (no re-encode at all, so it can't fall
+    /// behind real time) and only re-encodes the audio. only ever replaces
+    /// the node-default `video_encode_args` - a station's own explicit
+    /// `encode_args` override is respected as-is. must keep the same
+    /// fragmenting/audio settings as `video_encode_args`.
+    #[serde(default = "default_video_copy_encode_args")]
+    pub video_copy_encode_args: String,
+
     /// MSE `SourceBuffer` codec string matching `video_encode_args`'s
     /// output, for the same "no per-station config needed" reason. see
     /// `RadioStation::effective_codec`.
@@ -131,6 +142,7 @@ impl Default for RadioConfig {
             enabled: false,
             encode_args: default_encode_args(),
             video_encode_args: default_video_encode_args(),
+            video_copy_encode_args: default_video_copy_encode_args(),
             video_codec: default_video_codec(),
             frag_ms: default_frag_ms(),
             buffer_seconds: default_buffer_seconds(),
@@ -220,6 +232,21 @@ fn default_video_encode_args() -> String {
     "-hide_banner -loglevel error -fflags +genpts -i {input} -map 0:v:0 -map 0:a:0 -map_chapters -1 \
      -c:v libx264 -profile:v main -preset veryfast -b:v 2500k -pix_fmt yuv420p \
      -x264-params scenecut=0 -force_key_frames expr:gte(t,n_forced*3) \
+     -c:a aac -profile:a aac_low -b:a 192k -ar 48000 -ac 2 \
+     -movflags frag_keyframe+empty_moov+default_base_moof \
+     -frag_duration 3000000 -avoid_negative_ts make_zero -f mp4 pipe:1"
+        .to_string()
+}
+
+/// stream-copy sibling of `default_video_encode_args` - see
+/// `RadioConfig::video_copy_encode_args`. `frag_keyframe` can only cut a
+/// fragment at a keyframe the source already has, which is why
+/// `radio::source_probe` only picks this for sources with short, regular
+/// keyframe spacing. audio/fragmenting flags are identical to the
+/// re-encode template so listeners can't tell the two apart.
+fn default_video_copy_encode_args() -> String {
+    "-hide_banner -loglevel error -fflags +genpts -i {input} -map 0:v:0 -map 0:a:0 -map_chapters -1 \
+     -c:v copy \
      -c:a aac -profile:a aac_low -b:a 192k -ar 48000 -ac 2 \
      -movflags frag_keyframe+empty_moov+default_base_moof \
      -frag_duration 3000000 -avoid_negative_ts make_zero -f mp4 pipe:1"
@@ -396,6 +423,125 @@ mod tests {
                 decoded.stderr.is_empty(),
                 "{}",
                 String::from_utf8_lossy(&decoded.stderr)
+            );
+        }
+    }
+
+    fn arg_after<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
+        args.iter()
+            .position(|a| a == flag)
+            .and_then(|i| args.get(i + 1))
+            .map(String::as_str)
+    }
+
+    #[test]
+    fn video_copy_template_copies_video_and_matches_audio_and_fragmenting() {
+        let primary = shell_words::split(&default_video_encode_args()).unwrap();
+        let copy = shell_words::split(&default_video_copy_encode_args()).unwrap();
+        assert_eq!(arg_after(&copy, "-c:v"), Some("copy"));
+        assert!(!copy
+            .iter()
+            .any(|a| a == "-vf" || a == "-preset" || a == "-b:v"));
+        // anything listeners or the pacer can observe must match the
+        // re-encode template, so a station mixing copied and re-encoded
+        // tracks stays one consistent stream.
+        for flag in [
+            "-map",
+            "-movflags",
+            "-frag_duration",
+            "-avoid_negative_ts",
+            "-c:a",
+            "-profile:a",
+            "-b:a",
+            "-ar",
+            "-ac",
+            "-f",
+        ] {
+            assert_eq!(
+                arg_after(&primary, flag),
+                arg_after(&copy, flag),
+                "{flag} differs between the re-encode and copy video templates"
+            );
+        }
+    }
+
+    #[test]
+    fn video_copy_args_default_when_absent_from_toml() {
+        let cfg: RadioConfig = toml::from_str("enabled = true").unwrap();
+        assert_eq!(cfg.video_copy_encode_args, default_video_copy_encode_args());
+    }
+
+    /// stream-copies a source that already has 3s keyframes (what the
+    /// `compatible` rendition now produces) and checks the fragments come
+    /// out at the same ~3s cadence the pacer expects.
+    #[test]
+    #[ignore = "requires ffmpeg and ffprobe on PATH"]
+    fn video_copy_template_fragments_on_source_keyframes() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("source.mp4");
+        let generated = Command::new("ffmpeg")
+            .args([
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=size=160x90:rate=24:duration=10",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:sample_rate=44100:duration=10",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-pix_fmt",
+                "yuv420p",
+                "-force_key_frames",
+                "expr:gte(t,n_forced*3)",
+                "-c:a",
+                "aac",
+                "-movflags",
+                "+faststart",
+            ])
+            .arg(&input)
+            .output()
+            .unwrap();
+        assert!(
+            generated.status.success(),
+            "{}",
+            String::from_utf8_lossy(&generated.stderr)
+        );
+        let output = dir.path().join("copy.mp4");
+        let args = shell_words::split(&default_video_copy_encode_args())
+            .unwrap()
+            .into_iter()
+            .map(|arg| match arg.as_str() {
+                "{input}" => input.to_str().unwrap().to_owned(),
+                "pipe:1" => output.to_str().unwrap().to_owned(),
+                _ => arg,
+            })
+            .collect::<Vec<_>>();
+        let encoded = Command::new("ffmpeg").args(args).output().unwrap();
+        assert!(
+            encoded.status.success(),
+            "{}",
+            String::from_utf8_lossy(&encoded.stderr)
+        );
+        let mut parser = crate::radio::chunk::BoxParser::new();
+        parser.feed(&std::fs::read(&output).unwrap());
+        let mut seq = 0;
+        let mut durations = Vec::new();
+        while let Some(chunk) = parser.next_chunk(&mut seq) {
+            if !chunk.is_init {
+                durations.push(chunk.duration_ms.expect("media fragment duration"));
+            }
+        }
+        assert!(durations.len() >= 3, "{durations:?}");
+        for d in &durations[..durations.len() - 1] {
+            assert!(
+                (2_900..=3_100).contains(d),
+                "copied fragments: {durations:?}"
             );
         }
     }

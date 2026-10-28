@@ -84,6 +84,12 @@ pub enum MaintenanceAction {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Force regeneration of existing video renditions by enqueueing transcode jobs
+    RetranscodeVideoRenditions {
+        /// Restrict regeneration to one video id
+        #[arg(long)]
+        video_id: Option<String>,
+    },
     /// Update server image blob for P2P transport
     /// reads server.image_path, creates a media blob, and stores the blob_id in config
     UpdateServerImage {
@@ -188,6 +194,21 @@ pub async fn handle_command(
     global_config: Option<std::path::PathBuf>,
 ) -> CommandOutput<serde_json::Value> {
     match action {
+        MaintenanceAction::RetranscodeVideoRenditions { video_id } => {
+            let response = grimoire::maintenance::enqueue_retranscode_video_renditions(
+                video_id.as_deref(),
+                None,
+            )
+            .await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+            let Some(summary) = response.data else {
+                return CommandOutput::failure("no summary data returned", vec![], ());
+            };
+            CommandOutput::success(response.message, summary)
+        }
+
         MaintenanceAction::CleanupOrphanedTags { dry_run } => {
             let response = cleanup_orphaned_tags(dry_run).await;
 

@@ -84,6 +84,9 @@ pub enum JobType {
 pub struct TranscodeVideoParams {
     pub media_blob_id: String,
     pub video_id: String,
+    /// regenerate existing rendition blobs instead of reusing healthy ones.
+    #[serde(default)]
+    pub force: bool,
 }
 
 /// result of a `TranscodeVideo` job
@@ -528,4 +531,27 @@ pub struct ProcessorResponse {
     pub mode: String,
     pub max_jobs: usize,
     pub completed: bool,
+}
+
+#[cfg(test)]
+mod transcode_video_params_tests {
+    use super::TranscodeVideoParams;
+
+    #[test]
+    fn force_defaults_to_false_for_queued_legacy_params() {
+        let params: TranscodeVideoParams =
+            serde_json::from_str(r#"{"media_blob_id":"blob-1","video_id":"video-1"}"#)
+                .expect("legacy transcode parameters should still deserialize");
+
+        assert!(!params.force);
+    }
+
+    #[test]
+    fn force_is_deserialized_when_requested() {
+        let params: TranscodeVideoParams =
+            serde_json::from_str(r#"{"media_blob_id":"blob-1","video_id":"video-1","force":true}"#)
+                .expect("forced transcode parameters should deserialize");
+
+        assert!(params.force);
+    }
 }

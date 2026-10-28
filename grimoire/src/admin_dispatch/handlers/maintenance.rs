@@ -670,6 +670,36 @@ pub(in crate::admin_dispatch) async fn hard_delete_old_videos(
     )
 }
 
+/// enqueue forced transcodes for videos that already have rendition blobs.
+pub(in crate::admin_dispatch) async fn retranscode_video_renditions(
+    args: JsonValue,
+    caller: &Caller,
+) -> GrimoireResponse<JsonValue> {
+    let args = if args.is_null() { json!({}) } else { args };
+    let request: crate::admin_dispatch::types::maintenance::RetranscodeVideoRenditionsRequest =
+        match serde_json::from_value(args) {
+            Ok(request) => request,
+            Err(error) => {
+                return bad_request(format!("invalid forced video transcode request: {error}"))
+            }
+        };
+    let response = crate::maintenance::enqueue_retranscode_video_renditions(
+        request.video_id.as_deref(),
+        Some(caller.username.clone()),
+    )
+    .await;
+    if !response.success {
+        return to_value(response);
+    }
+    let Some(summary) = response.data else {
+        return to_value(response);
+    };
+    GrimoireResponse::success(
+        &response.message,
+        serde_json::to_value(summary).unwrap_or(JsonValue::Null),
+    )
+}
+
 /// run the full maintenance pipeline (orphaned tags + genres cleanup
 /// + hard-delete pass). args: same as `hard_delete_old_records`.
 pub(in crate::admin_dispatch) async fn run_full(args: JsonValue) -> GrimoireResponse<JsonValue> {

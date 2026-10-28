@@ -1086,6 +1086,13 @@ async fn fetch_video_track(pool: &sqlx::SqlitePool, video_id: &str) -> GrimoireR
                   v.duration_seconds,
                   b.id             as "media_blob_id?",
                   b.local_path,
+                  (SELECT r.local_path FROM media_blobz r
+                    WHERE r.parent_blob_id = b.id
+                      AND r.blob_type = 'rendition'
+                      AND r.deleted_at IS NULL
+                      AND r.local_path IS NOT NULL
+                    ORDER BY r.created_at DESC
+                    LIMIT 1) as "rendition_path?: String",
                   v.poster_blob_id as "art_blob_id?",
                   COALESCE(vs.title, ar.name) as "artist?: String"
              FROM videoz v
@@ -1114,6 +1121,15 @@ async fn fetch_video_track(pool: &sqlx::SqlitePool, video_id: &str) -> GrimoireR
         .ok_or_else(|| GrimoireError::ProcessingFailed {
             message: format!("radio: video {video_id} has no local_path"),
         })?;
+
+    // prefer the transcoded rendition when one exists on disk: it's
+    // already h264/aac and, with the default rendition args, has the
+    // regular keyframes that let the broadcaster copy the video stream
+    // instead of re-encoding it (see `radio::source_probe`).
+    let local_path = match row.rendition_path {
+        Some(path) if tokio::fs::metadata(&path).await.is_ok_and(|m| m.len() > 0) => path,
+        _ => local_path,
+    };
 
     let duration_ms = row
         .duration_seconds

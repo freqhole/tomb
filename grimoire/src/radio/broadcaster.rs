@@ -21,7 +21,9 @@ use crate::radio::messages::{TimelineCurrentItem, TimelineMessage, TimelineUpcom
 use crate::radio::playlist::{
     fetch_track, pick_for_station, pick_for_station_after, pick_for_station_force_new_album,
 };
+use crate::radio::resume_point::{self, ResumePlan, StationSnapshot, TrackSeqIndex};
 use crate::radio::stations;
+use crate::radio::warmup;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -271,7 +273,27 @@ pub struct Broadcaster {
     /// be honored - there's a real track about to start normally, not a
     /// station waiting idle for someone to reconnect.
     awaiting_listener: AtomicBool,
+    /// estimated instant a listener who's been keeping up runs out of
+    /// already-delivered media from the previous track - i.e. how much
+    /// cushion the next track's warm-up can spend before it becomes dead
+    /// air. set when a track finishes emitting, cleared whenever the
+    /// station goes idle (nobody is mid-stream any more). see
+    /// `warmup::boundary_warmup_budget`.
+    listener_cushion_until: std::sync::Mutex<Option<Instant>>,
+    /// seq -> track position for the current (or last) track, so a
+    /// paused listener's exact chunk can be turned back into a position.
+    /// kept through idle so it still resolves after give-up.
+    resume_index: std::sync::Mutex<Option<TrackSeqIndex>>,
+    /// set (to the frozen track's init seq) when a resuming listener's
+    /// chunk has already rolled out of the ring: the freeze loop abandons
+    /// that encode, clears init + ring, then clears this, and `run()`
+    /// restarts the track at `pending_resume`'s position.
+    rewind_for_init_seq: std::sync::Mutex<Option<u32>>,
 }
+
+/// how long a resuming tune waits for the frozen track to be abandoned
+/// before subscribing anyway.
+const REWIND_WAIT: Duration = Duration::from_secs(3);
 
 impl Broadcaster {
     fn new(station_id: String, content_mode: String) -> Self {
@@ -301,6 +323,9 @@ impl Broadcaster {
             plan_item_seq: AtomicU64::new(0),
             pending_resume: std::sync::Mutex::new(None),
             awaiting_listener: AtomicBool::new(false),
+            listener_cushion_until: std::sync::Mutex::new(None),
+            resume_index: std::sync::Mutex::new(None),
+            rewind_for_init_seq: std::sync::Mutex::new(None),
         }
     }
 
@@ -583,15 +608,109 @@ impl Broadcaster {
     /// of `run()`'s loop, right after a fresh listener ends an idle wait -
     /// the one and only place a hint can ever be used.
     fn take_pending_resume(&self) -> Option<ResumeHint> {
+        *self.rewind_for_init_seq.lock().unwrap() = None;
         self.pending_resume.lock().unwrap().take()
+    }
+
+    /// work out where a resuming listener should pick back up (see
+    /// `radio::resume_point`). call BEFORE `join()`, then subscribe with
+    /// `subscribe_from(returned seq)`. returns the media seq catchup
+    /// should start at when the paused chunk is still in the ring.
+    pub async fn prepare_resume(&self, hint: Option<ResumeHint>) -> Option<u32> {
+        let hint = hint?;
+        let snapshot = {
+            let s = self.state.read().await;
+            StationSnapshot {
+                idle: self.awaiting_listener.load(Ordering::Relaxed),
+                listener_count: self.listener_count(),
+                current_init_seq: s.current_init.as_ref().map(|_| s.init_seq),
+                oldest_ring_seq: s.ring.front().map(|c| c.seq),
+            }
+        };
+        let plan = {
+            let index = self.resume_index.lock().unwrap();
+            resume_point::plan_resume(Some(&hint), index.as_ref(), snapshot)
+        };
+        info!(
+            "[radio-broadcaster] station {} resume plan {plan:?} for {:?} {} (init_seq={:?} seq={:?})",
+            self.station_id, hint.kind, hint.item_id, hint.init_seq, hint.seq
+        );
+        match plan {
+            ResumePlan::JoinLive => None,
+            ResumePlan::FromRing { seq } => Some(seq),
+            ResumePlan::ColdStart { position_seconds } => {
+                self.set_pending_resume_if_idle(ResumeHint {
+                    position_seconds,
+                    ..hint
+                });
+                None
+            }
+            ResumePlan::Rewind { position_seconds } => {
+                *self.pending_resume.lock().unwrap() = Some(ResumeHint {
+                    position_seconds,
+                    ..hint
+                });
+                *self.rewind_for_init_seq.lock().unwrap() = snapshot.current_init_seq;
+                None
+            }
+        }
+    }
+
+    /// true when the freeze loop should abandon the track published with
+    /// `init_seq` because a resuming listener asked to rewind it.
+    fn rewind_requested_for(&self, init_seq: u32) -> bool {
+        *self.rewind_for_init_seq.lock().unwrap() == Some(init_seq)
+    }
+
+    /// how much already-delivered media continuing listeners still have
+    /// in hand right now, if anyone is mid-stream. `None` means there's
+    /// no previous track to protect (fresh start, idle station, or nobody
+    /// tuned in), so a full warm-up costs no one anything.
+    fn remaining_listener_cushion(&self) -> Option<Duration> {
+        if self.listener_count() == 0 {
+            return None;
+        }
+        let until = (*self.listener_cushion_until.lock().unwrap())?;
+        Some(until.saturating_duration_since(Instant::now()))
+    }
+
+    fn set_listener_cushion_until(&self, until: Option<Instant>) {
+        *self.listener_cushion_until.lock().unwrap() = until;
     }
 
     /// take a live snapshot for a new listener.
     pub async fn subscribe(self: &Arc<Self>) -> Subscription {
+        self.subscribe_from(None).await
+    }
+
+    /// like `subscribe`, but catchup starts at media seq `from_seq` (see
+    /// `prepare_resume`). also waits out a pending rewind so a resuming
+    /// listener never gets the abandoned track's stale init + ring.
+    pub async fn subscribe_from(self: &Arc<Self>, from_seq: Option<u32>) -> Subscription {
+        let deadline = Instant::now() + REWIND_WAIT;
+        while self.rewind_for_init_seq.lock().unwrap().is_some() {
+            if Instant::now() >= deadline {
+                // the freeze loop never picked it up (it moved on in the
+                // meantime) - drop both so they can't fire later.
+                warn!(
+                    "[radio-broadcaster] station {} rewind was not honored within {REWIND_WAIT:?}; joining live",
+                    self.station_id
+                );
+                *self.rewind_for_init_seq.lock().unwrap() = None;
+                *self.pending_resume.lock().unwrap() = None;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
         let state = self.state.read().await;
         Subscription {
             init: state.current_init.clone(),
-            catchup: state.ring.iter().cloned().collect(),
+            catchup: state
+                .ring
+                .iter()
+                .filter(|c| from_seq.is_none_or(|from| c.seq >= from))
+                .cloned()
+                .collect(),
             now_playing: state.now_playing.clone(),
             next_seq: self.next_seq.load(Ordering::Relaxed),
             init_seq: state.init_seq,
@@ -913,6 +1032,9 @@ impl Broadcaster {
     /// listening) - this reads as the stream visibly "looping back" to
     /// the pause point right as the real resumed content kicks in.
     async fn announce_idle(&self, title: &str) {
+        // nobody is mid-stream through an idle gap, so the next track has
+        // no previous-track cushion to protect.
+        self.set_listener_cushion_until(None);
         let init_seq = self.state.read().await.init_seq;
         let placeholder = Arc::new(NowPlaying {
             title: title.to_string(),
@@ -1111,6 +1233,23 @@ impl Broadcaster {
             let effective_args = synthesized_args
                 .as_deref()
                 .or(station_encode_args.as_deref());
+            // a video track on the node-default re-encode template whose
+            // source is already stream-ready h264 (normally its
+            // `compatible` rendition - see `playlist::fetch_video_track`)
+            // just has its video copied instead: no real-time encode to
+            // fall behind. a station's own explicit override is left
+            // exactly as configured.
+            let copy_video = synthesized_args.is_none()
+                && is_video_capable(&self.content_mode)
+                && track.kind == crate::radio::playlist::RadioItemKind::Video
+                && station_encode_args.as_deref() == Some(radio_cfg.video_encode_args.as_str())
+                && crate::radio::source_probe::probe_copy_verdict(&track.local_path).await
+                    == crate::radio::source_probe::CopyVerdict::Copy;
+            let effective_args = if copy_video {
+                Some(radio_cfg.video_copy_encode_args.as_str())
+            } else {
+                effective_args
+            };
             BufferedEncoder::start(
                 &track.local_path,
                 effective_args,
@@ -1153,7 +1292,13 @@ impl Broadcaster {
             warmup_target_chunks * frag_ms * ENCODER_WARMUP_TIMEOUT_MULTIPLE as u64,
         )
         .max(ENCODER_WARMUP_TIMEOUT_FLOOR);
+        // at a boundary with listeners still playing out the previous
+        // track, cap the wait at a share of their remaining cushion -
+        // see `warmup::boundary_warmup_budget`.
+        let listener_cushion = self.remaining_listener_cushion();
+        let warmup_budget = warmup::boundary_warmup_budget(warmup_timeout, listener_cushion);
         let warmup_started = Instant::now();
+        let warmup_deadline = warmup_started + warmup_budget;
         // a track shorter than `warmup_target_chunks * frag_ms` of real
         // duration can NEVER reach the target - without this check that
         // case wastes the entire `warmup_timeout` every single time
@@ -1162,12 +1307,19 @@ impl Broadcaster {
         // means the encoder has hit clean EOF/error and nothing more is
         // coming, so whatever's ready right now is genuinely final.
         while (encoder.queued_chunks() as u64) < warmup_target_chunks
-            && warmup_started.elapsed() < warmup_timeout
+            && Instant::now() < warmup_deadline
             && !encoder.is_finished()
         {
             tokio::time::sleep(ENCODER_WARMUP_POLL_INTERVAL).await;
         }
         let warmup_elapsed = warmup_started.elapsed();
+        if let Some(cushion) = listener_cushion {
+            info!(
+                "[radio-broadcaster] station {} warm-up for '{}' capped at {warmup_budget:?} \
+                 to protect continuing listeners' ~{cushion:?} cushion",
+                self.station_id, track.title
+            );
+        }
         let warmup_chunks_ready = encoder.queued_chunks() as u64;
         if warmup_chunks_ready >= warmup_target_chunks {
             info!(
@@ -1184,6 +1336,16 @@ impl Broadcaster {
                  finished with only {warmup_chunks_ready}/{warmup_target_chunks} chunks total \
                  after {warmup_elapsed:?} (init took {time_to_init_chunk:?}) - track is shorter \
                  than the warm-up target, not an encode-throughput issue",
+                self.station_id, track.title
+            );
+        } else if listener_cushion.is_some() && warmup_elapsed < warmup_timeout {
+            // ended on the boundary budget, not the throughput timeout -
+            // publishing now (with whatever's ready) beats letting the
+            // listeners' remaining cushion run dry while waiting.
+            info!(
+                "[radio-broadcaster] station {} publishing '{}' after {warmup_elapsed:?} with \
+                 {warmup_chunks_ready}/{warmup_target_chunks} chunks ready to keep continuing \
+                 listeners fed",
                 self.station_id, track.title
             );
         } else {
@@ -1224,6 +1386,12 @@ impl Broadcaster {
             s.ring.clear();
             s.now_playing = now_playing.clone();
         }
+        *self.resume_index.lock().unwrap() = Some(TrackSeqIndex::new(
+            init_seq,
+            track.kind,
+            &track.song_id,
+            track.start_position_seconds,
+        ));
 
         let _ = self.meta_tx.send(MetaUpdate::Meta {
             now_playing: now_playing.clone(),
@@ -1347,6 +1515,7 @@ impl Broadcaster {
         // RETRY_PAUSE — the listener has already been on this station for
         // a while, no point making them wait an extra 3s.
         let mut skipped_by_admin = false;
+        let mut rewound = false;
         let mid_song_err = loop {
             if self.listener_count() == 0 {
                 // freeze rather than keep pacing in real time: a solo
@@ -1417,6 +1586,26 @@ impl Broadcaster {
                     "[radio-broadcaster] station {} listener reconnected after {:?} frozen; resuming '{}' at the exact frozen position",
                     self.station_id, freeze_elapsed, track.title
                 );
+            }
+
+            // a resuming listener's paused chunk already rolled out of the
+            // ring: drop this encode and let `run()` restart the track at
+            // their exact position (`pending_resume`). clear init + ring
+            // first so `subscribe_from` can't hand out the stale tail.
+            if self.rewind_requested_for(init_seq) {
+                rewound = true;
+                encoder.interrupt();
+                {
+                    let mut s = self.state.write().await;
+                    s.current_init = None;
+                    s.ring.clear();
+                }
+                *self.rewind_for_init_seq.lock().unwrap() = None;
+                info!(
+                    "[radio-broadcaster] station {} rewinding '{}' to a resuming listener's position",
+                    self.station_id, track.title
+                );
+                break None;
             }
 
             let next = tokio::select! {
@@ -1623,6 +1812,11 @@ impl Broadcaster {
                             s.ring.pop_front();
                         }
                     }
+                    if let Some(index) = self.resume_index.lock().unwrap().as_mut() {
+                        if index.init_seq() == init_seq {
+                            index.record(seq, this_chunk_ms);
+                        }
+                    }
                     let _ = self.chunk_tx.send(arc);
                     media_chunks_emitted += 1;
                     cumulative_media_ms += this_chunk_ms;
@@ -1630,6 +1824,20 @@ impl Broadcaster {
                 Err(e) => break Some(e),
             }
         };
+
+        // a listener who's been keeping up plays this track's media in
+        // real time from (roughly) `started`, shifted by any freeze - the
+        // same shift `pace_origin` carries - so they run dry once
+        // `cumulative_media_ms` of it has played. only a natural finish
+        // leaves them anything to protect: a skip flushes their buffers,
+        // and a mid-song failure leaves the cushion unknown.
+        let natural_finish = mid_song_err.is_none() && !skipped_by_admin && !rewound;
+        self.set_listener_cushion_until(natural_finish.then(|| {
+            pace_origin
+                + Duration::from_millis(
+                    warmup_chunks_ready * frag_ms + STEADY_STATE_LEAD_MS + cumulative_media_ms,
+                )
+        }));
 
         if let Some(pid) = play_id {
             let dur = started.elapsed().as_millis() as i64;
@@ -1654,6 +1862,10 @@ impl Broadcaster {
                 "[radio-broadcaster] station {} admin-skipped track: {}",
                 self.station_id, track.title
             );
+            return Ok(());
+        }
+
+        if rewound {
             return Ok(());
         }
 
@@ -2144,6 +2356,87 @@ mod tests {
         assert!(sub.catchup.is_empty());
     }
 
+    /// a frozen station (solo listener paused) with track init 10 and
+    /// media chunks 11..=40 recorded, of which only 31..=40 are still in
+    /// the ring.
+    async fn frozen_station() -> Arc<Broadcaster> {
+        let bc = Arc::new(test_broadcaster());
+        {
+            let mut s = bc.state.write().await;
+            s.current_init = Some(dummy_init_chunk(10));
+            s.init_seq = 10;
+            for seq in 31..=40 {
+                s.ring.push_back(dummy_media_chunk(seq));
+            }
+        }
+        let mut index = TrackSeqIndex::new(10, RadioItemKind::Video, "v1", None);
+        for seq in 11..=40 {
+            index.record(seq, 1000);
+        }
+        *bc.resume_index.lock().unwrap() = Some(index);
+        bc
+    }
+
+    fn paused_at(seq: u32, offset_ms: u64) -> ResumeHint {
+        ResumeHint {
+            kind: RadioItemKind::Video,
+            item_id: "v1".to_string(),
+            position_seconds: 0.0,
+            init_seq: Some(10),
+            seq: Some(seq),
+            offset_ms: Some(offset_ms),
+        }
+    }
+
+    // the "resume always goes back" bug: catchup used to be the whole
+    // ring, and the client started at its oldest chunk - not where it
+    // paused.
+    #[tokio::test]
+    async fn resume_into_frozen_ring_starts_catchup_at_the_paused_chunk() {
+        let bc = frozen_station().await;
+        let from = bc.prepare_resume(Some(paused_at(35, 400))).await;
+        assert_eq!(from, Some(35));
+        let sub = bc.subscribe_from(from).await;
+        assert_eq!(sub.init.map(|c| c.seq), Some(10));
+        let seqs: Vec<u32> = sub.catchup.iter().map(|c| c.seq).collect();
+        assert_eq!(seqs, (35..=40).collect::<Vec<_>>());
+        assert!(bc.pending_resume.lock().unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn resume_with_evicted_chunk_requests_a_rewind_to_the_exact_position() {
+        let bc = frozen_station().await;
+        assert_eq!(bc.prepare_resume(Some(paused_at(15, 500))).await, None);
+        assert!(bc.rewind_requested_for(10));
+        let pending = bc.pending_resume.lock().unwrap().clone().unwrap();
+        // chunk 15 starts 4s into the track (11..=14 are 1s each).
+        assert_eq!(pending.position_seconds, 4.5);
+        // `run()` consuming the hint also retires the rewind request.
+        assert!(bc.take_pending_resume().is_some());
+        assert!(!bc.rewind_requested_for(10));
+    }
+
+    #[tokio::test]
+    async fn resume_while_others_are_listening_joins_live() {
+        let bc = frozen_station().await;
+        bc.listener_count.store(2, Ordering::Relaxed);
+        assert_eq!(bc.prepare_resume(Some(paused_at(15, 0))).await, None);
+        assert!(!bc.rewind_requested_for(10));
+        assert!(bc.pending_resume.lock().unwrap().is_none());
+        let sub = bc.subscribe_from(None).await;
+        assert_eq!(sub.catchup.len(), 10);
+    }
+
+    #[tokio::test]
+    async fn resume_after_give_up_cold_starts_at_the_exact_position() {
+        let bc = frozen_station().await;
+        bc.announce_idle("waiting for listeners…").await;
+        bc.awaiting_listener.store(true, Ordering::Relaxed);
+        assert_eq!(bc.prepare_resume(Some(paused_at(15, 250))).await, None);
+        let pending = bc.take_pending_resume().unwrap();
+        assert_eq!(pending.position_seconds, 4.25);
+    }
+
     // `IdleGuard` must reset the flag on every exit path, not just a
     // clean fall-through - `wait_for_listener`/`wait_for_request` both
     // have several early `return`s between where the guard is created
@@ -2213,6 +2506,7 @@ mod tests {
             kind: RadioItemKind::Song,
             item_id: "song-1".to_string(),
             position_seconds: 42.0,
+            ..Default::default()
         });
 
         assert!(
@@ -2231,6 +2525,7 @@ mod tests {
             kind: RadioItemKind::Video,
             item_id: "video-1".to_string(),
             position_seconds: 68.3,
+            ..Default::default()
         });
 
         let stored = bc.pending_resume.lock().unwrap().take();
@@ -2248,6 +2543,7 @@ mod tests {
             kind: RadioItemKind::Song,
             item_id: "song-2".to_string(),
             position_seconds: 10.0,
+            ..Default::default()
         });
 
         assert!(bc.take_pending_resume().is_some());

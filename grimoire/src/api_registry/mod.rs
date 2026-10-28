@@ -451,6 +451,14 @@ pub mod type_registry {
             "LibraryRenditionSettings",
         );
         registered.insert("LibraryRenditionSettings".to_string());
+        gen.add_schema::<crate::admin_dispatch::types::maintenance::RetranscodeVideoRenditionsRequest>(
+            "RetranscodeVideoRenditionsRequest",
+        );
+        registered.insert("RetranscodeVideoRenditionsRequest".to_string());
+        gen.add_schema::<crate::admin_dispatch::types::maintenance::RetranscodeVideoRenditionsSummary>(
+            "RetranscodeVideoRenditionsSummary",
+        );
+        registered.insert("RetranscodeVideoRenditionsSummary".to_string());
         gen.add_schema::<crate::admin_dispatch::types::library::LibraryScanResponse>(
             "LibraryScanResponse",
         );

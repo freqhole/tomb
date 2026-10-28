@@ -406,14 +406,12 @@ pub async fn radio_tune_local(
         .unwrap_or_else(|| RADIO_CODEC.to_string());
 
     // join *before* snapshotting so listener_count in Hello reflects us.
-    // resume hint (if any) is registered before join() for the same
-    // pre-join-idle-check reason the iroh path (`radio::handler::
-    // run_session`) registers it before its own `ListenerGuard::new`.
-    if let Some(hint) = resume_hint {
-        bc.set_pending_resume_if_idle(hint);
-    }
+    // resume hint (if any) is planned before join() for the same
+    // pre-join idle/frozen-check reason the iroh path (`radio::handler::
+    // run_session`) plans it before its own `ListenerGuard::new`.
+    let resume_from_seq = bc.prepare_resume(resume_hint).await;
     let new_count = bc.join();
-    let sub = bc.subscribe().await;
+    let sub = bc.subscribe_from(resume_from_seq).await;
 
     let hello = ControlMessage::Hello(HelloMessage {
         codec: codec.clone(),

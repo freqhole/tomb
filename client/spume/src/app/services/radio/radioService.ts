@@ -12,6 +12,7 @@
 import { batch, createSignal } from "solid-js";
 import type { PublicNowPlaying } from "@freqhole/api-client";
 import type { RadioHandleLike, RadioResumeHint } from "@freqhole/api-client";
+import { AppendedChunkLog } from "./radioResumePoint";
 import { getMiddenNode, isCharnelAvailable } from "../../api/client";
 import { tuneRadioCharnel, tuneRadioCharnelLocal } from "./charnelRadioAdapter";
 import { registerStopRadio, registerVolumeMirror, stopMusicForRadio } from "../playbackCoordinator";
@@ -42,6 +43,14 @@ import {
   fetchRadioFavorite,
   setRadioFavoriteForPeer,
 } from "./radioFavorite";
+import {
+  aheadOfPlayheadS,
+  type BufferedRange,
+  DeliveryRateTracker,
+  holdIsWaitingOnAGap,
+  isBenignStalledEvent,
+  UnderrunRebufferPolicy,
+} from "./radioUnderrunPolicy";
 
 // queue-mode adapter api injected at module init via
 // `registerQueueAdapter`. avoids a static import cycle
@@ -107,6 +116,14 @@ const hasMSE =
 // misdescribe reality whenever `buffered` holds more than one range (a
 // gap), so every stall/recovery/eviction log below includes this instead
 // of guessing from the envelope alone.
+function bufferedRangesOf(ranges: TimeRanges): BufferedRange[] {
+  const out: BufferedRange[] = [];
+  for (let i = 0; i < ranges.length; i++) {
+    out.push([ranges.start(i), ranges.end(i)]);
+  }
+  return out;
+}
+
 function describeBufferedRanges(ranges: TimeRanges): string {
   if (ranges.length === 0) return "(empty)";
   const parts: string[] = [];
@@ -137,6 +154,12 @@ interface RadioSession {
   // station just never gets real frames painted to it. see getRadioVideoElement.
   audio: HTMLVideoElement;
   leave: () => void;
+  /** the exact chunk being played right now (see radioResumePoint.ts),
+   *  plus a best-effort track position for servers that can't resolve it. */
+  resumePosition: () => Pick<
+    RadioResumeHint,
+    "init_seq" | "seq" | "offset_ms" | "position_seconds"
+  > | null;
 }
 
 // when the user pauses radio we fully drop the iroh session (so the
@@ -688,6 +711,12 @@ export function radioPause(): void {
   // `song_id`) - there's nothing meaningful to resume into.
   const np = nowPlaying();
   const songId = np?.song_id?.trim();
+  let position: ReturnType<RadioSession["resumePosition"]> = null;
+  try {
+    position = activeSession.resumePosition();
+  } catch (e) {
+    console.warn("[radio] pause: couldn't read the resume position:", e);
+  }
   pausedContext = {
     peerAddr: activeSession.peerAddr,
     stationId: activeSession.stationId,
@@ -697,7 +726,12 @@ export function radioPause(): void {
       ? {
           kind: np?.kind === "video" ? "video" : "song",
           item_id: songId,
-          position_seconds: elapsedMs() / 1000,
+          // `elapsedMs` is total listening time for the session, not a
+          // track position - never send it here.
+          position_seconds: position?.position_seconds ?? 0,
+          ...(position?.seq !== undefined
+            ? { init_seq: position.init_seq, seq: position.seq, offset_ms: position.offset_ms }
+            : {}),
         }
       : null,
   };
@@ -1203,6 +1237,21 @@ export async function tuneIntoRadio(
   // ahead of it - see drain()'s doc comment on this).
   const queue: { bytes: Uint8Array; seq: number; isInit: boolean }[] = [];
   let seekedToLive = false;
+  // which chunk sits where on the timeline, so a pause can report the
+  // exact chunk being played (see radioResumePoint.ts).
+  const appendedChunks = new AppendedChunkLog();
+  let appendingInitSeq: number | null = null;
+  // resuming into a still-frozen station replays from the paused chunk;
+  // land at the paused offset inside it rather than its start.
+  let resumeAnchor =
+    opts.resumeHint?.init_seq != null && opts.resumeHint.seq != null
+      ? {
+          initSeq: opts.resumeHint.init_seq,
+          seq: opts.resumeHint.seq,
+          offsetMs: opts.resumeHint.offset_ms ?? 0,
+        }
+      : null;
+  let resumeSeekTargetS: number | null = null;
   let chunkPlayStarted = false;
   let chunkAutoplayBlocked = false;
 
@@ -1251,7 +1300,11 @@ export async function tuneIntoRadio(
   // temporary, for tracking down the "stalls that never recover" report.
   const mediaGrowthSamplesMs: number[] = [];
   let mediaGrowthSumMs = 0;
-  let pendingGrowthMeasurement: { bufferedEndBeforeS: number } | null = null;
+  let pendingGrowthMeasurement: {
+    bufferedEndBeforeS: number;
+    seq: number;
+    initSeq: number | null;
+  } | null = null;
   let diagnosticsTick: number | null = null;
   const pushChunkGapSample = (gapMs: number) => {
     chunkGapSamplesMs.push(gapMs);
@@ -1302,6 +1355,11 @@ export async function tuneIntoRadio(
           // of blending into one set of stats.
           kind: nowPlaying()?.kind ?? "unknown",
           stall_count: stallCount,
+          underrun_hold_count: underrunHoldCount,
+          delivery_ratio: (() => {
+            const r = deliveryRate.ratio();
+            return r === null ? null : Math.round(r * 100) / 100;
+          })(),
           resync_count: resyncCount,
           sourcebuffer_reset_count: sourceBufferResetCount,
           quota_error_count: quotaErrorCount,
@@ -1357,6 +1415,17 @@ export async function tuneIntoRadio(
       const grownS =
         sb.buffered.end(sb.buffered.length - 1) - pendingGrowthMeasurement.bufferedEndBeforeS;
       pushMediaGrowthSample(grownS * 1000);
+      if (pendingGrowthMeasurement.initSeq !== null) {
+        appendedChunks.record({
+          initSeq: pendingGrowthMeasurement.initSeq,
+          seq: pendingGrowthMeasurement.seq,
+          startS: pendingGrowthMeasurement.bufferedEndBeforeS,
+          endS: sb.buffered.end(sb.buffered.length - 1),
+        });
+        if (resumeAnchor && resumeSeekTargetS === null) {
+          resumeSeekTargetS = appendedChunks.seekTargetFor(resumeAnchor);
+        }
+      }
       // per-chunk (not just 30s-averaged) visibility into a single
       // short fragment - temporary, for tuning docs/radio-buffering-
       // retune-plan.md's chronic-stall investigation. `ASSUMED_FRAG_MS`
@@ -1389,7 +1458,9 @@ export async function tuneIntoRadio(
       // backlog was still queued ahead of this chunk at the time -
       // exactly the case a burst of catchup chunks creates.
       if (next.isInit) {
+        appendingInitSeq = next.seq;
         const boundaryTime = sb.buffered.length > 0 ? sb.buffered.end(sb.buffered.length - 1) : 0;
+        appendedChunks.recordTrackStart(next.seq, boundaryTime);
         initChunkBoundaries.set(next.seq, boundaryTime);
         if (initChunkBoundaries.size > 50) {
           const oldestKey = initChunkBoundaries.keys().next().value;
@@ -1416,6 +1487,8 @@ export async function tuneIntoRadio(
       if (!next.isInit) {
         pendingGrowthMeasurement = {
           bufferedEndBeforeS: sb.buffered.length > 0 ? sb.buffered.end(sb.buffered.length - 1) : 0,
+          seq: next.seq,
+          initSeq: appendingInitSeq,
         };
       }
       try {
@@ -1496,7 +1569,13 @@ export async function tuneIntoRadio(
       setConnectPhase(`buffering ${bufferedS.toFixed(1)}s / ${targetS.toFixed(1)}s`);
       const ready = bufferedS >= targetS;
       if (ready) {
-        const target = start;
+        const target =
+          resumeSeekTargetS !== null && resumeSeekTargetS >= start && resumeSeekTargetS < end
+            ? resumeSeekTargetS
+            : start;
+        // only the first landing after a resume uses the paused offset.
+        resumeAnchor = null;
+        resumeSeekTargetS = null;
         if (audio.currentTime < target || audio.currentTime > end) {
           audio.currentTime = target;
         }
@@ -1706,9 +1785,15 @@ export async function tuneIntoRadio(
   // `runWatchdog`'s two recovery branches below, both of which now just
   // re-anchor to `sb.buffered.start(0)`.
   let stallCount = 0;
-  const onStall = () => {
+  // underruns at the live edge are handled by holding playback until a
+  // real lead has rebuffered (see radioUnderrunPolicy.ts) instead of
+  // resuming the instant each fragment lands - which, with a broadcaster
+  // delivering below real time, was an endless "play 3s, stall 3s" loop.
+  const underrunPolicy = new UnderrunRebufferPolicy();
+  const deliveryRate = new DeliveryRateTracker();
+  let underrunHoldCount = 0;
+  const onStall = (e: Event) => {
     if (!isActiveTune()) return;
-    stallCount += 1;
     // buffer state at the EXACT moment of the stall - distinguishes
     // "stalled because the buffer was genuinely thin" (aheadS near 0)
     // from "stalled for some other reason despite plenty being
@@ -1718,6 +1803,10 @@ export async function tuneIntoRadio(
       sb && sb.buffered.length > 0
         ? sb.buffered.end(sb.buffered.length - 1) - audio.currentTime
         : null;
+    // `stalled` just means "no network bytes for ~3s", which a paced live
+    // stream does between fragments all the time - not a playback stall.
+    if (isBenignStalledEvent(e.type, aheadS, audio.readyState)) return;
+    stallCount += 1;
     if (aheadS !== null && (minAheadS === null || aheadS < minAheadS)) {
       minAheadS = aheadS;
     }
@@ -1805,6 +1894,26 @@ export async function tuneIntoRadio(
     });
     scheduleReconnect(reconnectPeer, reconnectOpts, "no data received");
   };
+  // the playhead caught up to the live edge: pause (quietly - see the
+  // "pause" listener's hold check) until the policy's target lead has
+  // rebuffered, rather than resuming on every fragment that lands.
+  const beginUnderrunHold = (t: number, aheadS: number) => {
+    const ratio = deliveryRate.ratio();
+    const hold = underrunPolicy.beginHold(Date.now(), ratio);
+    underrunHoldCount += 1;
+    console.info(
+      `[radio] underrun at the live edge (t=${t.toFixed(2)}s, aheadS=${aheadS.toFixed(2)}): ` +
+        `holding playback until ${hold.targetS.toFixed(1)}s is buffered ` +
+        `(underrun #${hold.underrunNumber} recently, delivery ` +
+        `${ratio === null ? "unknown" : `~${ratio.toFixed(2)}x`} real time)`
+    );
+    try {
+      audio.pause();
+    } catch (e) {
+      console.warn("[radio] underrun hold pause failed:", e);
+      underrunPolicy.endHold();
+    }
+  };
   const runWatchdog = () => {
     if (!isActiveTune()) return;
     const wallClockNow = Date.now();
@@ -1845,6 +1954,29 @@ export async function tuneIntoRadio(
     if (!chunkPlayStarted || chunkAutoplayBlocked) return;
     const now = Date.now();
     const t = audio.currentTime;
+    const ranges = bufferedRangesOf(sb.buffered);
+    if (ranges.length > 0) deliveryRate.record(now, ranges[ranges.length - 1][1]);
+    const hold = underrunPolicy.hold;
+    if (hold) {
+      if (holdIsWaitingOnAGap(ranges, t)) {
+        // lead can never build "ahead of the playhead" from here - drop
+        // the hold and let the gap recovery below relocate the playhead
+        // (it re-arms play() on its way out).
+        underrunPolicy.endHold();
+      } else {
+        const aheadS = aheadOfPlayheadS(ranges, t);
+        if (!underrunPolicy.shouldResume(aheadS, now)) return;
+        console.info(
+          `[radio] underrun hold over: ${aheadS.toFixed(1)}s buffered ` +
+            `(target ${hold.targetS.toFixed(1)}s) after ${((now - hold.startedAtMs) / 1000).toFixed(1)}s, resuming`
+        );
+        underrunPolicy.endHold();
+        lastWatchdogTime = t;
+        lastWatchdogProgressMs = now;
+        void audio.play().catch(() => {});
+        return;
+      }
+    }
     if (t > lastWatchdogTime + 0.02) {
       lastWatchdogTime = t;
       lastWatchdogProgressMs = now;
@@ -1917,8 +2049,9 @@ export async function tuneIntoRadio(
       // existing buffered margin for continued playback.
       const aheadS = containingEnd - t;
       if (aheadS < MIN_RESUME_AHEAD_S) {
-        // not enough of a real cushion yet to resume without immediately
-        // re-stalling — hold off this tick and let the buffer build.
+        // not enough of a real cushion to resume without immediately
+        // re-stalling - this is an underrun at the live edge, not a wedge.
+        if (nextRangeStart === null) beginUnderrunHold(t, aheadS);
         return;
       }
       seekTarget = Math.min(containingEnd, t + STALL_RECOVERY_NUDGE_S);
@@ -1935,7 +2068,11 @@ export async function tuneIntoRadio(
       seekTarget = nextRangeStart;
     }
     // else: genuinely caught up to the live edge with nothing else
-    // buffered anywhere yet - correctly do nothing and let it grow.
+    // buffered anywhere yet - hold until a real lead has rebuffered.
+    if (seekTarget === null) {
+      beginUnderrunHold(t, containingEnd !== null ? containingEnd - t : 0);
+      return;
+    }
     if (seekTarget !== null && Math.abs(seekTarget - t) > 0.05) {
       // small ahead-of-playhead margin (within the CONTAINING range,
       // not the overall envelope) means the buffer had genuinely run
@@ -2003,6 +2140,8 @@ export async function tuneIntoRadio(
     });
     audio.addEventListener("pause", () => {
       console.info("[radio] media element event: pause");
+      // our own underrun hold (see runWatchdog) - not an external pause.
+      if (underrunPolicy.hold) return;
       // a genuine external pause (e.g. the native fullscreen video
       // overlay's own pause button, which calls `.pause()` on this
       // element directly - entirely bypassing radioPause()/the OS media
@@ -2046,6 +2185,9 @@ export async function tuneIntoRadio(
    * time. setting `timestampOffset` is the spec-sanctioned way to
    * restart a "sequence" mode SourceBuffer's timeline in place. */
   const rebuildSourceBuffer = () => {
+    appendedChunks.clear();
+    appendingInitSeq = null;
+    pendingGrowthMeasurement = null;
     // the buffered timeline is being torn down/reset, so every stored
     // boundary position no longer means anything - apply whatever "now
     // playing" swaps were waiting on them now, in order, rather than
@@ -2829,6 +2971,16 @@ export async function tuneIntoRadio(
     stationName: opts.stationName ?? null,
     isLocal: useLocal,
     audio,
+    resumePosition: () => {
+      const point = appendedChunks.resumePointAt(audio.currentTime);
+      if (!point) return null;
+      return {
+        init_seq: point.initSeq,
+        seq: point.seq,
+        offset_ms: point.offsetMs,
+        position_seconds: appendedChunks.trackPositionAt(point.initSeq, audio.currentTime),
+      };
+    },
     leave: () => {
       try {
         handle.leave();

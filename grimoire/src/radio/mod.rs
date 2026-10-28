@@ -20,7 +20,10 @@ pub mod protocol;
 pub mod queue_events;
 pub mod radio_protocol;
 pub mod requests;
+pub mod resume_point;
+pub mod source_probe;
 pub mod stations;
+pub mod warmup;
 
 pub use art::{resolve_track_art, ResolvedArt};
 pub use broadcaster::{

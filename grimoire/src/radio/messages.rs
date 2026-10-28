@@ -107,19 +107,31 @@ pub struct TuneMessage {
     /// still mid-track (frozen within its own short grace window, or
     /// genuinely still live for other listeners), this is ignored and the
     /// listener just joins wherever the station already is, same as any
-    /// other tune. the client tracks its own position; the broadcaster
-    /// doesn't need to remember anything itself between give-up and a
-    /// later resume.
+    /// other tune. newer clients also send the exact chunk they were
+    /// playing (`init_seq`/`seq`/`offset_ms`), which lets a still-frozen
+    /// station replay from that chunk (or rewind to it) instead of from
+    /// the oldest chunk in its ring - see `radio::resume_point`.
     #[serde(default)]
     pub resume_hint: Option<ResumeHint>,
 }
 
 /// see [`TuneMessage::resume_hint`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ResumeHint {
     pub kind: crate::radio::playlist::RadioItemKind,
     pub item_id: String,
+    /// best-effort track position, used only when the exact chunk below
+    /// can't be resolved (older clients only send this).
     pub position_seconds: f64,
+    /// init seq of the track the listener was playing when it paused.
+    #[serde(default)]
+    pub init_seq: Option<u32>,
+    /// seq of the media chunk the listener was playing when it paused.
+    #[serde(default)]
+    pub seq: Option<u32>,
+    /// how far into that chunk the listener was.
+    #[serde(default)]
+    pub offset_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

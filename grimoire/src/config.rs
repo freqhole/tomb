@@ -489,9 +489,17 @@ fn default_video_transcode_renditions() -> Vec<VideoRenditionConfig> {
     // fails with the exact same NotSupportedError/media-error-4 a fully
     // incompatible codec would - confirmed live via `ffprobe` on a
     // generated rendition that still wouldn't play.
+    //
+    // `-force_key_frames expr:gte(t,n_forced*3)`: a keyframe at least every
+    // 3s (scene-cut keyframes still allowed in between). x264's default
+    // ~10s spacing means radio can't stream-copy the rendition - its
+    // fragments can only be cut at keyframes - so it would have to be
+    // re-encoded in real time instead (see `radio::source_probe`). also
+    // makes seeking in the regular player snappier, for a few percent of
+    // file size.
     vec![VideoRenditionConfig {
         label: "compatible".to_string(),
-        args: "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart -f mp4 -y {output}".to_string(),
+        args: CURRENT_VIDEO_TRANSCODE_ARGS.to_string(),
         extension: default_rendition_extension(),
         target_codec: Some("h264".to_string()),
         target_container: Some("mp4".to_string()),
@@ -2224,9 +2232,21 @@ fn get_item_at_path<'a>(doc: &'a DocumentMut, path: &str) -> Option<&'a toml_edi
 /// upgrade corrects it in place - see `fix_stale_video_transcode_args`.
 const STALE_VIDEO_TRANSCODE_ARGS_PRE_0_3_10: &str = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 23 -c:a aac -b:a 192k -movflags +faststart -f mp4 -y {output}";
 
-/// corrected replacement for `STALE_VIDEO_TRANSCODE_ARGS_PRE_0_3_10` - adds
-/// `-pix_fmt yuv420p`, otherwise identical.
-const FIXED_VIDEO_TRANSCODE_ARGS: &str = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart -f mp4 -y {output}";
+/// stock default from 0.3.10 through 0.3.21 - `STALE_VIDEO_TRANSCODE_ARGS_PRE_0_3_10`
+/// plus `-pix_fmt yuv420p`. lacks the regular keyframes radio needs to
+/// stream-copy a rendition; see `fix_stale_video_transcode_args`.
+const VIDEO_TRANSCODE_ARGS_0_3_10_TO_0_3_21: &str = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart -f mp4 -y {output}";
+
+/// last version whose stock rendition args were `VIDEO_TRANSCODE_ARGS_0_3_10_TO_0_3_21`.
+const LAST_VERSION_WITHOUT_RENDITION_KEYFRAMES: (u32, u32, u32) = (0, 3, 21);
+
+/// current stock rendition args - see `default_video_transcode_renditions`.
+/// tuned for streaming so radio can copy renditions as-is (see
+/// `radio::source_probe`): main profile, quality-based encode with a 4000k
+/// ceiling (only trims spikes), long edge shrunk to 1920 when bigger (never
+/// upscaled, works for portrait too, keeps dimensions even), and a
+/// keyframe at least every 3s.
+const CURRENT_VIDEO_TRANSCODE_ARGS: &str = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -profile:v main -crf 23 -maxrate 4000k -bufsize 8000k -vf \"scale='min(iw,1920)':'min(ih,1920)':force_original_aspect_ratio=decrease:force_divisible_by=2\" -pix_fmt yuv420p -force_key_frames expr:gte(t,n_forced*3) -c:a aac -b:a 192k -movflags +faststart -f mp4 -y {output}";
 
 /// parse "x.y.z" into a comparable tuple - unparseable components fall
 /// back to 0, matching `config_needs_upgrade`'s own "0.0.0" fallback for a
@@ -2241,17 +2261,25 @@ fn parse_version_tuple(v: &str) -> (u32, u32, u32) {
     )
 }
 
-/// one-time repair for `STALE_VIDEO_TRANSCODE_ARGS_PRE_0_3_10` (see its own
-/// doc comment) - only touches anything when upgrading FROM 0.3.9 or
-/// earlier, and even then only replaces the `args` field of the
-/// "compatible" rendition if it still exactly matches the known-stale
-/// string, never a genuinely hand-edited value. a config already past
-/// 0.3.9 (including one this same function already fixed once) is never
-/// touched again - this is a one-time migration, not a standing rule.
+/// one-time repairs of the "compatible" rendition's stock `args` on
+/// upgrade, each gated on the version that shipped it and only ever
+/// replacing an exact match of the old stock string - never a genuinely
+/// hand-edited value:
+/// - `STALE_VIDEO_TRANSCODE_ARGS_PRE_0_3_10` (0.3.9 or earlier): missing
+///   `-pix_fmt yuv420p` (see its own doc comment).
+/// - `VIDEO_TRANSCODE_ARGS_0_3_10_TO_0_3_21` (0.3.21 or earlier): missing
+///   the regular keyframes radio needs to stream-copy a rendition.
+///
+/// both land on `CURRENT_VIDEO_TRANSCODE_ARGS`.
 fn fix_stale_video_transcode_args(doc: &mut DocumentMut, old_version: &str) {
-    if parse_version_tuple(old_version) > (0, 3, 9) {
-        return;
-    }
+    let old = parse_version_tuple(old_version);
+    let replacement_for = |args: Option<&str>| -> Option<&'static str> {
+        let args = args?;
+        let is_stale = (old <= (0, 3, 9) && args == STALE_VIDEO_TRANSCODE_ARGS_PRE_0_3_10)
+            || (old <= LAST_VERSION_WITHOUT_RENDITION_KEYFRAMES
+                && args == VIDEO_TRANSCODE_ARGS_0_3_10_TO_0_3_21);
+        is_stale.then_some(CURRENT_VIDEO_TRANSCODE_ARGS)
+    };
     let Some(item) = doc
         .get_mut("media")
         .and_then(|m| m.as_table_mut())
@@ -2264,11 +2292,12 @@ fn fix_stale_video_transcode_args(doc: &mut DocumentMut, old_version: &str) {
         // shipped template's own syntax).
         toml_edit::Item::ArrayOfTables(aot) => {
             for table in aot.iter_mut() {
-                if table.get("label").and_then(|v| v.as_str()) == Some("compatible")
-                    && table.get("args").and_then(|v| v.as_str())
-                        == Some(STALE_VIDEO_TRANSCODE_ARGS_PRE_0_3_10)
+                if table.get("label").and_then(|v| v.as_str()) != Some("compatible") {
+                    continue;
+                }
+                if let Some(new_args) = replacement_for(table.get("args").and_then(|v| v.as_str()))
                 {
-                    table.insert("args", value(FIXED_VIDEO_TRANSCODE_ARGS));
+                    table.insert("args", value(new_args));
                 }
             }
         }
@@ -2280,11 +2309,11 @@ fn fix_stale_video_transcode_args(doc: &mut DocumentMut, old_version: &str) {
                 let toml_edit::Value::InlineTable(it) = entry else {
                     continue;
                 };
-                if it.get("label").and_then(|v| v.as_str()) == Some("compatible")
-                    && it.get("args").and_then(|v| v.as_str())
-                        == Some(STALE_VIDEO_TRANSCODE_ARGS_PRE_0_3_10)
-                {
-                    it.insert("args", toml_edit::Value::from(FIXED_VIDEO_TRANSCODE_ARGS));
+                if it.get("label").and_then(|v| v.as_str()) != Some("compatible") {
+                    continue;
+                }
+                if let Some(new_args) = replacement_for(it.get("args").and_then(|v| v.as_str())) {
+                    it.insert("args", toml_edit::Value::from(new_args));
                 }
             }
         }
@@ -2492,7 +2521,136 @@ mod tests {
                 .and_then(|v| v.as_inline_table())
                 .and_then(|t| t.get("args"))
                 .and_then(|v| v.as_str()),
-            Some(FIXED_VIDEO_TRANSCODE_ARGS)
+            Some(CURRENT_VIDEO_TRANSCODE_ARGS)
+        );
+    }
+
+    fn compatible_rendition_args_after_upgrade(stock: &str, old_version: &str) -> String {
+        let mut doc = format!(
+            "[media]\nvideo_transcode_renditions = [{{ label = \"compatible\", extension = \"mp4\", args = {:?} }}]\n",
+            stock
+        )
+        .parse::<DocumentMut>()
+        .unwrap();
+        fix_stale_video_transcode_args(&mut doc, old_version);
+        get_item_at_path(&doc, "media.video_transcode_renditions")
+            .and_then(|item| item.as_value())
+            .and_then(|v| v.as_array())
+            .and_then(|arr| arr.iter().next())
+            .and_then(|v| v.as_inline_table())
+            .and_then(|t| t.get("args"))
+            .and_then(|v| v.as_str())
+            .unwrap()
+            .to_string()
+    }
+
+    #[test]
+    fn config_upgrade_adds_rendition_keyframes_to_the_0_3_10_stock_args() {
+        assert_eq!(
+            compatible_rendition_args_after_upgrade(
+                VIDEO_TRANSCODE_ARGS_0_3_10_TO_0_3_21,
+                "0.3.20"
+            ),
+            CURRENT_VIDEO_TRANSCODE_ARGS
+        );
+        assert_eq!(
+            compatible_rendition_args_after_upgrade(
+                VIDEO_TRANSCODE_ARGS_0_3_10_TO_0_3_21,
+                "0.3.21"
+            ),
+            CURRENT_VIDEO_TRANSCODE_ARGS
+        );
+        // a config written after the keyframe change that (deliberately)
+        // went back to the old string is left alone.
+        assert_eq!(
+            compatible_rendition_args_after_upgrade(
+                VIDEO_TRANSCODE_ARGS_0_3_10_TO_0_3_21,
+                "0.3.22"
+            ),
+            VIDEO_TRANSCODE_ARGS_0_3_10_TO_0_3_21
+        );
+    }
+
+    #[test]
+    fn default_rendition_args_match_the_shipped_template_and_force_keyframes() {
+        assert!(CURRENT_VIDEO_TRANSCODE_ARGS.contains("-force_key_frames expr:gte(t,n_forced*3)"));
+        assert_eq!(
+            default_video_transcode_renditions()[0].args,
+            CURRENT_VIDEO_TRANSCODE_ARGS
+        );
+        let template = CONFIG_TEMPLATE.parse::<DocumentMut>().unwrap();
+        let shipped = template["media"]["video_transcode_renditions"]
+            .as_array_of_tables()
+            .and_then(|aot| {
+                aot.iter()
+                    .find(|t| t.get("label").and_then(|v| v.as_str()) == Some("compatible"))
+            })
+            .and_then(|t| t.get("args").and_then(|v| v.as_str()).map(str::to_string));
+        assert_eq!(
+            shipped.as_deref(),
+            Some(CURRENT_VIDEO_TRANSCODE_ARGS),
+            "assets/config/freqhole-config.toml's compatible rendition args drifted from the code default"
+        );
+        // must split into argv the way the transcode runner does, with the
+        // scale filter (and its quoted commas) kept as one argument.
+        let argv = shell_words::split(CURRENT_VIDEO_TRANSCODE_ARGS).unwrap();
+        let vf = argv.iter().position(|a| a == "-vf").unwrap();
+        assert_eq!(
+            argv[vf + 1],
+            "scale='min(iw,1920)':'min(ih,1920)':force_original_aspect_ratio=decrease:force_divisible_by=2"
+        );
+    }
+
+    /// end-to-end: a 4K source run through the stock rendition args comes
+    /// out 1080p and passes radio's copy check, so radio never has to
+    /// re-encode a rendition live.
+    #[tokio::test]
+    #[ignore = "requires ffmpeg and ffprobe on PATH"]
+    async fn stock_rendition_of_a_4k_source_is_radio_copyable() {
+        crate::config::init_config_for_tests();
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src.mp4");
+        let out = dir.path().join("out.mp4");
+        let status = std::process::Command::new("ffmpeg")
+            .args([
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=size=3840x2160:rate=24:duration=8",
+            ])
+            .args([
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=duration=8",
+                "-c:v",
+                "libx264",
+                "-preset",
+            ])
+            .args(["ultrafast", "-c:a", "aac", "-shortest", "-y"])
+            .arg(&src)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let argv: Vec<String> = shell_words::split(CURRENT_VIDEO_TRANSCODE_ARGS)
+            .unwrap()
+            .into_iter()
+            .map(|a| {
+                a.replace("{input}", src.to_str().unwrap())
+                    .replace("{output}", out.to_str().unwrap())
+            })
+            .collect();
+        let status = std::process::Command::new("ffmpeg")
+            .args(["-v", "error"])
+            .args(&argv)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert_eq!(
+            crate::radio::source_probe::probe_copy_verdict(out.to_str().unwrap()).await,
+            crate::radio::source_probe::CopyVerdict::Copy
         );
     }
 

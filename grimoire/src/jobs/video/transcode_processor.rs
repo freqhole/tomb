@@ -180,28 +180,45 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
             )),
         );
 
-        // reuse an already-healthy rendition instead of re-transcoding it -
-        // makes this job safe to re-run (e.g. a user-triggered "reprocess")
-        // without duplicating work or blob rows. a stale row whose file is
-        // missing/empty is removed first so it gets cleanly replaced below.
-        if let Some(existing) = existing_by_label.get(rendition.label.as_str()) {
-            if rendition_file_is_valid(existing).await {
-                info!(
-                    "reusing existing rendition for video {} rendition {}: already healthy",
-                    params.video_id, rendition.label
-                );
+        let existing = existing_by_label.get(rendition.label.as_str()).copied();
+
+        // forced regeneration still honors the compatible-source shortcut.
+        // keep any previous rendition intact when the transcode itself is
+        // intentionally skipped.
+        if params.force && should_skip_transcode(&source_blob, rendition) {
+            if let Some(existing) = existing {
                 rendition_blob_ids.push(existing.id.clone());
-                continue;
             }
-            warn!(
-                "existing rendition for video {} rendition {} is missing or empty on disk, regenerating",
+            info!(
+                "skipping transcode for video {} rendition {}: source already compatible",
                 params.video_id, rendition.label
             );
-            if let Err(e) = hard_delete_rendition_blob(&existing.id).await {
+            continue;
+        }
+
+        if !params.force {
+            // reuse an already-healthy rendition instead of re-transcoding it -
+            // makes this job safe to re-run without duplicating work or blob
+            // rows. a stale row whose file is missing/empty is removed first.
+            if let Some(existing) = existing {
+                if rendition_file_is_valid(existing).await {
+                    info!(
+                        "reusing existing rendition for video {} rendition {}: already healthy",
+                        params.video_id, rendition.label
+                    );
+                    rendition_blob_ids.push(existing.id.clone());
+                    continue;
+                }
                 warn!(
-                    "failed to clean up stale rendition blob {} for video {} rendition {}: {}",
-                    existing.id, params.video_id, rendition.label, e
+                    "existing rendition for video {} rendition {} is missing or empty on disk, regenerating",
+                    params.video_id, rendition.label
                 );
+                if let Err(e) = hard_delete_rendition_blob(&existing.id).await {
+                    warn!(
+                        "failed to clean up stale rendition blob {} for video {} rendition {}: {}",
+                        existing.id, params.video_id, rendition.label, e
+                    );
+                }
             }
         }
 
@@ -377,12 +394,40 @@ pub async fn process_transcode_video_job(job: &Job) -> Result<Option<serde_json:
         })
         .await
         {
-            Ok(blob) => rendition_blob_ids.push(blob.id),
+            Ok(blob) => {
+                rendition_blob_ids.push(blob.id.clone());
+                if params.force {
+                    // only retire old data after the replacement has been
+                    // committed. hash deduplication can return the same blob
+                    // row; in that case preserve it and discard our redundant
+                    // output file instead.
+                    let old: Vec<&MediaBlob> = existing_renditions
+                        .iter()
+                        .filter(|old| {
+                            old.id != blob.id
+                                && old.metadata.get("rendition").and_then(|v| v.as_str())
+                                    == Some(rendition.label.as_str())
+                        })
+                        .collect();
+                    if blob.local_path.as_deref() != Some(output_path.as_str()) {
+                        let _ = tokio::fs::remove_file(&output_path).await;
+                    }
+                    for old_blob in old {
+                        if let Err(e) = hard_delete_rendition_blob(&old_blob.id).await {
+                            warn!(
+                                "failed to remove replaced rendition blob {} for video {} rendition {}: {}",
+                                old_blob.id, params.video_id, rendition.label, e
+                            );
+                        }
+                    }
+                }
+            }
             Err(e) => {
                 warn!(
                     "failed to create rendition blob for video {} rendition {} (output path {}): {}",
                     params.video_id, rendition.label, output_path, e
                 );
+                let _ = tokio::fs::remove_file(&output_path).await;
                 partial_failures.push(ErrorDetail::new(
                     "transcode_rendition_blob_creation_failed",
                     "transcode rendition failed",

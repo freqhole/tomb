@@ -1,0 +1,739 @@
+# freqhole configuration file
+#
+# TOML syntax notes:
+#   - basic strings: "hello" (supports escapes like \n, \")
+#   - literal strings: 'hello' (no escapes, backslash is literal)
+#   - multi-line strings: """...""" or '''...''' (triple quotes)
+#   - arrays: [1, 2, 3] or ["a", "b", "c"]
+#
+# authentication methods (all available, no config needed):
+#   1. WebAuthn passkeys (if webauthn_enabled=true and feature compiled)
+#   2. API keys (stored in user_accountz.api_key column)
+#   3. invite codes (creates session cookie after redemption)
+#
+# user roles:
+#   - root: superuser with all permissionz
+#   - admin: full access (user management, analytics, etc.)
+#   - member: standard user (upload, edit, create playlists)
+#   - viewer: read-only (browse, play, favorite/rate only)
+
+# REQUIRED: data directory - base directory for all grimoire data
+# can be relative (./data) or absolute (/var/lib/freqhole)
+# contains: database file, temp directory, wordlist
+data_dir = "/Users/edward/src/github/freqhole/tomb/data"
+
+# ============================================================================
+# database configuration
+# ============================================================================
+[database]
+# REQUIRED: SQLite database filename (stored in data_dir)
+# the full path will be: {data_dir}/{filename}
+filename = "grimoire.db"
+
+# OPTIONAL: override reliquary's own sqlite database file path (the media
+# blob storage library). defaults to reliquary.db under data_dir when unset.
+# reliquary_db_path = "/var/lib/freqhole/reliquary.db"
+
+# OPTIONAL: connection pool settings
+# each database operation creates a short-lived connection pool.
+# these settings control pool behavior and can help with slow hardware.
+#
+# max_connections (default: 5): max simultaneous connections to the SQLite file
+#   SQLite handles one writer at a time, so more connections mostly helps reads.
+#   lowering this can reduce contention on very slow storage.
+#
+# acquire_timeout_seconds (default: 120): how long to wait for a connection before giving up
+#   if you see "pool timed out while waiting for an open connection" errors,
+#   increase this value. the default 120s should be fine for most cases including
+#   Raspberry Pi, but heavy scan jobs on slow SD cards might need more.
+#
+# idle_timeout_seconds (default: 300): how long idle connections stay open before closing
+max_connections = 5
+acquire_timeout_seconds = 120
+idle_timeout_seconds = 300
+
+# ============================================================================
+# media processing and categorization
+# ============================================================================
+[media]
+# OPTIONAL: maximum file size for filesystem storage (in bytes)
+# (default: 1073741824 = 1GB)
+max_fs_file_size = 1073741824
+
+# OPTIONAL: supported audio file formats for music scanning
+# files with these extensions will be processed
+# (default: ["mp3", "ogg", "wav", "flac", "m4a", "aif", "aiff"])
+supported_audio_formats = ["mp3", "ogg", "wav", "flac", "m4a", "aif", "aiff"]
+
+# OPTIONAL: ffmpeg configuration for audio processing
+# used for extracting album art thumbnails and generating waveform visualizations
+#
+# these settings are optional - if omitted, the defaults below will be used.
+# customize if you need to:
+#   - use a different path to ffmpeg (e.g., "/usr/local/bin/ffmpeg")
+#   - change ffmpeg arguments (quality, size, filters, etc.)
+#   - swap in alternative tools (avconv, custom scripts, etc.)
+#
+# placeholders in args strings:
+#   {input}  - replaced with input audio file path
+#   {output} - replaced with temporary output file path
+#
+# the command executed will be: <ffmpeg_path> <args with placeholders replaced>
+# ffmpeg_path: leave empty (or omit) to auto-resolve - the macOS/windows
+# desktop app bundles its own ffmpeg (no separate install needed) and
+# uses that automatically; everywhere else (linux, CLI, server) falls
+# back to a bare "ffmpeg" looked up on PATH. set this to an explicit
+# path (e.g. "/usr/local/bin/ffmpeg") to always use that one instead -
+# an explicit path here always wins over whatever's bundled.
+# OPTIONAL (default: "" = auto-resolve)
+ffmpeg_path = "/opt/homebrew/bin/ffmpeg"
+# OPTIONAL (default: "-i {input} -an -vcodec mjpeg -vframes 1 -q:v 2 -y {output}")
+extract_album_art_args = "-i {input} -an -vcodec mjpeg -vframes 1 -q:v 2 -y {output}"
+# OPTIONAL: use triple-quoted literal strings ('''...''') when the value contains double quotes
+# this avoids escaping hell. TOML also supports multi-line strings with """ or '''
+# (default: '-i {input} -filter_complex "color=black:s=800x200[bg];[0:a]showwavespic=s=800x200:colors=0xff00ff[fg];[bg][fg]overlay=format=auto" -frames:v 1 -y {output}')
+generate_waveform_args = '-i {input} -filter_complex "color=black:s=800x200[bg];[0:a]showwavespic=s=800x200:colors=0xff00ff[fg];[bg][fg]overlay=format=auto" -frames:v 1 -y {output}'
+
+# OPTIONAL: ffprobe fallback for duration extraction
+# when lofty can't determine audio duration (e.g. for WMA, some m4a, opus-in-ogg),
+# ffprobe is used as a fallback to extract the duration from the file.
+# ffprobe is part of the ffmpeg suite - install ffmpeg to get it.
+#
+# the command executed will be: <ffprobe_path> <args with {input} replaced>
+# ffprobe_duration_args: output must be a single line with duration in seconds (e.g. "234.567")
+# ffprobe_properties_args: output must be JSON with format and streams sections
+#
+# ffprobe_path: leave unset (commented out, as below) to auto-resolve -
+# the macOS/windows desktop app bundles its own ffprobe alongside
+# ffmpeg and uses that automatically; everywhere else, the fallback is
+# simply skipped (duration stays null) unless set explicitly. set this
+# to an explicit path (e.g. "/usr/local/bin/ffprobe") to always use
+# that one instead - an explicit path here always wins over whatever's
+# bundled.
+# OPTIONAL (default: unset = auto-resolve, bundled if available else disabled)
+ffprobe_path = "/opt/homebrew/bin/ffprobe"
+# OPTIONAL (default: "-v quiet -show_entries format=duration -of csv=p=0 {input}")
+ffprobe_duration_args = "-v quiet -show_entries format=duration -of csv=p=0 {input}"
+# OPTIONAL (default: "-v quiet -print_format json -show_format -show_streams {input}")
+ffprobe_properties_args = "-v quiet -print_format json -show_format -show_streams {input}"
+
+# OPTIONAL: duplicate detection during scan
+# skip importing songs that match existing songs (same artist, album, title, track/disc number, similar duration)
+# OPTIONAL (default: true)
+skip_duplicates = true
+# OPTIONAL: generate CSV report of skipped duplicates (saved to data_dir/duplicate_report.csv)
+# (default: false)
+generate_scan_duplicate_report = false
+
+# OPTIONAL: thumbnail sizes to generate (in pixels, square thumbnails)
+# thumbnails are always pre-generated when images are created (scan/upload)
+# smaller sizes load faster in virtualized lists
+# (default: [50, 200])
+thumbnail_sizes = [50, 200]
+
+# OPTIONAL: enable on-demand thumbnail generation via /api/blobs/{id}/thumb/{size}
+# when disabled (default): endpoint returns 404 if thumbnail doesn't exist
+# when enabled: thumbnails are generated lazily on first request
+# (default: false)
+thumbnail_on_demand_enabled = false
+
+# OPTIONAL: supported video file formats for video scanning
+# files with these extensions will be processed by the video pipeline
+# (default: ["mp4", "mkv", "webm", "mov", "avi"])
+supported_video_formats = ["mp4", "mkv", "webm", "mov", "avi"]
+
+# OPTIONAL: ffprobe args for extracting video duration/resolution/codec info
+# (placeholder: {input}). output must be JSON with format and streams sections.
+# (default: "-v quiet -print_format json -show_format -show_streams {input}")
+ffprobe_video_properties_args = "-v quiet -print_format json -show_format -show_streams {input}"
+
+# OPTIONAL: ffmpeg args for extracting a poster/thumbnail frame from a video
+# (placeholders: {input}, {output})
+# (default: "-i {input} -ss 00:00:05 -vframes 1 -q:v 2 -y {output}")
+extract_video_poster_args = "-i {input} -ss 00:00:05 -vframes 1 -q:v 2 -y {output}"
+
+# OPTIONAL: renditions produced by the TranscodeVideo job (one entry per
+# output quality level). each entry is transcoded independently via
+# OPTIONAL: enable video transcoding (TranscodeVideo job) after import.
+# requires ffmpeg to be installed - if it isn't, transcoding is skipped
+# per-rendition (best-effort) and imported videos are only ever served in
+# their originally-uploaded format/codec.
+# (default: true)
+transcode_video_enabled = false
+video_transcode_renditions= [{ args = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart -f mp4 -y {output}", extension = "mp4", label = "compatible", target_codec = "h264", target_container = "mp4" }]
+
+# OPTIONAL: add more profiles for fixed-resolution renditions (e.g. lower
+# bandwidth streaming targets) by appending more [[media.video_transcode_renditions]]
+# entries with your own ffmpeg args. examples (uncomment / adapt to enable):
+#
+# [[media.video_transcode_renditions]]
+# label = "480p"
+# args = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -vf scale=-2:480 -b:v 1000k -c:a aac -b:a 128k -movflags +faststart -f mp4 -y {output}"
+# extension = "mp4"
+#
+# [[media.video_transcode_renditions]]
+# label = "720p"
+# args = "-i {input} -map 0:v:0 -map 0:a:0? -c:v libx264 -preset veryfast -vf scale=-2:720 -b:v 2500k -c:a aac -b:a 128k -movflags +faststart -f mp4 -y {output}"
+# extension = "mp4"
+
+
+# ============================================================================
+# MusicBrainz integration for metadata enrichment
+# ============================================================================
+[musicbrainz]
+# OPTIONAL: enable MusicBrainz API integration for enhanced metadata (default: false)
+enabled = true
+# OPTIONAL: preferred country code for release tiebreaks (default: "US")
+preferred_country = "US"
+# note: user agent is hardcoded in grimoire as "tomb-musicbrainz/1.0"
+
+# ============================================================================
+# last.fm integration for metadata enrichment
+# ============================================================================
+# fetches album wiki summaries, artist bios, top tags (folksonomy), and
+# similar artists. requires a free api key from:
+#   https://www.last.fm/api/account/create
+# the `LASTFM_API_KEY` env var overrides the value here.
+[lastfm]
+# OPTIONAL: enable last.fm enrichment (default: false)
+enabled = true
+# OPTIONAL: last.fm api key (default: "")
+# read-only enrichment only needs the api key (no shared secret).
+api_key = "683f93a0af4f4d17aa1c70576a8a0659"
+
+# ============================================================================
+# theaudiodb integration for metadata enrichment
+# ============================================================================
+# fetches artist bios, artist images (thumbnails, banners, fanart), album
+# artwork, and genre/style tags. the `AUDIODB_API_KEY` env var overrides
+# the value here.
+[audiodb]
+# OPTIONAL: enable theaudiodb enrichment (default: false)
+enabled = true
+# OPTIONAL: api key (default: "123", the public free test key for low-volume
+# non-commercial use). donate at https://www.theaudiodb.com/ for a real key.
+api_key = "123"
+
+# ============================================================================
+# logging configuration
+# ============================================================================
+[logging]
+# REQUIRED: log level controls verbosity
+# options: "trace", "debug", "info", "warn", "error"
+# recommended: "info" ("debug" will log a LOT)
+level = "info"
+
+# OPTIONAL: log destination - file OR stdout (not both)
+# set to a filename to log to file (relative to data_dir or absolute)
+# set to empty string "" to log to stdout instead
+# file is automatically rotated to keep ~10,000 lines
+# (default: "freqhole.log")
+log_file = "freqhole.log"
+
+# ============================================================================
+# OPTIONAL: client UI configuration
+# knobs only the spume frontend (charnel desktop app) cares about. the
+# server / cli ignore this section. fetched on app boot via the
+# `get_client_config` tauri command.
+# ============================================================================
+[client]
+# maximum number of songs allowed in the play queue. when an add would
+# exceed this, the ui prompts the user to either trim from the head,
+# clear the queue, or cancel. default: 150.
+queue_size_limit = 150
+
+# ============================================================================
+# OPTIONAL: background job processor
+# the worker pool that drains the jobz queue (scans, file imports,
+# metadata enrichment, etc.). by default the pool sizes itself from
+# the host's available cpu cores (capped at 8 to keep sqlite write
+# contention manageable). pin an explicit value if you want fewer
+# parallel jobs (e.g. on a noisy shared machine) or to override the
+# cap on a beefy box.
+# ============================================================================
+[jobs]
+# OPTIONAL: max number of jobs the processor will run concurrently.
+# omit, set to 0, or leave commented out for "auto" (= number of
+# logical cpu cores, capped at 8). any positive integer pins the
+# worker count exactly.
+max_concurrency = 0
+
+# ============================================================================
+# OPTIONAL: new-version update checks
+# when enabled, freqhole periodically queries the github releases api to see
+# if a newer release exists, and surfaces a dismissible notice (spume toast /
+# rathole landing message) linking to the download page. off by default.
+# ============================================================================
+[updates]
+# OPTIONAL: enable new-version checks (default: false)
+# set to true to let freqhole check https://github.com/freqhole/tomb/releases
+# for a newer version on startup and at a periodic interval.
+enabled = false
+
+# ============================================================================
+# OPTIONAL: server configuration
+# this entire section is optional - only needed when running the HTTP server
+# if you only use the CLI, you can omit or comment out this section
+# ============================================================================
+[server]
+# OPTIONAL: enable HTTP server (default: true when [server] section exists)
+# set to false to disable HTTP server (useful when running P2P only)
+enabled = false
+
+# server identification (all REQUIRED when enabled=true)
+# these fields are exposed via the public /api/hello endpoint (no auth required)
+# remote clients fetch this info when adding yr server to their remote list
+
+# REQUIRED: server display name
+# also used for session cookie name: "{name}_session" (sanitized: lowercase, no spaces/special chars)
+name = "localfreq"
+# REQUIRED: server version (you probably should never edit this)
+version = "0.3.20"
+# OPTIONAL: server description (default: null)
+description = "i r localhost"
+
+# REQUIRED: server host and port
+# host: "0.0.0.0" = all interfaces, "127.0.0.1" = localhost only
+host = "127.0.0.1"
+port = 8080
+
+# OPTIONAL: server image (default: null)
+# path to server image/logo for remote client UI
+#   - can be relative to data_dir or an absolute path
+#   - served publicly at /api/hello/image (no auth required)
+#   - displayed in remote client UI when selecting/viewing this server
+#   - recommended: square image, 256x256px or larger, PNG/JPG format
+#   - example: "server-icon.png" → accessible at /api/hello/image
+image_path = ""
+
+# OPTIONAL: server image blob ID (default: null)
+# run `freqhole config update-server-image` to set this using the image_path image
+image_blob_id = ""
+
+# OPTIONAL: start job processor in the server (default: false)
+# when enabled (true):
+#   - server spawns a background task that continuously processes jobs
+#   - jobs are processed automatically as they're created
+#   - graceful shutdown on SIGTERM/SIGINT
+# when disabled (false):
+#   - jobs must be processed separately via CLI
+#   - run: freqhole jobs run-processor
+#
+# recommendation: true
+start_job_runner = true
+
+# ============================================================================
+# authentication configuration
+# ============================================================================
+[server.auth]
+# OPTIONAL: enable WebAuthn passkey authentication (default: false)
+# note: requires binary built with --features webauthn (enabled by default)
+# set to false to disable passkey auth (API keys and invite codes still work)
+webauthn_enabled = true
+
+# OPTIONAL: session max age in seconds (default: 0 - never expire)
+# controls how long authentication sessions remain valid
+#
+# set to 0 or negative for sessions that never expire (recommended for personal use)
+# set to positive number for automatic logout after inactivity
+#
+# examples:
+#   0 or -1: never expire (sessions last forever)
+#   3600: 1 hour
+#   86400: 1 day
+#   604800: 1 week
+#
+# note: Safari and some browsers may still clear cookies willy-nilly
+# this setting controls server-side session expiration only
+session_max_age_seconds = 0
+
+# OPTIONAL: session cookie mode (default: "auto")
+# - "auto": dynamic SameSite based on origin (recommended)
+#   - HTTPS origins → SameSite=None; Secure
+#   - all other origins (http, tauri, freqhole, etc.) → SameSite=Lax
+# - "lax": always SameSite=Lax — same-origin only
+# - "none": always SameSite=None; Secure — cross-origin HTTPS only
+session_cookie_mode = "auto"
+
+# session cookie name is automatically derived from [server].name: "{name}_session"
+# e.g. server.name = "freqhole" → cookie name = "freqhole_session"
+# this ensures multiple freqhole servers on same host have isolated sessions
+
+# OPTIONAL: allowed origins for CORS and WebAuthn (default: [] - same-origin only)
+#
+# this single list is used for both CORS headers and WebAuthn (passkey) origin validation.
+# the server reflects the request's Origin header back (not "*") which is required
+# for credentials and passkey authentication to work.
+#
+# the rp_id (relying party ID) for WebAuthn (passkey) is automatically extracted from the
+# origin's hostname. for example:
+#   - "http://localhost:1420"        → rp_id = "localhost"
+#   - "https://music.freqhole.net"   → rp_id = "music.freqhole.net"
+#   - "https://foo.bar.example.com"  → rp_id = "foo.bar.example.com"
+#
+# special value "any":
+#   use "any" to allow any origin. the server will reflect the request's Origin
+#   header back (still not "*"). useful for development, but consider security
+#   implications for production. webauthn will still work because rp_id is
+#   extracted from the request origin.
+#
+# if not specified (empty array or omitted):
+#   - CORS: only same-origin requests work (cross-origin blocked)
+#     note: if you serve the web UI via [server.static_files], it's same-origin
+#     and works fine without configuring allowed_origins but:
+#   - WebAuthn (passkey): will fail validation (webauthn requires at least one origin)
+#
+# examples:
+#   allowed_origins = ["any"]                              # allow any origin
+#   allowed_origins = ["http://localhost:1420"]            # single dev origin
+#   allowed_origins = ["http://localhost:1420", "http://localhost:5173"]
+#   allowed_origins = ["https://music.freqhole.net", "https://staging.freqhole.net"]
+allowed_origins = ["any"]
+
+# ttl in minutes for p2p webauthn challenges stored in sqlite (default: 15)
+webauthn_challenge_ttl_minutes = 15
+
+# ============================================================================
+# static file serving
+# ============================================================================
+[server.static_files]
+# enable serving static files (HTML, JS, CSS, images, etc.)
+#
+# when enabled = true with no directory set:
+#   serves the spume web client files embedded in the freqhole binary
+#   (no disk extraction needed - files are served directly from memory)
+#
+# when enabled = true with directory set:
+#   serves static files from the specified disk directory
+#   (ignores embedded assets - useful for development or custom builds)
+#
+enabled = true
+
+# optional: directory to serve static files from (must be absolute path)
+# when omitted or empty, embedded spume assets are served instead
+# when set, files are served from this directory on disk
+#
+# to extract embedded spume to disk, use: freqhole maintenance update-spume
+# this only works when enabled = true AND directory points to existing path
+#
+directory = "/Users/edward/src/github/freqhole/tomb/data/spume"
+
+# ============================================================================
+# OPTIONAL: media fetching from external sources
+# this entire section is optional (default: null - feature disabled)
+# ============================================================================
+[server.fetch_music]
+# REQUIRED when section exists: enable media fetching functionality
+# when disabled, fetch routes will return 404
+enabled = true
+
+# REQUIRED when enabled=true: absolute path where fetched files are temporarily stored
+# OPTIONAL when enabled=false
+# files are downloaded here, then processed and moved to blob storage
+# must be an absolute path
+# example: output_dir = "/var/lib/freqhole/fetch" or "/Users/you/freqhole/data/fetch"
+output_dir = "/Users/edward/src/github/freqhole/tomb/data/fetch"
+
+# OPTIONAL: command to extract metadata without downloading (default: null)
+# used for precheck/deduplication - checks if content already exists
+# before actually downloading. should output JSON metadata.
+#
+# typically uses yt-dlp or youtube-dl:
+#   --print-json: output metadata as JSON
+#   --no-download: don't download the file
+#   example: "yt-dlp --print-json --no-download"
+#
+# note: --no-playlist removed to support playlists and collections
+# precheck will return metadata for all items in collection
+#
+# the command will be invoked as: <command> <url>
+precheck_command = "/opt/homebrew/bin/yt-dlp --print-json --no-download"
+
+# OPTIONAL: command to actually fetch and download media files (default: null)
+# should download audio, extract metadata, and output the file path
+#
+# IMPORTANT: supports playlists and collections with best-effort downloading
+#   --ignore-errors: continue if one item fails, don't abort entire job
+#   job only fails if NOTHING could be downloaded
+#   successfully downloaded items are processed even if others failed
+#
+# recommended yt-dlp arguments:
+#   --ignore-errors: continue on errors (critical for playlists)
+#   --extract-audio: extract audio from video
+#   --audio-format mp3: convert to mp3
+#   --audio-quality 0: best quality (0-9, 0=best)
+#   --add-metadata: embed metadata in file
+#   --embed-thumbnail: embed album art
+#   --no-overwrites: don't overwrite existing files
+#   --output: filename template (include %(id)s to prevent duplicates)
+#   --print after_move:filepath: output final file path for each download
+#   --newline: force progress output on separate lines (machine-parseable)
+#   --progress: enable progress reporting
+#   --progress-template: custom progress format for per-item tracking
+#
+# output pattern explained:
+#   %(uploader)s: channel/artist name
+#   %(title)s: video/track title
+#   %(id)s: unique content ID (prevents duplicates!)
+#   %(ext)s: file extension
+#
+# progress templates:
+#   download: emits per-item download progress (id, status, bytes, filename)
+#   postprocess: emits per-item postprocessing status (converting/tagging)
+#   these enable live per-item progress in the UI. omitting them is safe
+#   (back-compat) but users lose granular fetch progress.
+#
+# CRITICAL: do NOT wrap the --output template in quotes!
+#   BAD:  --output '%(uploader)s - %(title)s.%(ext)s'
+#   GOOD: --output %(uploader)s-%(title)s-[%(id)s].%(ext)s
+#
+# why: quotes prevent yt-dlp from expanding template variables, causing
+# all files to have literal filenames like "'%(title)s.mp3" which results
+# in all downloads overwriting the same file!
+#
+# also: avoid spaces and special characters in filenames - use hyphens
+# single quotes in filenames can cause issues with shell commands
+#
+# example: "yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --newline --progress --progress-template \"download:%(info.id)s|%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes_estimate)s|%(progress.filename)s\" --progress-template \"postprocess:%(info.id)s|%(progress.status)s\" --print after_move:filepath"
+#
+# the command will be invoked as: <command> --paths <job_id_dir> <url>
+# it should print progress lines (download:/postprocess: prefixes) and final file paths to stdout
+fetch_command = '/opt/homebrew/bin/yt-dlp --ignore-errors --extract-audio --audio-format mp3 --audio-quality 0 --add-metadata --embed-thumbnail --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --newline --progress --progress-template "download:%(info.id)s|%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes_estimate)s|%(progress.filename)s" --progress-template "postprocess:%(info.id)s|%(progress.status)s" --print after_move:filepath'
+
+# ============================================================================
+# OPTIONAL: video fetching from external sources (same shape as
+# [server.fetch_music] above, but downloads full video instead of
+# extracting audio only)
+# this entire section is optional (default: null - feature disabled)
+# ============================================================================
+[server.fetch_video]
+# REQUIRED when section exists: enable video fetching functionality
+# when disabled, fetch routes will return 404
+enabled = false
+
+# REQUIRED when enabled=true: absolute path where fetched files are temporarily stored
+# OPTIONAL when enabled=false
+# must be an absolute path
+output_dir = ""
+
+# OPTIONAL: command to extract metadata without downloading (default: null)
+# see [server.fetch_music].precheck_command above for details
+# the command will be invoked as: <command> <url>
+precheck_command = "yt-dlp --print-json --no-download"
+
+# OPTIONAL: command to actually fetch and download video files (default: null)
+# same conventions as [server.fetch_music].fetch_command above (playlists,
+# --ignore-errors, unquoted --output template, progress templates) but
+# downloads full video+audio instead of extracting audio only
+#
+# the command will be invoked as: <command> --paths <job_id_dir> <url>
+# it should print progress lines (download:/postprocess: prefixes) and final file paths to stdout
+fetch_command = 'yt-dlp --ignore-errors --format bestvideo+bestaudio/best --merge-output-format mp4 --add-metadata --no-overwrites --output %(uploader)s-%(title)s-[%(id)s].%(ext)s --newline --progress --progress-template "download:%(info.id)s|%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes_estimate)s|%(progress.filename)s" --progress-template "postprocess:%(info.id)s|%(progress.status)s" --print after_move:filepath'
+
+# ============================================================================
+# OPTIONAL: federation/P2P configuration
+# enables peer-to-peer music sharing via iroh transport + haruspex coordination
+# this entire section is optional (default: disabled)
+#
+# federation allows freqhole servers to discover each other and share music
+# directly without a central server. uses iroh for P2P QUIC transport and
+# haruspex (Supabase) for peer discovery/coordination.
+#
+# workflow:
+# 1. admin syncs group members from haruspex to freqhole users
+# 2. freqhole server broadcasts presence (node_id) to haruspex
+# 3. other servers discover peers and can initiate P2P connections
+# 4. requests are proxied over iroh transport, authenticated by node_id
+# ============================================================================
+[federation]
+# REQUIRED when using federation: enable federation features (default: false)
+enabled = true
+
+# REQUIRED when enabled=true: haruspex (Supabase) coordination server URL
+# this is where peer discovery and group coordination happens
+#
+# local development: http://127.0.0.1:54321
+# production: https://your-project.supabase.co
+#
+# IMPORTANT: must match the haruspex instance your group uses
+haruspex_url = ""
+
+# REQUIRED when enabled=true: haruspex anon/publishable key
+# this is the PUBLIC key safe to use in client-side code
+# do NOT use the service role key here!
+#
+# find this in Supabase dashboard: Settings > API > Project API keys > anon/public
+haruspex_anon_key = ""
+
+# OPTIONAL: automatically create freqhole users for authenticated peers (default: false)
+# when true: first P2P request from a known node_id creates a user with default_role
+# when false: users must be synced manually via CLI (freqhole federation sync)
+#
+# auto_create_users=true is convenient but means anyone in your haruspex group
+# gets access. set to false for more control over who can access your server.
+auto_create_users = false
+
+# OPTIONAL: role to assign auto-created users (default: "viewer")
+# options:
+#   - "viewer": read-only (browse, play, but no edits)
+#   - "member": standard user (upload, edit, create playlists)
+#   - "admin": full access (includes user management)
+default_role = "viewer"
+
+# OPTIONAL: maximum message size in MB for P2P JSON payloads (default: 10)
+# this limits how large a single request/response can be over the iroh transport.
+# does NOT apply to blob streaming (audio files, images) - those stream in chunks.
+#
+# the default 10MB should be plenty for most API responses (song lists, metadata, etc.)
+# increase if you have extremely large playlists or search results that exceed this.
+# decrease if you want to limit memory usage on constrained devices.
+# max_message_size_mb = 10
+
+# OPTIONAL: maximum upload size in MB for P2P file uploads (default: 5000 (5gb))
+# this limits the maximum file size that can be uploaded via P2P.
+# note: this is a separate limit from max_message_size_mb since uploads are streamed
+# differently than regular API messages.
+# max_upload_size_mb = 5000
+
+# OPTIONAL: allow unknown peers to "knock" and request access (default: false)
+# when true: unauthenticated P2P peers can send a knock request with username/message
+# these requests are stored and can be approved/rejected via CLI or tauri wizard.
+# when approved, the peer is granted access with the specified role.
+knocking_enabled = true
+
+# OPTIONAL: bind iroh to a specific UDP port for manual port forwarding (default: 0 = disabled)
+# use this if your router doesn't support UPnP and you've manually set up port forwarding.
+#
+# how to use:
+# 1. pick an unused UDP port (e.g., 12345)
+# 2. forward that port in your router: UDP external:12345 -> your_local_ip:12345
+# 3. set bind_port = 12345 here
+#
+# iroh will bind to this port locally. when it detects your external IP via STUN,
+# it will advertise external_ip:12345 to peers, enabling direct connections.
+# without this, connections go through relay servers (slower, but still works).
+#
+# set to 0 to disable (use random port) - this is the default behavior
+bind_port = 0
+
+# OPTIONAL: custom iroh http relay server url(s) for all P2P endpoints
+# by default freqhole uses the public n0/iroh relay servers. if you host your
+# own iroh relay(s) you can point freqhole at them here - one or more urls,
+# e.g. ["https://relay.example.com"]. leave empty (or omit) to use the public
+# relay only.
+relay_urls = ["https://relay.freqhole.net"]
+
+# OPTIONAL: how to use relay_urls (default: "default")
+#   "default"       - use the public iroh relay only (ignores relay_urls)
+#   "custom_only"   - use only relay_urls; no fallback to the public relay
+#   "prefer_custom" - use relay_urls but keep the public iroh relay as fallback
+# requires at least one valid relay_urls entry when set to "custom_only" or "prefer_custom".
+relay_mode = "default"
+
+# OPTIONAL: also resolve/advertise peers over mdns/dns-sd when they're on
+# the same lan (default: true). this is additive, not a replacement - the
+# relay/dns lookup above keeps working for peers that aren't on the same
+# lan. only reaches devices already on your local network either way, so
+# there's little reason to turn this off.
+lan_discovery = true
+
+# ============================================================================
+# OPTIONAL: remote admin over P2P
+# this entire section is optional (default: disabled)
+#
+# when enabled, the server registers a dedicated `freqhole-admin/1` ALPN on
+# its iroh endpoint. authenticated admin users can then drive admin
+# operations (knocks, users, invites, peer-list mgmt, library, config, etc.)
+# from a remote charnel/tauri wizard without going through the HTTP API.
+#
+# auth: the incoming connection's node_id is resolved to a freqhole user.
+# only users with `role == "admin"` are accepted. the optional
+# `allowed_node_ids` allowlist further restricts which admin node_ids may
+# connect (empty = allow any admin user).
+#
+# requires `[federation].enabled = true` (the iroh endpoint comes from
+# federation setup). nothing changes for the HTTP API surface.
+# ============================================================================
+[federation.remote_admin]
+# REQUIRED when section exists: enable the remote admin ALPN (default: false)
+enabled = true
+
+# OPTIONAL: extra allowlist of node_ids permitted to use remote admin.
+# empty array = allow any user with `role == "admin"`.
+# non-empty = only the listed node_ids (still must also be admin users).
+allowed_node_ids = []
+
+# OPTIONAL: maximum admin message size in MB (default: 16)
+# admin requests/responses are JSON over a single bi-stream. this caps the
+# size of any single message — relevant mostly for image uploads via
+# `library_image_upload` (base64-encoded blob in the request).
+max_message_size_mb = 16
+
+# ============================================================================
+# RADIO BROADCAST (Optional - radio over iroh)
+# ============================================================================
+# the radio is intentionally minimal at the toml layer: a handful of knobs
+# live here. everything per-station (name, public/private, which songs
+# play) is configured via the ui and stored in sqlite, so you can run any
+# number of radio "channels" without restarting the server.
+#
+# requires `[federation].enabled = true` (the iroh endpoint comes from
+# federation setup).
+# ============================================================================
+[radio]
+# REQUIRED when section exists: main switch (default: false)
+enabled = true
+
+# OPTIONAL: ffmpeg command-line template. supports `{input}` placeholder.
+# output is always pipe:1 (stdout). default: fragmented MP4 with AAC-LC at
+# 192 kbps and 3-second fragments — what the spume / midden client expect.
+# UNCOMMENT AND EDIT ONLY IF YOU NEED TO CUSTOMIZE THIS - leaving it
+# commented out means the node always tracks the current built-in default
+# (including future bug fixes to it) instead of freezing today's default
+# as a literal override that this file's own `freqhole config upgrade`
+# migration path can no longer improve on for you later.
+# notes:
+#   * the broadcaster paces output server-side, so `-re` is intentionally
+#     OMITTED — ffmpeg eagerly fills an in-memory ring and the pacer
+#     emits at fragment cadence
+#   * `frag_keyframe+empty_moov+default_base_moof` makes MSE-friendly fMP4
+#   * if you change the codec/profile, also update the station's codec
+#     string in the radio_stationz table
+#   * if you change `-frag_duration`, set `frag_ms` (advanced, omitted
+#     here — see grimoire/src/radio/config.rs for tuning knobs:
+#     frag_ms, buffer_seconds, inter_track_silence_ms,
+#     encoder_restart_attempts)
+# encode_args = "-hide_banner -loglevel error -fflags +genpts -i {input} -vn -map 0:a:0 -c:a aac -profile:a aac_low -b:a 192k -ar 48000 -ac 2 -movflags frag_keyframe+empty_moov+default_base_moof -frag_duration 3000000 -avoid_negative_ts make_zero -f mp4 pipe:1"
+
+# OPTIONAL: max number of audio_only stations allowed to have a running
+# broadcaster (ffmpeg process) at once. default: 2
+max_concurrent_audio_streams = 2
+
+# OPTIONAL: max number of audio_or_video/video_only stations allowed to
+# have a running broadcaster at once - kept separate and lower than the
+# audio limit above by default since video encoding is far more
+# cpu-expensive. default: 1
+max_concurrent_video_streams = 1
+
+# ============================================================================
+# control_socket: local unix domain socket for simple media-control
+# commands (play/pause/next/volume/etc) - e.g. physical buttons wired to
+# a raspberry pi's GPIO pins, forwarded by a small script that writes a
+# line to the socket. shared by rathole and charnel; off by default. no
+# network exposure risk: unix sockets are local-machine, filesystem-
+# permission-gated only. see docs/rathole-control-socket.md for the full
+# wire protocol (commands, query replies) and how each app dispatches it.
+# ============================================================================
+[control_socket]
+# REQUIRED when section exists: main switch (default: false). rathole can
+# also toggle this from its player-pairing settings screen (`u`) - either
+# way it only persists this config value and takes effect on next launch.
+enabled = false
+
+# OPTIONAL: path to the socket file. default when unset: `~/rathole-
+# control.sock` (home dir, NOT data_dir) - deliberately outside the
+# grimoire data dir so an external button-wiring script can find it
+# regardless of which config/data dir is active. the parent directory is
+# created automatically; a stale socket file left behind by a previous,
+# uncleanly-exited run is removed before binding.
+# socket_path = "/custom/path.sock"
