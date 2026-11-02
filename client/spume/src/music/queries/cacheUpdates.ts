@@ -455,15 +455,29 @@ export function updatePlaylistInCache(
 }
 
 /**
- * broad invalidation for local-library writes (sync-to-local adding songs,
+ * broad invalidation for library writes (adding, updating or deleting songs,
  * albums or artists). distinct from `invalidateEntityQueries`, which is
  * deliberately minimal because mutations update the cache optimistically -
  * here the rows are genuinely new, so the lists have to refetch.
  */
-export function invalidateMusicLibraryQueries(): void {
-  void queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
-  void queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
-  void queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+export async function invalidateMusicLibraryQueries(
+  client: QueryClient = queryClient,
+  sourceId: string = queryKeys.songs.all()[1]
+): Promise<void> {
+  await client.invalidateQueries({
+    predicate: ({ queryKey: key }) => {
+      if (key[0] === "artist") return true; // legacy artist subqueries aren't source-scoped.
+      if (key[0] === "album" && key[1] === "songs") {
+        return key[2] === sourceId || (key[2] === "remote" && key[3] === sourceId);
+      }
+      if (key[0] === "albums" || key[0] === "artists") {
+        return key[1] === sourceId || (key[2] === "remote" && key[3] === sourceId);
+      }
+      return (key[0] === "songs" || key[0] === "library-albums") && key[1] === sourceId;
+    },
+    // list queries disable refetchOnMount, so stale inactive caches also need a refresh.
+    refetchType: "all",
+  });
 }
 
 /**

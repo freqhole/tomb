@@ -46,7 +46,7 @@ freqhole-pi                 # help; also help/-h/--help
 freqhole-pi check           # check rathole releases
 freqhole-pi status          # versions/update status as JSON
 freqhole-pi install         # install rathole (normally called by setup)
-freqhole-pi update          # update rathole
+freqhole-pi update          # update rathole, then the pi scripts
 freqhole-pi attach          # attach to tmux; offer to start if stopped
 freqhole-pi start           # start rathole
 freqhole-pi stop            # stop rathole
@@ -59,8 +59,12 @@ freqhole-pi wifi-stop       # stop Wi-Fi setup
 
 freqhole-pi check charnel
 freqhole-pi status charnel
-freqhole-pi update charnel
+freqhole-pi update charnel  # update charnel, then the pi scripts
 freqhole-pi recover charnel # only after an unfinished/failed update
+
+freqhole-pi check scripts   # OLED menu, helpers, services
+freqhole-pi status scripts
+freqhole-pi update scripts  # pi scripts only
 
 charnel-session            # launch from the Pi desktop
 freqhole-wifi info         # portal credentials
@@ -74,8 +78,17 @@ new Wi-Fi passwords use two lowercase words + four digits (existing credentials 
 during setup, the OLED stays awake for 10 minutes; on timeout, turn the knob
 to see restart/exit options.
 OLED play/pause shows `playing...` or `paused!` for a few seconds, then returns
-to the menu. updates keep the screen awake with a timer + latest progress line;
-don't power off until it finishes.
+to the menu. updates keep the screen awake with a timer, download percentage +
+latest progress line; don't power off until it finishes.
+
+pi scripts (`menu.py` and friends, `freqhole-pi`, helpers, services) follow the
+`scripts/raspberry-pi` tree on the ref setup ran from (`FREQHOLE_PI_REF`, default
+`main`), recorded in `scripts.json`. they update along with rathole/charnel (the
+OLED "check update" covers both), keep config/data, and the OLED menu restarts
+itself when its own files change. root-owned files (control helper, system units)
+update when passwordless sudo is available; otherwise rerun setup.sh. sudoers and
+boot config changes always need a setup rerun. installs from an edited local
+checkout are marked `local` and never auto-updated.
 
 in spume: remote admin → **library storage** browses the Pi's mounted disks;
 add a whole disk or folder, then scan music/video in place. the OS handles mounting.

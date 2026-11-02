@@ -29,6 +29,7 @@ import type { ImageMetadata } from "../services/storage/types";
 import { showAlbumEditor, showArtistEditor, showSongEditor } from "./modals";
 import { useToggleFavoriteMutation, type FavoriteTarget } from "../queries/favorites";
 import { queryKeys } from "../queries/queryKeys";
+import { invalidateMusicLibraryQueries } from "../queries/cacheUpdates";
 import { routes } from "../utils/routing";
 import { addToQueue, playQueue } from "../services/queue/queue";
 import {
@@ -391,9 +392,7 @@ export function useSongContextMenu(song: Song, options: ContextMenuOptions = {})
             if (dataSource.deleteSong) {
               await dataSource.deleteSong(song.id);
               // invalidate queries to refresh views
-              queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
-              queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
-              queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+              await invalidateMusicLibraryQueries(queryClient, remote?.remote_id);
               // also remove from queue if in queue context
               if (options.onRemoveFromQueue) {
                 options.onRemoveFromQueue();
@@ -530,15 +529,14 @@ export function useMultipleSongsContextMenu(
           const dataSource = getDataSource();
           if (dataSource.deleteSong) {
             // delete songs one by one
-            let deleted = 0;
-            for (const song of songs) {
-              await dataSource.deleteSong(song.id);
-              deleted++;
+            try {
+              for (const song of songs) {
+                await dataSource.deleteSong(song.id);
+              }
+            } finally {
+              // earlier deletes still need to appear if a later delete fails.
+              await invalidateMusicLibraryQueries();
             }
-            // invalidate queries to refresh views
-            queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
-            queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
-            queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
           } else {
             toast.error("delete not supported for this data source");
           }

@@ -734,6 +734,84 @@ pub async fn upsert_playlist_feed_event(
     }
 }
 
+async fn radio_session_subtitle(
+    pool: &sqlx::SqlitePool,
+    items: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    let titles = sqlx::query_scalar!(
+        r#"
+        SELECT DISTINCT
+            CASE WHEN s.id IS NOT NULL THEN
+                'song: ' || s.title ||
+                CASE WHEN a.title IS NOT NULL THEN ' (album: ' || a.title || ')' ELSE '' END
+            ELSE
+                'video: ' || v.title ||
+                CASE WHEN vs.title IS NOT NULL THEN ' (series: ' || vs.title || ')' ELSE '' END
+            END as "title!: String"
+        FROM json_each(?) je
+        LEFT JOIN songz s ON json_extract(je.value, '$.entity_type') = 'song'
+            AND s.id = json_extract(je.value, '$.entity_id')
+        LEFT JOIN album_songz als ON als.song_id = s.id
+        LEFT JOIN albumz a ON a.id = als.album_id
+        LEFT JOIN videoz v ON json_extract(je.value, '$.entity_type') = 'video'
+            AND v.id = json_extract(je.value, '$.entity_id')
+        LEFT JOIN video_seriez vs ON vs.id = v.series_id
+        WHERE s.id IS NOT NULL OR v.id IS NOT NULL
+        ORDER BY CAST(je.key AS INTEGER)
+        "#,
+        items
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok((!titles.is_empty()).then(|| titles.join(", ")))
+}
+
+#[cfg(test)]
+mod radio_session_tests {
+    use super::radio_session_subtitle;
+
+    #[tokio::test]
+    async fn radio_session_subtitle_resolves_only_heard_media() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::raw_sql(
+            r#"
+            CREATE TABLE songz (id TEXT, title TEXT);
+            CREATE TABLE albumz (id TEXT, title TEXT);
+            CREATE TABLE album_songz (song_id TEXT, album_id TEXT);
+            CREATE TABLE videoz (id TEXT, title TEXT, series_id TEXT);
+            CREATE TABLE video_seriez (id TEXT, title TEXT);
+            INSERT INTO songz VALUES ('song', 'heard song'), ('next', 'unplayed song');
+            INSERT INTO albumz VALUES ('album', 'heard album');
+            INSERT INTO album_songz VALUES ('song', 'album');
+            INSERT INTO video_seriez VALUES ('series', 'heard series');
+            INSERT INTO videoz VALUES ('video', 'heard episode', 'series'),
+                ('clip', 'standalone clip', NULL);
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let items = r#"[
+            {"entity_type":"song","entity_id":"song"},
+            {"entity_type":"video","entity_id":"video"},
+            {"entity_type":"video","entity_id":"clip"},
+            {"entity_type":"song","entity_id":"song"},
+            {"entity_type":"song","entity_id":"missing"}
+        ]"#;
+        assert_eq!(
+            radio_session_subtitle(&pool, items).await.unwrap().as_deref(),
+            Some("song: heard song (album: heard album), video: heard episode (series: heard series), video: standalone clip")
+        );
+        assert_eq!(radio_session_subtitle(&pool, "[]").await.unwrap(), None);
+        assert!(radio_session_subtitle(&pool, "invalid json").await.is_err());
+    }
+}
+
 /// create or update a session feed event
 pub async fn upsert_session_feed_event(session_id: &str) -> GrimoireResponse<FeedEventResult> {
     let pool = match database::connect().await {
@@ -872,7 +950,19 @@ pub async fn upsert_session_feed_event(session_id: &str) -> GrimoireResponse<Fee
     let feed_type = FeedEventType::Session.to_string();
     let username = session.username.unwrap_or_else(|| "unknown".to_string());
     let title = session.label;
-    let subtitle = session.entity_title;
+    let subtitle = if session.session_type == "radio" {
+        match radio_session_subtitle(&pool, &session.items).await {
+            Ok(subtitle) => subtitle,
+            Err(error) => {
+                return GrimoireResponse::failure(
+                    "failed to resolve radio session media",
+                    vec![error.into()],
+                )
+            }
+        }
+    } else {
+        session.entity_title
+    };
     let artist_name = session.artist_name;
     let album_id = session.album_id;
     let artist_id = session.artist_id;

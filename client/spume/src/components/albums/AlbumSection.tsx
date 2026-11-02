@@ -19,6 +19,8 @@ export interface AlbumSectionProps {
   albumTitle: string;
   /** album year */
   year?: number | null;
+  /** release date taxon label, preserving year/month/day precision */
+  releaseDate?: string | null;
   /** array of songs in this album */
   songs: Song[];
   /** total duration in seconds */
@@ -70,6 +72,7 @@ function AlbumHeader(props: {
   albumId: string;
   albumTitle: string;
   year?: number | null;
+  releaseDate?: string | null;
   songs: Song[];
   totalDuration: number;
   images?: ImageMetadata[];
@@ -87,6 +90,11 @@ function AlbumHeader(props: {
   onRatingChange?: (rating: number) => void;
   onFavoriteToggle?: (isFavorite: boolean) => void;
 }): JSX.Element {
+  const releaseDate = () =>
+    props.releaseDate ||
+    props.taxons?.find((taxon) => taxon.kind_slug === "release_date")?.label.trim() ||
+    props.year;
+
   // collect all genre/tag badges for marquee
   const badgeText = () => {
     const parts: string[] = [];
@@ -95,7 +103,7 @@ function AlbumHeader(props: {
     if (props.taxons) {
       parts.push(
         ...props.taxons
-          .filter((t) => t.kind_slug !== "genre")
+          .filter((t) => t.kind_slug !== "genre" && t.kind_slug !== "release_date")
           .map((t) => `${t.kind_slug}·${t.label}`)
       );
     }
@@ -138,7 +146,7 @@ function AlbumHeader(props: {
             <div class="flex items-center justify-between gap-2">
               <div class="text-xs text-[var(--color-text-secondary)]">
                 {props.songs.length} tracks · {formatHumanDuration(props.totalDuration)}
-                {props.year && ` · ${props.year}`}
+                {releaseDate() && ` · ${releaseDate()}`}
               </div>
               <div class="flex gap-0.5 flex-shrink-0">
                 <button
@@ -208,7 +216,7 @@ function AlbumHeader(props: {
           <div class="flex items-start justify-between gap-2 mt-0.5">
             <div class="text-sm text-[var(--color-text-secondary)] flex-shrink-0">
               {props.songs.length} tracks · {formatHumanDuration(props.totalDuration)}
-              {props.year && ` · ${props.year}`}
+              {releaseDate() && ` · ${releaseDate()}`}
             </div>
             {/* album actions - can wrap to multiple lines */}
             <div class="flex flex-wrap gap-1 justify-end">
@@ -270,6 +278,7 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
               albumId={props.albumId}
               albumTitle={props.albumTitle}
               year={props.year}
+              releaseDate={props.releaseDate}
               songs={props.songs}
               totalDuration={totalDuration()}
               images={props.images}
@@ -293,6 +302,7 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
             albumId={props.albumId}
             albumTitle={props.albumTitle}
             year={props.year}
+            releaseDate={props.releaseDate}
             songs={props.songs}
             totalDuration={totalDuration()}
             images={props.images}
@@ -302,6 +312,7 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
             rating={props.rating}
             genre={props.genre}
             genres={props.genres}
+            taxons={props.taxons}
             tags={props.tags}
             onAlbumClick={handleAlbumClick}
             onPlayAlbum={props.onPlayAlbum}

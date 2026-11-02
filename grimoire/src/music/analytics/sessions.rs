@@ -325,16 +325,13 @@ pub async fn create_playback_session(
     let entity_id = req.entity_id.as_deref();
     let label = &req.label;
 
-    // radio sessions are station-level only — no per-track tracking, so we
-    // skip item validation and accept an empty items list.
+    // radio starts before any track is known, but can include already-heard items.
     let is_radio = session_type == "radio";
 
     // validate items — only keep entities that exist on this server
-    let validated_items = if is_radio {
-        Vec::new()
-    } else {
+    let validated_items = {
         let v = validate_items(&pool, &req.items).await;
-        if v.is_empty() {
+        if v.is_empty() && !is_radio {
             return GrimoireResponse::failure(
                 "no valid items found on this server",
                 vec![crate::error::ErrorDetail::new(

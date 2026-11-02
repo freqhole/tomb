@@ -213,7 +213,7 @@ uninstall() {
             step "removing $root" rm -rf -- "$root"
         else
             for file in menu.py storage_menu.py requirements.txt configure.py packages.py charnel.py splash.py \
-                font5x8.bin font-LICENSE tmux.conf menu.json installation.json wifi.json installed.json update.lock; do
+                font5x8.bin font-LICENSE tmux.conf menu.json installation.json wifi.json installed.json scripts.json update.lock; do
                 rm -f -- "${root:?}/$file"
             done
             step "removing the OLED menu venv" rm -rf -- "${root:?}/.venv"
@@ -430,7 +430,7 @@ cleanup() {
     local file
     for file in "${files[@]}" revision.json splash.png font5x8.bin font-LICENSE sudoers \
         freqhole-config.toml rathole-rendered.service rathole-ctrl-rendered.service tmux-rendered.conf wifi.json menu.json installation.json \
-        unattended-origins unattended-periodic; do
+        unattended-origins unattended-periodic contents.json scripts.json; do
         rm -f -- "$work/$file"
     done
     rmdir -- "$work"
@@ -449,6 +449,11 @@ if [ ! -f "$source_dir/configure.py" ]; then
         "https://api.github.com/repos/freqhole/tomb/commits/$ref" -o "$work/revision.json"
     revision="$(jq -er '.sha' "$work/revision.json")"
     [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || die "invalid GitHub revision."
+    # freqhole-pi update scripts compares against this tree, so unrelated commits are not updates.
+    curl -fsSL --retry 2 --connect-timeout 15 --max-time 60 \
+        "https://api.github.com/repos/freqhole/tomb/contents/scripts?ref=$revision" -o "$work/contents.json"
+    scripts_tree="$(jq -er '.[] | select(.name == "raspberry-pi" and .type == "dir") | .sha' "$work/contents.json")"
+    [[ "$scripts_tree" =~ ^[0-9a-f]{40}$ ]] || die "invalid scripts tree."
     for file in "${files[@]}"; do
         curl -fsSL --retry 2 --connect-timeout 15 --max-time 60 \
             "https://raw.githubusercontent.com/freqhole/tomb/$revision/scripts/raspberry-pi/$file" \
@@ -472,6 +477,18 @@ fi
 for file in menu.py storage_menu.py requirements.txt configure.py packages.py charnel.py splash.py; do
     install -m 644 "$source_dir/$file" "$root/$file"
 done
+scripts_ref="${FREQHOLE_PI_REF:-main}"
+if [ -z "${scripts_tree:-}" ]; then
+    # a clean git checkout maps to a real tree; edited/unknown local copies are
+    # marked local so update checks never overwrite them.
+    scripts_tree=local
+    if command -v git >/dev/null && git -C "$source_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+        && [ -z "$(git -C "$source_dir" status --porcelain -- .)" ]; then
+        scripts_tree="$(git -C "$source_dir" rev-parse "HEAD:./" 2>/dev/null || echo local)"
+    fi
+fi
+jq -n --arg ref "$scripts_ref" --arg tree "$scripts_tree" '{ref: $ref, tree: $tree}' > "$work/scripts.json"
+install -m 600 "$work/scripts.json" "$root/scripts.json"
 python3 "$root/configure.py" menu "$root/menu.json" \
     --player "$menu_player" --socket-path "$root/$menu_player-control.sock"
 configured_data="$data_home/net.freqhole.charnel"
