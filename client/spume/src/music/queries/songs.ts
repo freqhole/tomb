@@ -8,6 +8,7 @@ import { getDataSource } from "../data";
 import { RemoteMusicDataSource } from "../data/remote/remoteSource";
 import type { MusicDataSource } from "../data/types";
 import { queryKeys } from "./queryKeys";
+import { invalidateMusicLibraryQueries } from "./cacheUpdates";
 
 // pick a data source: a remote-scoped one when an explicit remote is
 // supplied (e.g. the library view's selected remote), otherwise the
@@ -362,7 +363,8 @@ export function useArtistSongsQuery(artistId: Accessor<string | undefined>) {
         return { items: [], total: 0, offset: 0, limit: 100, has_more: false };
       }
 
-      // sort by album release date (year) to group albums chronologically
+      // the artist panel orders album groups by their release_date taxon;
+      // year remains the server-side fallback ordering.
       const result = await dataSource.getArtistSongs(id, { 
         limit: 1000,
         sort_by: "year",
@@ -431,11 +433,9 @@ export function useUpdateSongsMutation() {
 
       await dataSource.updateSong(updateParams);
     },
-    onSuccess: () => {
+    onSuccess: async (_, variables) => {
       // invalidate all music queries to refresh data
-      queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
-      queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
-      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+      await invalidateMusicLibraryQueries(queryClient, variables.remote?.remote_id);
       toast.success("song updated");
     },
     onError: (error) => {
@@ -458,11 +458,9 @@ export function useBulkDeleteSongsMutation() {
 
       return await dataSource.bulkDeleteSongs(songIds);
     },
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       // invalidate all music queries to refresh data
-      queryClient.invalidateQueries({ queryKey: queryKeys.songs.all() });
-      queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
-      queryClient.invalidateQueries({ queryKey: queryKeys.artists.all() });
+      await invalidateMusicLibraryQueries(queryClient);
 
       const { deleted_count, failed_ids } = result;
       if (failed_ids.length > 0) {

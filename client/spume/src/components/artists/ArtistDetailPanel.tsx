@@ -7,6 +7,7 @@ import {
 } from "../../music/hooks/contextMenu";
 import type { Song, ImageMetadata, GenreRef, TaxonRef } from "../../music/services/storage/types";
 import { getArtistAbbreviation } from "../../music/utils/format";
+import { sortSongsCanonical } from "../../music/utils/songSort";
 import { AlbumSection } from "../albums/AlbumSection";
 import { Button } from "../buttons/Button";
 import { formatDuration, formatNumber, StatsCard, StatsGrid } from "../cards/StatsCard";
@@ -108,6 +109,7 @@ interface AlbumGroup {
   albumId: string;
   albumTitle: string;
   year: number | null;
+  releaseDate: string | null;
   songs: Song[];
   totalDuration: number;
   images?: ImageMetadata[];
@@ -212,6 +214,9 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
           albumId: song.album_id,
           albumTitle: song.album_title,
           year: song.year,
+          releaseDate:
+            song.album_taxons?.find((taxon) => taxon.kind_slug === "release_date")?.label.trim() ||
+            null,
           songs: [],
           totalDuration: 0,
           images: song.album_images,
@@ -234,14 +239,19 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
       }
 
       const group = groups.get(song.album_id)!;
+      group.releaseDate ??=
+        song.album_taxons?.find((taxon) => taxon.kind_slug === "release_date")?.label.trim() || null;
       group.songs.push(song);
       group.totalDuration += song.duration_seconds;
     });
 
-    // server should return songs sorted by album release date (newest first),
-    // then by disc/track number - no client-side sorting needed
-    // Map preserves insertion order, so albums will be in server order
-    return Array.from(groups.values());
+    const albums = Array.from(groups.values());
+    for (const album of albums) album.songs = sortSongsCanonical(album.songs);
+    return albums.sort((a, b) => {
+      const dateA = a.releaseDate ?? (a.year != null ? String(a.year) : "");
+      const dateB = b.releaseDate ?? (b.year != null ? String(b.year) : "");
+      return dateB.localeCompare(dateA) || a.albumTitle.localeCompare(b.albumTitle);
+    });
   });
 
   // collect unique genre names from all albums with their IDs
@@ -935,6 +945,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
                       albumId={album().albumId}
                       albumTitle={album().albumTitle}
                       year={album().year}
+                      releaseDate={album().releaseDate}
                       songs={album().songs}
                       totalDuration={album().totalDuration}
                       images={album().images}

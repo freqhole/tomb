@@ -12,6 +12,7 @@
 // ResponsiveActionBar's resize behavior (jsdom can't do real layout).
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query";
 import { render } from "solid-js/web";
+import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ArtistDetailPanel } from "./ArtistDetailPanel";
 import type { Song } from "../../music/services/storage/types";
@@ -58,6 +59,92 @@ afterEach(() => {
 });
 
 describe("ArtistDetailPanel", () => {
+  it("shows release date taxons and sorts newest albums first instead of using song years", () => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      }
+    );
+    const song = (album: string, year: number | null, releaseDate?: string): Song =>
+      ({
+        id: album,
+        sha256: "",
+        title: `song ${album}`,
+        artist_id: "artist",
+        artist_name: "artist",
+        album_id: album,
+        album_title: album,
+        track_number: 1,
+        disc_number: 1,
+        duration_seconds: 180,
+        year,
+        album_taxons: releaseDate
+          ? [{ id: `date-${album}`, kind_slug: "release_date", label: releaseDate }]
+          : [],
+      }) as Song;
+    const [songs, setSongs] = createSignal([
+      song("older", 2099),
+      { ...song("older", 2099, "2024-01-02"), id: "older-track-2", track_number: 2 },
+      song("unknown", null),
+      song("year only", null, "2024"),
+      song("newest", 1999, "2024-12-01"),
+      song("legacy", 2023),
+      song("month only", null, "2024-06"),
+    ]);
+    host = document.createElement("div");
+    document.body.appendChild(host);
+    dispose = render(
+      () => (
+        <QueryClientProvider client={new QueryClient()}>
+          <ArtistDetailPanel
+            artist={{
+              artist_id: "artist",
+              name: "artist",
+              song_count: 7,
+              album_count: 6,
+              total_duration: 1260,
+            }}
+            songs={songs()}
+          />
+        </QueryClientProvider>
+      ),
+      host!
+    );
+    const headers = () => [...host!.querySelectorAll(".sticky")].map((el) => el.textContent);
+    expect(headers()).toHaveLength(6);
+    for (const [index, title] of [
+      "newest",
+      "month only",
+      "older",
+      "year only",
+      "legacy",
+      "unknown",
+    ].entries()) {
+      expect(headers()[index]).toContain(title);
+    }
+    expect(headers()[0]).toContain("2024-12-01");
+    expect(headers()[0]).not.toContain("1999");
+    expect(headers()[2]).not.toContain("2099");
+    expect(headers()[0]).not.toContain("release_date·");
+    setSongs((previous) => previous.filter((item) => item.album_id !== "newest"));
+    expect(headers()).toHaveLength(5);
+    expect(headers()[0]).toContain("month only");
+    setSongs((previous) =>
+      previous.map((item) =>
+        item.album_id === "older"
+          ? {
+              ...item,
+              album_taxons: [{ id: "updated-date", kind_slug: "release_date", label: "2025-02" }],
+            }
+          : item
+      )
+    );
+    expect(headers()[0]).toContain("older");
+    expect(headers()[0]).toContain("2025-02");
+  });
+
   it("mounts without throwing when songs are present (exercises the shuffle/queue action items)", () => {
     // jsdom has no ResizeObserver - ResponsiveActionBar (used for the
     // action bar in this panel) needs one to observe its container.
