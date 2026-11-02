@@ -18,6 +18,7 @@ import { tuneRadioCharnel, tuneRadioCharnelLocal } from "./charnelRadioAdapter";
 import { registerStopRadio, registerVolumeMirror, stopMusicForRadio } from "../playbackCoordinator";
 import { pause as pausePlayerAudio } from "../../../music/services/audio/player";
 import { recordHistoryEntry } from "./radioHistory";
+import { RadioListenSession } from "./radioListenSession";
 import {
   type RadioModeCapability,
   type RadioTimelineSnapshot,
@@ -31,11 +32,7 @@ import {
   currentRadioStation,
   setCurrentRadioStationPersisted,
 } from "../storage/currentRadioStation";
-import {
-  getRemoteByPeerAddr,
-  getTauriManagedRemote,
-  getRemoteById,
-} from "../remotes/remoteManager";
+import { getRemoteByPeerAddr, getTauriManagedRemote } from "../remotes/remoteManager";
 import { getClientForRemote } from "../../api/client";
 import {
   currentFavorite,
@@ -310,60 +307,34 @@ let activeSession: RadioSession | null = null;
 let audioSink: HTMLVideoElement | null = null;
 
 // active radio listen session — created on first playback start, closed on
-// leaveRadio. one per active tune. used purely for feed visibility ("user
-// tuned into station X"); no per-track tracking.
-interface RadioListenSession {
-  sessionId: string;
-  remoteId: string;
-}
+// leaveRadio. confirmed history entries supply the played songs/videos.
 let activeRadioListenSession: RadioListenSession | null = null;
-// guards against double-create races between chunk-mode and timeline-mode
-// playback-start callbacks.
-let radioListenSessionCreating = false;
 
-async function ensureRadioListenSession(): Promise<void> {
-  if (activeRadioListenSession || radioListenSessionCreating) return;
+function getRadioListenSession(): RadioListenSession | null {
+  if (activeRadioListenSession) return activeRadioListenSession;
   const sess = activeSession;
-  if (!sess) return;
+  if (!sess) return null;
   const stationId = sess.stationId ?? currentStationId();
-  if (!stationId) return;
+  if (!stationId) return null;
   const label = sess.stationName?.trim() || "(untitled station)";
-
-  radioListenSessionCreating = true;
-  try {
+  activeRadioListenSession = new RadioListenSession(stationId, label, async () => {
     const remote = sess.isLocal
       ? await getTauriManagedRemote()
       : await getRemoteByPeerAddr(sess.peerAddr);
-    if (!remote) {
-      console.warn("[radio] ensureRadioListenSession: no remote for tune");
-      return;
-    }
-    const client = await getClientForRemote(remote);
-    const result = await client.music.createPlaybackSession({
-      session_type: "radio",
-      entity_id: stationId,
-      label,
-      items: [],
-      total_items: 0,
-      total_duration_ms: 0,
-    });
-    if (result.success) {
-      activeRadioListenSession = {
-        sessionId: result.data.id,
-        remoteId: remote.remote_id ?? "",
-      };
-      console.info("[radio] created listen session", result.data.id, "for station", stationId);
-    } else {
-      console.warn(
-        "[radio] createPlaybackSession failed:",
-        (result as { success: false; error: unknown }).error
-      );
-    }
-  } catch (e) {
-    console.warn("[radio] ensureRadioListenSession threw:", e);
-  } finally {
-    radioListenSessionCreating = false;
-  }
+    if (!remote) throw new Error("no remote for radio listen session");
+    return getClientForRemote(remote);
+  });
+  return activeRadioListenSession;
+}
+
+function ensureRadioListenSession(): void {
+  const np = nowPlaying();
+  getRadioListenSession()?.start(
+    np?.song_id
+      ? { entity_type: np.kind === "video" ? "video" : "song", entity_id: np.song_id }
+      : undefined,
+    np?.duration_ms ?? 0
+  );
 }
 
 async function endRadioListenSession(
@@ -372,14 +343,7 @@ async function endRadioListenSession(
   const sess = activeRadioListenSession;
   if (!sess) return;
   activeRadioListenSession = null;
-  try {
-    const remote = await getRemoteById(sess.remoteId);
-    if (!remote) return;
-    const client = await getClientForRemote(remote);
-    await client.music.updatePlaybackSessionStatus(sess.sessionId, status);
-  } catch (e) {
-    console.warn("[radio] endRadioListenSession threw:", e);
-  }
+  await sess.end(status);
 }
 
 export const radioStatus = status;
@@ -452,6 +416,13 @@ export function recordCurrentRadioTrackHistory(track: {
   if (!peerAddr) return;
 
   lastConfirmedHistoryTrackKey = track.historyKey;
+  if (songId) {
+    getRadioListenSession()?.record(
+      { entity_type: track.kind, entity_id: songId },
+      track.historyKey,
+      track.durationMs ?? 0
+    );
+  }
   setCurrentFavorite(null);
   if (songId && track.kind === "song") {
     void fetchRadioFavorite(songId, peerAddr);
@@ -3015,6 +2986,7 @@ export async function tuneIntoRadio(
     },
   };
   activeSession = session;
+  if (status() === "playing") ensureRadioListenSession();
   reconnectDelayMs = RECONNECT_BASE_MS;
   // the connect phase itself (dialing the peer, waiting on tune_radio,
   // etc.) can legitimately take a while and shouldn't count against the

@@ -102,7 +102,7 @@ function sessionEntityLabel(sessionType: string | null): string {
 // "tracks" / "videos" / "items" — the word used next to a session's
 // completed/total item counts.
 function sessionItemWord(sessionType: string | null): string {
-  if (sessionType === "mixed") return "items";
+  if (sessionType === "mixed" || sessionType === "radio") return "items";
   if (sessionType && VIDEO_SESSION_TYPES.has(sessionType)) return "videos";
   return "tracks";
 }
@@ -452,6 +452,9 @@ function FeedRow(props: {
   // build "artist · album" line — avoid duplicating title
   const artistAlbumLine = createMemo(() => {
     const item = props.item;
+    if (item.feed_type === "listen_session" && item.session_type === "radio") {
+      return item.subtitle ?? "";
+    }
     const parts: string[] = [];
     if (item.artist_name && item.artist_name !== item.title) parts.push(item.artist_name);
     if (
