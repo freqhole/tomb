@@ -13,7 +13,8 @@ const { factories, fetchPage } = vi.hoisted(() => ({
   })),
 }));
 
-vi.mock("@tanstack/solid-query", () => ({
+vi.mock("@tanstack/solid-query", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tanstack/solid-query")>()),
   createInfiniteQuery: (factory: () => QueryOptions) => {
     factories.push(factory);
     return {};
