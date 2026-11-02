@@ -1,5 +1,14 @@
 # freqhole-release
 
+## 0.3.23
+
+### Patch Changes
+
+- c8c89ef: fix offline library browsing; add more detailz to radio seession feed itemz
+- e25edfc: handling cenotaph pairing config better
+- 2444c29: also update raspi scriptz on update
+- c1eaede: try harder to invalidate queries on song deletion; try to sort albums also by release date taxon;
+
 ## 0.3.22
 
 ### Patch Changes
