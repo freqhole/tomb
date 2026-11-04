@@ -5404,7 +5404,8 @@ export const PublicNowPlayingSchema = z.object({
   audio_blob_id: z.string().nullish(),
   duration_ms: z.number().nullish(),
   art_thumb_b64: z.string().nullish(),
-  art_thumb_mime: z.string().nullish()
+  art_thumb_mime: z.string().nullish(),
+  start_offset_ms: z.number().nullish()
 });
 export type PublicNowPlaying = z.infer<typeof PublicNowPlayingSchema>;
 
@@ -5429,7 +5430,8 @@ export const PublicStationSchema = z.object({
   audio_blob_id: z.string().nullish(),
   duration_ms: z.number().nullish(),
   art_thumb_b64: z.string().nullish(),
-  art_thumb_mime: z.string().nullish()
+  art_thumb_mime: z.string().nullish(),
+  start_offset_ms: z.number().nullish()
 })
 });
 export type PublicStation = z.infer<typeof PublicStationSchema>;
@@ -5680,7 +5682,8 @@ export const RadioInfoResponseSchema = z.object({
   audio_blob_id: z.string().nullish(),
   duration_ms: z.number().nullish(),
   art_thumb_b64: z.string().nullish(),
-  art_thumb_mime: z.string().nullish()
+  art_thumb_mime: z.string().nullish(),
+  start_offset_ms: z.number().nullish()
 })
 }).nullish(),
   station_count: z.number()
@@ -5836,7 +5839,8 @@ export const RadioStationsResponseSchema = z.object({
   audio_blob_id: z.string().nullish(),
   duration_ms: z.number().nullish(),
   art_thumb_b64: z.string().nullish(),
-  art_thumb_mime: z.string().nullish()
+  art_thumb_mime: z.string().nullish(),
+  start_offset_ms: z.number().nullish()
 })
 }))
 });

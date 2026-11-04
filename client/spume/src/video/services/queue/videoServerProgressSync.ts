@@ -2,8 +2,8 @@
 //
 // local granular position tracking already happens via
 // `videoListenProgress.ts`'s 5s IDB flush (unchanged by this file). this
-// module is the ONLY thing that talks to the server about video
-// progress, and per explicit product direction it must stay much less
+// module is the only thing that talks to the server about queue video
+// progress (radio has its own equivalent, radioVideoProgress.ts), and per explicit product direction it must stay much less
 // chatty than the local tracker: a periodic ~60s tick while actively
 // playing, plus pause/item changes and one best-effort attempt on `beforeunload`. never call
 // `client.entities.upsertPlaybackProgress` from a timeupdate/5s-flush

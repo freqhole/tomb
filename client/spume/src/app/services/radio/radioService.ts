@@ -16,9 +16,14 @@ import { AppendedChunkLog } from "./radioResumePoint";
 import { getMiddenNode, isCharnelAvailable } from "../../api/client";
 import { tuneRadioCharnel, tuneRadioCharnelLocal } from "./charnelRadioAdapter";
 import { registerStopRadio, registerVolumeMirror, stopMusicForRadio } from "../playbackCoordinator";
-import { pause as pausePlayerAudio } from "../../../music/services/audio/player";
+import {
+  pause as pausePlayerAudio,
+  currentTime as playerCurrentTime,
+  duration as playerDuration,
+} from "../../../music/services/audio/player";
 import { recordHistoryEntry } from "./radioHistory";
 import { RadioListenSession } from "./radioListenSession";
+import { RadioVideoProgress } from "./radioVideoProgress";
 import {
   type RadioModeCapability,
   type RadioTimelineSnapshot,
@@ -268,6 +273,7 @@ const [useTimelineMode, setUseTimelineMode] = createSignal<boolean>(!hasMSE);
 // hearing the current radio session). this is intentionally independent of
 // track timing/seek position because live radio is not seekable.
 const [elapsedMs, setElapsedMs] = createSignal<number>(0);
+const [trackPositionMs, setTrackPositionMs] = createSignal<number>(0);
 let listenStartedAtMs = 0;
 let listenedAccumulatedMs = 0;
 let elapsedTickHandle: number | null = null;
@@ -309,6 +315,40 @@ let audioSink: HTMLVideoElement | null = null;
 // active radio listen session — created on first playback start, closed on
 // leaveRadio. confirmed history entries supply the played songs/videos.
 let activeRadioListenSession: RadioListenSession | null = null;
+const radioVideoProgress = new RadioVideoProgress();
+
+function stationClientFor(sess: RadioSession) {
+  return async () => {
+    const remote = sess.isLocal
+      ? await getTauriManagedRemote()
+      : await getRemoteByPeerAddr(sess.peerAddr);
+    if (!remote) throw new Error("no remote for radio station");
+    return getClientForRemote(remote);
+  };
+}
+
+/** feeds series/video resume progress from the audible radio track. */
+function observeRadioVideoProgress(
+  sess: RadioSession,
+  initSeq: number | null,
+  positionS: number,
+  playing: boolean
+): void {
+  const np = nowPlaying();
+  const videoId = np?.kind === "video" ? np.song_id?.trim() || null : null;
+  // the encoder seeks into requested/resumed items, so the client-side
+  // playhead starts at 0 - shift it by the broadcast start offset.
+  const startOffsetS = Math.max(0, (np?.start_offset_ms ?? 0) / 1000);
+  radioVideoProgress.observe({
+    initSeq,
+    videoId,
+    durationS: (np?.duration_ms ?? 0) / 1000,
+    positionS: positionS + startOffsetS,
+    playing,
+    getClient: stationClientFor(sess),
+    sessionId: () => activeRadioListenSession?.id ?? null,
+  });
+}
 
 function getRadioListenSession(): RadioListenSession | null {
   if (activeRadioListenSession) return activeRadioListenSession;
@@ -317,13 +357,7 @@ function getRadioListenSession(): RadioListenSession | null {
   const stationId = sess.stationId ?? currentStationId();
   if (!stationId) return null;
   const label = sess.stationName?.trim() || "(untitled station)";
-  activeRadioListenSession = new RadioListenSession(stationId, label, async () => {
-    const remote = sess.isLocal
-      ? await getTauriManagedRemote()
-      : await getRemoteByPeerAddr(sess.peerAddr);
-    if (!remote) throw new Error("no remote for radio listen session");
-    return getClientForRemote(remote);
-  });
+  activeRadioListenSession = new RadioListenSession(stationId, label, stationClientFor(sess));
   return activeRadioListenSession;
 }
 
@@ -358,6 +392,8 @@ export const radioCurrentRemoteServerId = currentRemoteServerId;
 export const radioConnectPhase = connectPhase;
 export const radioCurrentFavorite = currentFavorite;
 export const radioElapsedMs = elapsedMs;
+export const radioTrackPositionMs = () =>
+  useTimelineMode() ? playerCurrentTime() * 1000 : trackPositionMs();
 export const radioStabilityMode = stabilityMode;
 export const radioModeCapabilities = modeCapabilities;
 export const radioTimelineSeedActive = timelineSeedActive;
@@ -708,6 +744,7 @@ export function radioPause(): void {
   };
   const session = activeSession;
   activeSession = null;
+  void radioVideoProgress.flush();
   stopElapsedTicker();
   // flip status BEFORE tearing down the media element below - session.leave()
   // calls audio.pause()/audio.load(), which fire native media events
@@ -770,6 +807,7 @@ export function leaveRadio(): void {
   bumpTuneAttemptId();
   lastConfirmedHistoryTrackKey = null;
   pausedContext = null;
+  void radioVideoProgress.flush();
   void endRadioListenSession("completed");
   if (activeSession) {
     try {
@@ -783,6 +821,7 @@ export function leaveRadio(): void {
   batch(() => {
     setError(null);
     setNowPlaying(null);
+    setTrackPositionMs(0);
     swapArtUrl(null);
     lastArtRawKey = null;
     lastArtRawUrl = null;
@@ -1777,6 +1816,25 @@ export async function tuneIntoRadio(
     // `stalled` just means "no network bytes for ~3s", which a paced live
     // stream does between fragments all the time - not a playback stall.
     if (isBenignStalledEvent(e.type, aheadS, audio.readyState)) return;
+    if (
+      e.type === "waiting" &&
+      lastAppliedInit !== null &&
+      sb &&
+      !sb.updating &&
+      queue.length === 0
+    ) {
+      const end = appendedChunks.trackEndAt(lastAppliedInit);
+      // decoders can stop just shy of the final sample's timestamp.
+      if (
+        end !== null &&
+        aheadS !== null &&
+        aheadS >= 0 &&
+        aheadS <= 0.05 &&
+        Math.abs(audio.currentTime - end) <= 0.05
+      ) {
+        applyInterstitialAtEnd(lastAppliedInit);
+      }
+    }
     stallCount += 1;
     if (aheadS !== null && (minAheadS === null || aheadS < minAheadS)) {
       minAheadS = aheadS;
@@ -1903,17 +1961,54 @@ export async function tuneIntoRadio(
       handleDeadConnection();
       return;
     }
-    if (useTimelineMode() || !sb) return;
+    if (useTimelineMode()) {
+      if (
+        lastAppliedInit !== null &&
+        playerDuration() > 0 &&
+        playerCurrentTime() >= playerDuration()
+      ) {
+        radioVideoProgress.markEnded(lastAppliedInit);
+        applyInterstitialAtEnd(lastAppliedInit);
+      }
+      if (activeSession) {
+        observeRadioVideoProgress(
+          activeSession,
+          lastAppliedInit,
+          playerCurrentTime(),
+          status() === "playing"
+        );
+      }
+      return;
+    }
+    if (!sb) return;
     // apply every boundary the playhead has already reached, in order -
     // not just the first one - so a run of several short tracks (or a
     // burst that queued multiple transitions) doesn't skip straight to
     // the latest one without ever showing/recording the ones in between.
     while (
       pendingTrackBoundaries.length > 0 &&
-      audio.currentTime >= pendingTrackBoundaries[0].boundaryTime - 0.05
+      audio.currentTime >= pendingTrackBoundaries[0].boundaryTime &&
+      appendedChunks.trackEndAt(pendingTrackBoundaries[0].seq) !== null &&
+      !audio.paused
     ) {
       const boundary = pendingTrackBoundaries.shift()!;
+      radioVideoProgress.markEnded(lastAppliedInit);
       applyPendingTrackMeta(boundary.data, boundary.seq);
+    }
+    if (lastAppliedInit !== null) {
+      setTrackPositionMs(appendedChunks.trackPositionAt(lastAppliedInit, audio.currentTime) * 1000);
+      const end = appendedChunks.trackEndAt(lastAppliedInit);
+      if (end !== null && audio.currentTime >= end && !sb.updating && queue.length === 0) {
+        applyInterstitialAtEnd(lastAppliedInit);
+      }
+    }
+    if (activeSession) {
+      observeRadioVideoProgress(
+        activeSession,
+        lastAppliedInit,
+        trackPositionMs() / 1000,
+        chunkPlayStarted && !audio.paused && status() === "playing"
+      );
     }
     // primary unmute path is drain()'s `seekedToLive` gate (the same
     // one a fresh tune uses) - this is purely a safety net in case that
@@ -2089,10 +2184,10 @@ export async function tuneIntoRadio(
     }
   };
 
+  startWatchdog();
   if (ms) {
     audio.addEventListener("waiting", onStall);
     audio.addEventListener("stalled", onStall);
-    startWatchdog();
     audio.addEventListener("playing", () => {
       console.info("[radio] media element event: playing");
       // authoritative signal that playback actually started - see
@@ -2157,6 +2252,9 @@ export async function tuneIntoRadio(
    * restart a "sequence" mode SourceBuffer's timeline in place. */
   const rebuildSourceBuffer = () => {
     appendedChunks.clear();
+    initChunkBoundaries.clear();
+    pendingInterstitials.clear();
+    setTrackPositionMs(0);
     appendingInitSeq = null;
     pendingGrowthMeasurement = null;
     // the buffered timeline is being torn down/reset, so every stored
@@ -2463,6 +2561,26 @@ export async function tuneIntoRadio(
       listener_count: number;
     }
   >();
+  const pendingInterstitials = new Map<
+    number,
+    {
+      now_playing: PublicNowPlaying;
+      art_url: string | null;
+      listener_count: number;
+    }
+  >();
+  const applyInterstitialAtEnd = (seq: number) => {
+    const data = pendingInterstitials.get(seq);
+    if (!data) return;
+    pendingInterstitials.delete(seq);
+    // the outgoing media really played out - not a skip or retune.
+    radioVideoProgress.markEnded(seq);
+    batch(() => {
+      setNowPlaying(data.now_playing);
+      swapArtUrl(data.art_url);
+      setListenerCount(data.listener_count);
+    });
+  };
   // records every init chunk's own append-time boundary position, keyed
   // by seq, REGARDLESS of whether `pendingMeta` already has a matching
   // entry - meta and chunks arrive on separate channels/tasks with no
@@ -2477,10 +2595,7 @@ export async function tuneIntoRadio(
   // drained) instead of uselessly storing into `pendingMeta`, where
   // nothing would ever match it. bounded the same way `pendingMeta` is.
   const initChunkBoundaries = new Map<number, number>();
-  // most recent init_seq we've actually applied. interstitial / banner
-  // meta updates from the broadcaster (e.g. "switching tracks…") arrive
-  // tagged with the current init_seq so listeners see them immediately
-  // rather than waiting for the next track's init chunk.
+  // most recent init_seq whose media the playhead has actually reached.
   let lastAppliedInit: number | null = null;
   // track whether we have received real media data on the chunk stream.
   // keeps the player status in "connecting" until bytes actually arrive.
@@ -2538,6 +2653,7 @@ export async function tuneIntoRadio(
     // "for the current track" and jumps the visible now-playing early.
     lastAppliedInit = seq;
     pendingInitialNowPlaying = null;
+    setTrackPositionMs(appendedChunks.trackPositionAt(seq, audio.currentTime) * 1000);
     setNowPlaying(data.now_playing);
     swapArtUrl(data.art_url ?? null);
     setListenerCount(data.listener_count);
@@ -2690,6 +2806,28 @@ export async function tuneIntoRadio(
       if (applyControlSpecial(msg)) return;
       const initSeq = msg?.init_seq;
       const np = coerceNowPlaying(msg?.now_playing);
+      // the encoder can finish well ahead of the listener's buffered tail.
+      // a banner belongs after that tail, never at control-message arrival.
+      if (
+        np &&
+        !np.song_id?.trim() &&
+        (nowPlaying()?.song_id?.trim() || pendingInitialNowPlaying?.now_playing.song_id?.trim())
+      ) {
+        const seq = typeof initSeq === "number" ? initSeq : lastAppliedInit;
+        if (seq !== null) {
+          pendingInterstitials.set(seq, {
+            now_playing: np,
+            art_url: resolveArtUrl(msg.now_playing),
+            listener_count: msg.listener_count ?? listenerCount(),
+          });
+          if (pendingInterstitials.size > 50) {
+            const oldest = pendingInterstitials.keys().next().value;
+            if (oldest !== undefined) pendingInterstitials.delete(oldest);
+          }
+        }
+        if (typeof msg?.listener_count === "number") setListenerCount(msg.listener_count);
+        return;
+      }
       // cold-start / fresh-join special case: the very first real meta
       // for a session can carry an init_seq that doesn't line up with
       // the init chunk's own seq number the client actually received
@@ -2740,12 +2878,10 @@ export async function tuneIntoRadio(
         // announcement to either get silently dropped forever (an
         // earlier bug) or applied far too early (this fix's own first,
         // now-reverted attempt), depending on which side of that race
-        // won. an interstitial placeholder (`announce_idle`/
-        // `announce_interstitial`, server-side) always carries an EMPTY
-        // song_id by construction - that's the reliable signal for "safe
-        // to show immediately", not the init_seq math.
+        // won. interstitials while a real track is playing were deferred
+        // above; only that track's own refresh can apply immediately.
         const incomingSongId = np.song_id?.trim() || null;
-        if (!incomingSongId || incomingSongId === previousSongId) {
+        if (!incomingSongId || (incomingSongId === previousSongId && initSeq === lastAppliedInit)) {
           // interstitial placeholder, or a refresh (art/listener_count)
           // for the track already showing - nothing the listener hasn't
           // already been told about changes here, safe to apply now.

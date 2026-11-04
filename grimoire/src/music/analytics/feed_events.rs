@@ -785,12 +785,13 @@ mod radio_session_tests {
                 ('season', 'viewer', 'video_season', '[{"entity_type":"video","entity_id":"episode"}]'),
                 ('series', 'viewer', 'video_series', '[{"entity_type":"video","entity_id":"episode"}]'),
                 ('single', 'viewer', 'video', '[{"entity_type":"video","entity_id":"episode"}]'),
+                ('radio', 'viewer', 'radio', '[{"entity_type":"video","entity_id":"episode"}]'),
                 ('song', 'viewer', 'video_series', '[{"entity_type":"song","entity_id":"episode"}]');"#,
         )
         .execute(&pool)
         .await
         .unwrap();
-        for session in ["season", "series"] {
+        for session in ["season", "series", "radio"] {
             assert!(
                 video_watch_session_matches(&pool, session, "viewer", "episode")
                     .await
@@ -1601,7 +1602,7 @@ async fn video_watch_session_matches(
         r#"SELECT EXISTS(
             SELECT 1 FROM playback_sessionz ps, json_each(ps.items) item
             WHERE ps.id = ? AND ps.user_id = ?
-                AND ps.session_type IN ('video_series', 'video_season')
+                AND ps.session_type IN ('video_series', 'video_season', 'radio')
                 AND json_extract(item.value, '$.entity_type') = 'video'
                 AND json_extract(item.value, '$.entity_id') = ?
         ) as "matches!: bool""#,

@@ -81,6 +81,14 @@ export class AppendedChunkLog {
     return Math.max(0, currentTimeS - start);
   }
 
+  /** last appended media for this track, even when later tracks are buffered ahead. */
+  trackEndAt(initSeq: number): number | null {
+    for (let i = this.chunks.length - 1; i >= 0; i--) {
+      if (this.chunks[i].initSeq === initSeq) return this.chunks[i].endS;
+    }
+    return null;
+  }
+
   /** where on the timeline to land when resuming into `point`'s chunk. */
   seekTargetFor(point: ResumePoint): number | null {
     const c = this.chunks.find((x) => x.initSeq === point.initSeq && x.seq === point.seq);

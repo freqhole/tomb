@@ -185,6 +185,9 @@ export function coerceNowPlaying(raw: unknown): PublicNowPlaying | null {
     waveform_blob_id: typeof r.waveform_blob_id === "string" ? r.waveform_blob_id : null,
     duration_ms: typeof r.duration_ms === "number" ? r.duration_ms : null,
   };
+  if (typeof r.start_offset_ms === "number" && r.start_offset_ms > 0) {
+    np.start_offset_ms = r.start_offset_ms;
+  }
   // best-effort validate via the generated zod schema; ignore on failure
   // so unexpected fields don't blow up playback.
   const parsed = schema.PublicNowPlayingSchema.safeParse(np);

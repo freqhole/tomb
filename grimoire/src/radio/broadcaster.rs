@@ -1099,10 +1099,8 @@ impl Broadcaster {
     }
 
     /// push a transient meta update tagged with the **current** init_seq.
-    /// clients that already received that init chunk treat the update as
-    /// "apply now" (see radioService.ts latching), so the player bar can
-    /// show a "switching tracks…" banner during the gap before the next
-    /// song's init chunk arrives.
+    /// clients defer the banner until the outgoing buffered media ends,
+    /// so encoder lead never replaces a still-playing track in the UI.
     async fn announce_interstitial(self: &Arc<Self>, title: &str) {
         self.track_started_at_ms.store(0, Ordering::Relaxed);
         self.current_track_duration_ms.store(0, Ordering::Relaxed);
@@ -1170,6 +1168,10 @@ impl Broadcaster {
             waveform_blob_id: track.waveform_blob_id.clone(),
             audio_blob_id: track.audio_blob_id.clone(),
             station_id: Some(self.station_id.clone()),
+            start_offset_ms: track
+                .start_position_seconds
+                .filter(|s| s.is_finite() && *s > 0.0)
+                .map(|s| (s * 1000.0).round() as i64),
         });
 
         // small breathing-room gap between tracks. the broadcaster paces

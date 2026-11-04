@@ -21,7 +21,10 @@ vi.mock("../../app/api/client", () => ({
 const toastSuccess = vi.fn((..._args: unknown[]) => {});
 const toastError = vi.fn((..._args: unknown[]) => {});
 vi.mock("../feedback/Toast", () => ({
-  toast: { success: (...a: unknown[]) => toastSuccess(...a), error: (...a: unknown[]) => toastError(...a) },
+  toast: {
+    success: (...a: unknown[]) => toastSuccess(...a),
+    error: (...a: unknown[]) => toastError(...a),
+  },
 }));
 
 const tuneIntoRadio = vi.fn(async (..._args: unknown[]) => ({}) as HTMLVideoElement);
@@ -231,5 +234,76 @@ describe("PlayWithStreamButton", () => {
     await vi.waitFor(() => expect(toastError).toHaveBeenCalled());
     expect(tuneIntoRadio).not.toHaveBeenCalled();
     expect(toastSuccess).not.toHaveBeenCalled();
+  });
+  it("offers continue + start over (no station needed) for a resumable collection", async () => {
+    const onClick = vi.fn();
+    const onStartOver = vi.fn();
+    mount(() => (
+      <PlayWithStreamButton
+        label="continue s1e3"
+        onClick={onClick}
+        remote={() => null}
+        resolveStreamItems={resolveToNull}
+        streamLabel="series"
+        onStartOver={onStartOver}
+        canStartOver={() => true}
+      />
+    ));
+    (host!.querySelector("button") as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(document.querySelector('[role="menu"]')).not.toBeNull());
+    const items = Array.from(document.querySelectorAll('[role="menuitem"]'));
+    expect(items.map((b) => b.textContent?.trim())).toEqual(["continue s1e3", "start over"]);
+    (items[1] as HTMLButtonElement).click();
+    expect(onStartOver).toHaveBeenCalledTimes(1);
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("streams from the beginning on a station via the start-over stream entry", async () => {
+    radioStationsFull.mockResolvedValue({
+      success: true,
+      data: { enabled: true, stations: [station()] },
+    });
+    const resolveStreamItems = vi.fn(async () => [
+      { kind: "video" as const, itemId: "v3", startPositionSeconds: 120 },
+    ]);
+    const resolveStartOver = vi.fn(async () => [{ kind: "video" as const, itemId: "v1" }]);
+    mount(() => (
+      <PlayWithStreamButton
+        label="continue s1e3"
+        onClick={vi.fn()}
+        remote={() => remote}
+        resolveStreamItems={resolveStreamItems}
+        streamLabel="series"
+        onStartOver={vi.fn()}
+        canStartOver={() => true}
+        resolveStartOverStreamItems={resolveStartOver}
+      />
+    ));
+    await vi.waitFor(() => expect(radioStationsFull).toHaveBeenCalled());
+    (host!.querySelector("button") as HTMLButtonElement).click();
+    await vi.waitFor(() =>
+      expect(
+        Array.from(document.querySelectorAll('[role="menuitem"]')).some((b) =>
+          b.textContent?.includes("stream from the start")
+        )
+      ).toBe(true)
+    );
+    const items = Array.from(document.querySelectorAll('[role="menuitem"]'));
+    expect(items.map((b) => b.textContent?.trim())).toEqual([
+      "continue s1e3",
+      "start over",
+      'stream on "test station"',
+      'stream from the start on "test station"',
+    ]);
+    (items[3] as HTMLButtonElement).click();
+    await vi.waitFor(() =>
+      expect(radioSubmitRequest).toHaveBeenCalledWith({
+        station_id: "station-1",
+        kind: "video",
+        item_id: "v1",
+        start_position_seconds: undefined,
+      })
+    );
+    expect(resolveStreamItems).not.toHaveBeenCalled();
   });
 });

@@ -176,6 +176,9 @@ pub struct PublicNowPlaying {
     pub art_thumb_b64: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub art_thumb_mime: Option<String>,
+    /// see `radio::messages::NowPlaying::start_offset_ms`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_offset_ms: Option<i64>,
 }
 
 /// `GET /api/radio/info` — single-station summary (the default channel).
@@ -384,6 +387,7 @@ async fn snapshot_station(
             duration_ms: np.duration_ms,
             art_thumb_b64,
             art_thumb_mime,
+            start_offset_ms: np.start_offset_ms,
         },
     }
 }

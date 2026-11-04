@@ -363,6 +363,30 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     }
   };
 
+  // "start over": the whole series from episode 1 at 0s, ignoring progress.
+  const handleStartOver = async () => {
+    if (seriesActionPending()) return;
+    const videos = allVideos();
+    if (videos.length === 0) return;
+    setSeriesActionPending("play");
+    try {
+      const series = detailQuery.data?.series;
+      await playVideoQueue(videos, 0, {
+        type: "series",
+        label: series?.title ?? "series",
+        entity_id: series?.id,
+      });
+    } finally {
+      setSeriesActionPending(null);
+    }
+  };
+  const resolveSeriesStartOverItems = async (): Promise<RequestQueueItem[] | null> => {
+    const videos = allVideos();
+    if (videos.length === 0) return null;
+    return videos.map((v) => ({ kind: "video" as const, itemId: v.id }));
+  };
+  const canStartSeriesOver = () => continueTarget() !== null;
+
   // item resolver for the series header's play/continue button's stream
   // caret (see PlayWithStreamButton.tsx) - the full remaining episode
   // list from wherever `continueTarget` would resume into, same ordering
@@ -535,11 +559,16 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     action: "play" | "queue" | "shuffle";
   } | null>(null);
 
-  const handleSeasonPlay = async (season: VideoSeason & { videos: VideoSummary[] }) => {
+  const handleSeasonPlay = async (
+    season: VideoSeason & { videos: VideoSummary[] },
+    fromStart = false
+  ) => {
     if (seasonActionPending() || season.videos.length === 0) return;
     setSeasonActionPending({ seasonId: season.id, action: "play" });
     try {
-      const target = pickResumeTarget(season.videos, progressQuery.data ?? new Map());
+      const target = fromStart
+        ? null
+        : pickResumeTarget(season.videos, progressQuery.data ?? new Map());
       await playVideoQueue(
         season.videos,
         target?.index ?? 0,
@@ -593,6 +622,8 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     resolveStreamItems: resolveSeriesStreamItems,
     streamLabel: () => `series "${detailQuery.data?.series.title ?? ""}"`,
     alreadyLocal: isSeriesAlreadyLocal,
+    resolveStartOverItems: resolveSeriesStartOverItems,
+    canStartOver: canStartSeriesOver,
   });
 
   const seriesContextMenuActions = createMemo(() => {
@@ -733,6 +764,9 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                                 resolveStreamItems={resolveSeriesStreamItems}
                                 streamLabel={`series "${detailQuery.data?.series.title ?? ""}"`}
                                 alreadyLocal={isSeriesAlreadyLocal}
+                                onStartOver={handleStartOver}
+                                canStartOver={canStartSeriesOver}
+                                resolveStartOverStreamItems={resolveSeriesStartOverItems}
                               />
                               <FavoriteHeart
                                 isFavorite={isFavorite()}
@@ -810,6 +844,9 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                           resolveStreamItems={resolveSeriesStreamItems}
                           streamLabel={`series "${detailQuery.data?.series.title ?? ""}"`}
                           alreadyLocal={isSeriesAlreadyLocal}
+                          onStartOver={handleStartOver}
+                          canStartOver={canStartSeriesOver}
+                          resolveStartOverStreamItems={resolveSeriesStartOverItems}
                         />
                         <Button
                           variant="ghost"
@@ -904,7 +941,18 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                             const video = season.videos[seasonResumeTarget()?.index ?? 0];
                             return isVideoAlreadyLocal(video);
                           },
+                          resolveStartOverItems: async () =>
+                            season.videos.length === 0
+                              ? null
+                              : season.videos.map((v) => ({
+                                  kind: "video" as const,
+                                  itemId: v.id,
+                                })),
+                          canStartOver: () => seasonResumeTarget() !== null,
                         });
+                        const seasonCanStartOver = () => seasonResumeTarget() !== null;
+                        const seasonPlayLabel = () =>
+                          seasonCanStartOver() ? "continue season" : "play season";
                         return (
                           <div>
                             <div
@@ -941,7 +989,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                               </span>
                               <Show when={season.videos.length > 0}>
                                 <Show
-                                  when={seasonStream.showCaret()}
+                                  when={seasonStream.showCaret() || seasonCanStartOver()}
                                   fallback={
                                     <button
                                       onClick={(e) => {
@@ -963,20 +1011,32 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                                       <button
                                         disabled={isPending("play")}
                                         class="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors flex-shrink-0"
-                                        title="play season"
-                                        aria-label="play season"
+                                        title={seasonPlayLabel()}
+                                        aria-label={seasonPlayLabel()}
                                       >
                                         <Icon name={IconNames.play} size={14} />
                                       </button>
                                     }
                                     actions={[
                                       {
-                                        label: "play season",
+                                        label: seasonPlayLabel(),
                                         icon: "play",
                                         onClick: () => void handleSeasonPlay(season),
                                         disabled: isPending("play"),
                                       },
-                                      ...seasonStream.menuActions(),
+                                      ...(seasonCanStartOver()
+                                        ? [
+                                            {
+                                              label: "start season over",
+                                              icon: "previous" as const,
+                                              onClick: () => void handleSeasonPlay(season, true),
+                                              disabled: isPending("play"),
+                                            },
+                                          ]
+                                        : []),
+                                      ...(seasonStream.showCaret()
+                                        ? seasonStream.menuActions()
+                                        : []),
                                     ]}
                                   />
                                 </Show>

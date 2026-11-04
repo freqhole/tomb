@@ -251,6 +251,11 @@ pub struct NowPlaying {
     /// validate it's still tuned to the right channel after a reconnect).
     #[serde(default)]
     pub station_id: Option<String>,
+    /// where in the item this stream begins, in milliseconds, when the
+    /// station resumed it mid-way (a request's or listener's resume point).
+    /// lets clients record absolute watch progress.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_offset_ms: Option<i64>,
 }
 
 /// inline base64-encoded art bytes. the `mime` field tells the client what
