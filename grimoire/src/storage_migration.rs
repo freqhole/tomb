@@ -13,12 +13,16 @@ use toml_edit::{value, DocumentMut, Item};
 
 use crate::config::{read_config_from_file, GrimoireConfig};
 
+mod reference_audit;
+pub(crate) use reference_audit::audit_online as audit_references_online;
 #[cfg(test)]
 mod tests;
+pub use reference_audit::{audit_references, ReferenceAudit, ReferenceAuditEntry};
 
 const DATA_LOCK: &str = ".freqhole-storage.lock";
 const CONFIRM: &str = "move my storage";
-static LEASES: OnceLock<Mutex<HashMap<PathBuf, (PathBuf, Vec<File>)>>> = OnceLock::new();
+type StorageLeases = HashMap<PathBuf, (PathBuf, Vec<File>)>;
+static LEASES: OnceLock<Mutex<StorageLeases>> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
@@ -62,6 +66,8 @@ struct Journal {
     entries: Option<Vec<Entry>>,
     copied: bool,
     paths_updated: bool,
+    #[serde(default)]
+    references_updated: bool,
     committed: bool,
     #[serde(default)]
     preferences: Option<DocumentChange>,
@@ -250,7 +256,7 @@ pub fn preview(config_path: &Path, operation: Operation, destination: &Path) -> 
         collisions: Vec::new(),
         blockers: Vec::new(),
         destination_has_media: false,
-        blocked_reason: move_blocker(&config, operation)?,
+        blocked_reason: None,
     };
     for path in tree(&result.destination, &config_path, false)? {
         if path.file_name().is_some_and(|n| n == DATA_LOCK) {
@@ -367,6 +373,7 @@ pub fn schedule_with_preferences(
         entries: None,
         copied: false,
         paths_updated: false,
+        references_updated: false,
         committed: false,
         preferences,
     };
@@ -376,21 +383,6 @@ pub fn schedule_with_preferences(
         false,
     )?;
     Ok(report)
-}
-
-fn move_blocker(config: &GrimoireConfig, operation: Operation) -> Result<Option<String>> {
-    if operation != Operation::SelectData
-        && config.freqhole_blobz_path().join("blobs.db").try_exists()?
-    {
-        return Ok(Some(
-            "this node has an iroh P2P blob index that may contain absolute file references. \
-             moving existing files is paused until reference relocation is supported. \
-             select a fresh data folder or change the folder for future fetches instead. \
-             see docs/iroh-blob-reference-relocation-plan.md"
-                .into(),
-        ));
-    }
-    Ok(None)
 }
 
 pub fn describe_paths(paths: &[PathBuf]) -> String {
@@ -628,11 +620,11 @@ async fn connect_file(path: &Path) -> Result<SqliteConnection> {
             .busy_timeout(std::time::Duration::from_secs(2)),
     )
     .await?;
-    let check: String = sqlx::query_scalar("PRAGMA quick_check")
+    let check = sqlx::query_scalar!("PRAGMA quick_check")
         .fetch_one(&mut connection)
         .await?;
-    if check != "ok" {
-        bail!("database check failed for {}: {check}", path.display());
+    if check.as_deref() != Some("ok") {
+        bail!("database check failed for {}: {check:?}", path.display());
     }
     Ok(connection)
 }
@@ -642,15 +634,22 @@ async fn checkpoint(path: &Path) -> Result<()> {
         return Ok(());
     }
     let mut connection = connect_file(path).await?;
-    let (busy, _, _): (i64, i64, i64) = sqlx::query_as("PRAGMA wal_checkpoint(TRUNCATE)")
+    struct Checkpoint {
+        busy: i64,
+        log: i64,
+        checkpointed: i64,
+    }
+    // SQLite does not describe the output types of this write-only pragma.
+    let checkpoint = sqlx::query_as_unchecked!(Checkpoint, "PRAGMA wal_checkpoint(TRUNCATE)")
         .fetch_one(&mut connection)
         .await?;
-    if busy != 0 {
+    if checkpoint.busy != 0 {
         bail!(
             "database is busy: {}; close other apps first",
             path.display()
         );
     }
+    let _ = (checkpoint.log, checkpoint.checkpointed);
     connection.close().await?;
     Ok(())
 }
@@ -691,12 +690,13 @@ async fn rewrite_database(path: &Path, report: &Preview, entries: &[Entry]) -> R
         ("jobz", "result", true),
         ("job_sessionz", "last_checkpoint", true),
     ] {
-        let exists: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM pragma_table_info(?) WHERE name = ?")
-                .bind(table)
-                .bind(column)
-                .fetch_one(&mut *tx)
-                .await?;
+        let exists = sqlx::query_scalar!(
+            "SELECT count(*) FROM pragma_table_info(?) WHERE name = ?",
+            table,
+            column
+        )
+        .fetch_one(&mut *tx)
+        .await?;
         if exists == 0 {
             continue;
         }
@@ -755,9 +755,6 @@ async fn apply(config_path: &Path) -> Result<()> {
     }
     let mut config: GrimoireConfig = toml::from_str(&journal.config_before)?;
     config.data_dir = fs::canonicalize(&config.data_dir)?;
-    if let Some(reason) = move_blocker(&config, journal.preview.operation)? {
-        bail!("{reason}");
-    }
     let report = journal.preview.clone();
     if journal.entries.is_none() {
         let fresh = preview(config_path, report.operation, &report.destination)?;
@@ -890,6 +887,33 @@ async fn apply(config_path: &Path) -> Result<()> {
         journal.paths_updated = true;
         save(config_path, &journal)?;
     }
+    if !journal.references_updated {
+        let transport = if report.operation == Operation::MoveData {
+            PathBuf::from(remap(
+                &config.freqhole_blobz_path().to_string_lossy(),
+                &report,
+                journal.entries.as_deref().context("missing manifest")?,
+            ))
+        } else {
+            config.freqhole_blobz_path()
+        };
+        if report.operation != Operation::SelectData && transport.join("blobs.db").try_exists()? {
+            repair_moved_references(
+                &transport,
+                journal.entries.as_deref().context("missing manifest")?,
+            )
+            .await?;
+            if report.operation == Operation::MoveData {
+                for entry in journal.entries.as_mut().context("missing manifest")? {
+                    if entry.destination.starts_with(&transport) {
+                        entry.destination_hash = Some(digest(&entry.destination)?);
+                    }
+                }
+            }
+        }
+        journal.references_updated = true;
+        save(config_path, &journal)?;
+    }
     if !journal.committed {
         tracing::info!("storage migration: committing configuration");
         for entry in journal
@@ -974,5 +998,37 @@ async fn apply(config_path: &Path) -> Result<()> {
     fs::remove_file(pending_path(config_path))?;
     sync_parent(config_path)?;
     tracing::info!(destination = %report.destination.display(), "storage migration complete; original config and pre-change config backup retained");
+    Ok(())
+}
+
+async fn repair_moved_references(root: &Path, entries: &[Entry]) -> Result<()> {
+    use iroh_blobs::store::fs::FsStore;
+    let store = FsStore::load(root).await?;
+    let result: Result<()> = async {
+        let hashes: std::collections::HashSet<_> =
+            store.blobs().list().hashes().await?.into_iter().collect();
+        let repair = reliquary::references::ReferenceRepair::default();
+        for entry in entries {
+            let hash = entry.hash.parse::<iroh_blobs::Hash>()?;
+            if hashes.contains(&hash) {
+                check_location(&entry.destination)?;
+                repair
+                    .ensure(&store, hash, &entry.destination)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "cannot relocate transport reference for {}",
+                            entry.destination.display()
+                        )
+                    })?;
+            }
+        }
+        store.sync_db().await?;
+        Ok(())
+    }
+    .await;
+    let shutdown = store.shutdown().await;
+    result?;
+    shutdown?;
     Ok(())
 }

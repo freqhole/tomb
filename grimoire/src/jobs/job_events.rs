@@ -688,6 +688,7 @@ pub fn entity_ref_for(job_type: &JobType, params_json: &str) -> Option<EntityRef
         | JobType::SyncSongByBlake3
         | JobType::SyncVideoByBlake3
         | JobType::RepairLibraryImages
+        | JobType::AuditBlobReferences
         | JobType::ReorganizeLibraryFiles => None,
     }
 }

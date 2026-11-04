@@ -123,6 +123,7 @@ fn rich_commands() -> Vec<AdminCommand> {
         // -- public --
         builders::public::knock(),
         // -- maintenance (rich) --
+        builders::maintenance::audit_blob_references(),
         builders::maintenance::cleanup_orphaned_tags(),
         builders::maintenance::cleanup_orphaned_genres(),
         builders::maintenance::cleanup_orphaned_artists(),

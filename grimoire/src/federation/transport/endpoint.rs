@@ -19,10 +19,25 @@ use crate::federation::transport::protocol::FREQHOLE_ALPN;
 use iroh::endpoint::{presets, RelayMode};
 use iroh::protocol::{Router, RouterBuilder};
 use iroh::{Endpoint, EndpointAddr, PublicKey, RelayMap, RelayUrl, SecretKey};
-use reliquary::gate::{build_gated_blobs_events, AllowAll};
+use reliquary::gate::{build_gated_blobs_events, AccessGate};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use tracing::{info, warn};
+
+struct ReadyBlobs;
+
+#[async_trait::async_trait]
+impl AccessGate for ReadyBlobs {
+    async fn allow_blob(&self, _peer: &str, hash: &str) -> bool {
+        match crate::blobz::ensure_blob_by_blake3(hash).await {
+            crate::blobz::EnsureBlobOutcome::Available => true,
+            outcome => {
+                warn!(%hash, ?outcome, "cannot serve blob after reference repair");
+                false
+            }
+        }
+    }
+}
 
 /// resolve the iroh relay mode from federation config.
 ///
@@ -227,16 +242,16 @@ impl FederationEndpoint {
         let freqhole_handler = FreqholeProtocol::new();
 
         // create iroh-blobs protocol handler, gated via reliquary's shared
-        // AccessGate seam (AllowAll here - grimoire's own auth already
-        // happens at the transport/caller layer elsewhere, this doesn't add
-        // new gating) and also feeding this node's outgoing transfer
+        // AccessGate seam (auth remains at the transport/caller layer).
+        // repair before sending any bytes, including requests without an ensure RPC.
+        // also feed this node's outgoing transfer
         // registry (`active_outgoing_transfers()` below), sourced from the
         // shared storage node. attach this endpoint to the node's downloader
         // too, so it can drive verified peer-to-peer fetches for any future
         // consumer (e.g. the snatch engine).
         let storage_node = crate::database::storage_node().await?;
         let registry = crate::database::transfer_registry().await;
-        let event_sender = build_gated_blobs_events(Arc::new(AllowAll), Some(registry));
+        let event_sender = build_gated_blobs_events(Arc::new(ReadyBlobs), Some(registry));
         let blobs_handler = storage_node.blobs_protocol(Some(event_sender));
         storage_node.attach_endpoint(&self.endpoint);
 

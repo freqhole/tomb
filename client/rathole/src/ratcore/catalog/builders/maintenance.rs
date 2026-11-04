@@ -3,6 +3,23 @@
 use crate::ratcore::app::{AdminCommand, CommandKind};
 use crate::ratcore::catalog::widgets::{dry_run_arg, limit_arg};
 
+pub(in crate::ratcore::catalog) fn audit_blob_references() -> AdminCommand {
+    use crate::ratcore::app::{ArgKind, ArgSpec};
+    AdminCommand {
+        name: "maintenance_audit_blob_references".into(),
+        request_type: "serde_json::Value".into(),
+        response_type: "Job".into(),
+        auth: "Admin".into(),
+        kind: CommandKind::Admin,
+        args: vec![ArgSpec {
+            name: "repair".into(),
+            kind: ArgKind::Bool { default: false },
+            required: true,
+            help: Some("audit known media paths; enable to repair verified P2P references. never moves or deletes media. results and progress appear in jobs.".into()),
+        }],
+    }
+}
+
 pub(in crate::ratcore::catalog) fn cleanup_orphaned_tags() -> AdminCommand {
     AdminCommand {
         name: "maintenance_cleanup_orphaned_tags".to_string(),

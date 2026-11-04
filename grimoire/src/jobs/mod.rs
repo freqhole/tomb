@@ -17,6 +17,7 @@ pub(crate) use lifecycle::cancel_session as cancel_session_jobs;
 mod models;
 mod music;
 pub mod rate_limit;
+mod reference_audit;
 mod runner;
 mod service;
 mod video;

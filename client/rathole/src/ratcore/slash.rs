@@ -516,6 +516,10 @@ pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
     (
         "maintenance",
         &[
+            (
+                "audit-references",
+                "queue blob reference audit [repair]; follow progress in jobs",
+            ),
             ("cleanup-tags", "delete orphaned tags [dry-run]"),
             ("cleanup-genres", "delete orphaned genres [dry-run]"),
             (
@@ -1731,7 +1735,7 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
     };
     match sub.as_str() {
         "" | "help" | "list" => bad(
-            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-artists|cleanup-albums|cleanup-video-series|cleanup-taxons|cleanup-contentless-blobs|cleanup-blobs|cleanup-all|backfill-blake3|backfill-fsstore|backfill-thumbs|hard-delete|run-full|repair-library|repair-waveforms|repair-thumbnails|repair-video-thumbnails|regenerate-video-thumbnails|reorganize-library|reorganize-library-plan|update-image|update-spume> [args]",
+            "usage: /maintenance <audit-references [repair]|cleanup-tags|cleanup-genres|cleanup-artists|cleanup-albums|cleanup-video-series|cleanup-taxons|cleanup-contentless-blobs|cleanup-blobs|cleanup-all|backfill-blake3|backfill-fsstore|backfill-thumbs|hard-delete|run-full|repair-library|repair-waveforms|repair-thumbnails|repair-video-thumbnails|regenerate-video-thumbnails|reorganize-library|reorganize-library-plan|update-image|update-spume> [args]",
         ),
         "cleanup-tags" | "cleanup_tags" => SlashAction::AdminDispatch {
             name: "maintenance_cleanup_orphaned_tags",
@@ -1791,6 +1795,10 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
                 body: serde_json::json!({ "batch_size": batch_size }),
             }
         }
+        "audit-references" | "audit_references" => SlashAction::AdminDispatch {
+            name: "maintenance_audit_blob_references",
+            body: serde_json::json!({ "repair": has_token("repair") }),
+        },
         "backfill-fsstore" | "backfill_fsstore" | "fsstore" => {
             let concurrency = first_positional
                 .and_then(|t| t.parse::<i64>().ok())
@@ -1975,7 +1983,7 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
             }
         }
         _ => bad(
-            "usage: /maintenance <cleanup-tags|cleanup-genres|cleanup-artists|cleanup-albums|cleanup-video-series|cleanup-taxons|cleanup-contentless-blobs|cleanup-blobs|cleanup-all|backfill-blake3|backfill-fsstore|backfill-thumbs|hard-delete|hard-delete-videos|run-full|repair-library [no-embedded-art] [no-directory-art] [remove-overapplied] [no-video-thumbnails]|repair-waveforms|repair-thumbnails [no-embedded-art] [no-directory-art] [remove-overapplied]|repair-video-thumbnails|regenerate-video-thumbnails|reorganize-library <target_directory> [domain=music|video|both] [dry-run] [no-embed-tags]|reorganize-library-plan <target_directory> [domain=music|video|both]|update-image|update-spume> [args]",
+            "usage: /maintenance <audit-references [repair]|cleanup-tags|cleanup-genres|cleanup-artists|cleanup-albums|cleanup-video-series|cleanup-taxons|cleanup-contentless-blobs|cleanup-blobs|cleanup-all|backfill-blake3|backfill-fsstore|backfill-thumbs|hard-delete|hard-delete-videos|run-full|repair-library [no-embedded-art] [no-directory-art] [remove-overapplied] [no-video-thumbnails]|repair-waveforms|repair-thumbnails [no-embedded-art] [no-directory-art] [remove-overapplied]|repair-video-thumbnails|regenerate-video-thumbnails|reorganize-library <target_directory> [domain=music|video|both] [dry-run] [no-embed-tags]|reorganize-library-plan <target_directory> [domain=music|video|both]|update-image|update-spume> [args]",
         ),
     }
 }
@@ -1983,6 +1991,23 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reference_audit_requires_explicit_repair_flag() {
+        for (command, repair) in [
+            ("/maintenance audit-references", false),
+            ("/maintenance audit-references repair", true),
+            ("/maintenance audit-references --repair", true),
+        ] {
+            assert_eq!(
+                parse(command),
+                SlashAction::AdminDispatch {
+                    name: "maintenance_audit_blob_references",
+                    body: serde_json::json!({ "repair": repair }),
+                }
+            );
+        }
+    }
 
     #[test]
     fn parses_play_with_query() {

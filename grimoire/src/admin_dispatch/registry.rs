@@ -48,6 +48,18 @@ pub struct AdminCommandInfo {
 
 /// every admin command currently typed for codegen.
 pub const ADMIN_COMMANDS: &[AdminCommandInfo] = &[
+    AdminCommandInfo {
+        name: "maintenance_audit_blob_references",
+        request_type: "serde_json::Value",
+        response_type: "serde_json::Value",
+        auth: AdminAuth::Admin,
+    },
+    AdminCommandInfo {
+        name: "maintenance_blob_reference_status",
+        request_type: "serde_json::Value",
+        response_type: "serde_json::Value",
+        auth: AdminAuth::Admin,
+    },
     // -- removable library sources --
     AdminCommandInfo {
         name: "library_list_removable_volumes",

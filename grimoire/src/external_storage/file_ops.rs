@@ -74,6 +74,72 @@ pub fn move_file(from: &Path, to: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// stage a verified copy without deleting the original or replacing any target.
+pub fn copy_for_relocation(from: &Path, to: &Path) -> Result<blake3::Hash, String> {
+    let result = (|| -> std::io::Result<blake3::Hash> {
+        let parent = to
+            .parent()
+            .ok_or_else(|| std::io::Error::other("destination has no parent"))?;
+        let mut source = std::fs::File::open(from)?;
+        let mut copy = tempfile::NamedTempFile::new_in(parent)?;
+        let mut hasher = blake3::Hasher::new();
+        let mut buffer = vec![0; 128 * 1024];
+        use std::io::{Read, Write};
+        loop {
+            let n = source.read(&mut buffer)?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buffer[..n]);
+            copy.write_all(&buffer[..n])?;
+        }
+        std::fs::set_permissions(copy.path(), source.metadata()?.permissions())?;
+        copy.as_file().sync_all()?;
+        let hash = hasher.finalize();
+        let mut check = blake3::Hasher::new();
+        check.update_reader(std::fs::File::open(copy.path())?)?;
+        if check.finalize() != hash {
+            return Err(std::io::Error::other("relocation copy verification failed"));
+        }
+        copy.persist_noclobber(to).map_err(|e| e.error)?;
+        #[cfg(unix)]
+        std::fs::File::open(parent)?.sync_all()?;
+        Ok(hash)
+    })();
+    result.map_err(|e| format!("failed to copy for relocation: {e}"))
+}
+
+pub fn finish_relocation(
+    from: &Path,
+    to: &Path,
+    expected: blake3::Hash,
+    destination_hash: &str,
+) -> Result<(), String> {
+    let result = (|| -> std::io::Result<()> {
+        let mut destination = blake3::Hasher::new();
+        destination.update_reader(std::fs::File::open(to)?)?;
+        if destination.finalize().to_hex().as_str() != destination_hash {
+            return Err(std::io::Error::other(
+                "destination changed; original retained",
+            ));
+        }
+        let mut hash = blake3::Hasher::new();
+        hash.update_reader(std::fs::File::open(from)?)?;
+        if hash.finalize() != expected {
+            return Err(std::io::Error::other("source changed; original retained"));
+        }
+        std::fs::remove_file(from)?;
+        #[cfg(unix)]
+        std::fs::File::open(
+            from.parent()
+                .ok_or_else(|| std::io::Error::other("source has no parent"))?,
+        )?
+        .sync_all()?;
+        Ok(())
+    })();
+    result.map_err(|e| format!("failed to finish relocation: {e}"))
+}
+
 /// best-effort cleanup: remove now-empty directories a moved file left
 /// behind, stopping at (and never removing) `stop_at`.
 pub fn prune_empty_ancestors(mut dir: PathBuf, stop_at: &Path) {
@@ -111,6 +177,29 @@ pub fn temp_file_name(ext: &str) -> String {
 mod tests {
     use super::*;
     use crate::media_blobz::BlobType;
+
+    #[test]
+    fn relocation_copy_never_overwrites_and_cleanup_checks_original_bytes() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let target = temp.path().join("target");
+        std::fs::write(&source, b"original").unwrap();
+        let hash = copy_for_relocation(&source, &target).unwrap();
+        assert_eq!(std::fs::read(&source).unwrap(), b"original");
+        assert_eq!(std::fs::read(&target).unwrap(), b"original");
+        assert!(copy_for_relocation(&source, &target).is_err());
+        std::fs::write(&source, b"changed").unwrap();
+        assert!(finish_relocation(&source, &target, hash, hash.to_hex().as_str()).is_err());
+        assert_eq!(std::fs::read(&source).unwrap(), b"changed");
+        std::fs::write(&source, b"original").unwrap();
+        std::fs::write(&target, b"wrong bytes").unwrap();
+        assert!(finish_relocation(&source, &target, hash, hash.to_hex().as_str()).is_err());
+        assert!(source.exists());
+        std::fs::write(&target, b"original").unwrap();
+        finish_relocation(&source, &target, hash, hash.to_hex().as_str()).unwrap();
+        assert!(!source.exists());
+        assert_eq!(std::fs::read(target).unwrap(), b"original");
+    }
 
     fn blob(filename: Option<&str>, mime: Option<&str>) -> MediaBlob {
         MediaBlob {

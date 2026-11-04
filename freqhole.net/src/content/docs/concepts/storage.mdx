@@ -137,12 +137,12 @@ in Charnel's local wizard **settings**, these are separate operations:
 - **move existing files** preflights the destination, asks for typed
   confirmation, then runs before services start on the next launch.
 
-:::caution[P2P reference relocation follow-up]
-moving existing files is currently blocked when a node has a
-`freqhole-blobz/blobs.db` transport index. upstream iroh can retain absolute file
-references there, separately from SQLite. the guard prevents deleting files
-that P2P serving might still need. select-only and future-fetch changes do not
-move those files and remain available.
+:::caution[transport references are part of the move]
+the `freqhole-blobz/blobs.db` transport index can retain absolute file
+references separately from SQLite. storage moves register and verify the
+copied files in that index before configuration cutover or source deletion.
+if the index cannot be opened or repaired, the move stops with the source
+files retained. do not delete the index to bypass an error.
 :::
 
 for eligible moves, destination files are never overwritten. identical media
@@ -174,6 +174,35 @@ collisions. `config storage assign-fetch /new/folder` changes future fetches
 only. folders must already exist and source/destination must not be nested.
 symlinks and special files are rejected.
 
+to verify known file-backed sources without changing the transport index:
+
+```sh
+freqhole --config /path/freqhole-config.toml config storage audit-references
+# close all apps first; register verified sources without copying/deleting media:
+freqhole --config /path/freqhole-config.toml config storage audit-references --repair
+```
+
+`--repair` verifies the bytes served by the transport store. unresolved files
+are reported explicitly; reconnect a missing disk or correct its library
+path rather than forcing repair. repair is repeatable and retains successful
+registrations if interrupted. it does not scan arbitrary folders for moved
+files or prune old redb references.
+
+for GUI app, use **library → audit and repair blob
+references** in charnel's wizard. **audit only** hashes known source files;
+**audit and repair** also registers verified paths with the running P2P
+store. jobs continue after leaving the view; returning shows the latest
+run, progress and unresolved-file errors.
+
+rathole includes `maintenance_audit_blob_references` in its maintenance
+command picker (repair defaults off), or use:
+
+```text
+/maintenance audit-references
+/maintenance audit-references repair
+```
+
+these do not require closing the app.
 the adjacent `freqhole-config.toml.storage-move.json` journal makes interrupted
 moves resumable. fix the reported error and relaunch or run `config storage
 apply`. `config storage cancel` is allowed only before copying starts. do not

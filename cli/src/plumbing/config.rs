@@ -63,6 +63,12 @@ pub enum StorageAction {
     Cancel,
     /// change only where future music/video fetches are saved
     AssignFetch { destination: PathBuf },
+    /// verify canonical sources without modifying the transport index
+    AuditReferences {
+        /// register verified sources in the transport index; close all apps first
+        #[arg(long)]
+        repair: bool,
+    },
 }
 
 fn storage_command(
@@ -108,6 +114,9 @@ fn storage_command(
                 serde_json::json!({"destination": path, "message": "future fetches only; existing files were not moved"}),
             )
         }
+        StorageAction::AuditReferences { repair } => Ok(serde_json::to_value(
+            storage::audit_references(&path, repair)?,
+        )?),
     }
 }
 
@@ -118,7 +127,32 @@ pub async fn handle_command(
 ) -> CommandOutput<serde_json::Value> {
     match action {
         ConfigAction::Storage { action } => match storage_command(action, global_config) {
-            Ok(data) => CommandOutput::success("storage command complete", data),
+            Ok(data) => {
+                let errors: Vec<_> = data
+                    .get("entries")
+                    .and_then(|v| v.as_array())
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|entry| {
+                        entry.get("error").and_then(|v| v.as_str()).map(|error| {
+                            GrimoireError::Validation {
+                                field: "reference".into(),
+                                message: error.into(),
+                            }
+                            .into()
+                        })
+                    })
+                    .collect();
+                if errors.is_empty() {
+                    CommandOutput::success("storage command complete", data)
+                } else {
+                    CommandOutput::failure(
+                        "some references could not be resolved; no source files were deleted",
+                        errors,
+                        data,
+                    )
+                }
+            }
             Err(error) => CommandOutput::failure(
                 "storage command failed",
                 vec![GrimoireError::Validation {
@@ -306,6 +340,31 @@ pub async fn handle_command(
                     (),
                 ),
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn parses_reference_audit_and_explicit_repair() {
+        for repair in [false, true] {
+            let mut args = vec!["freqhole", "config", "storage", "audit-references"];
+            if repair {
+                args.push("--repair");
+            }
+            let parsed = crate::Cli::try_parse_from(args).unwrap();
+            assert!(matches!(
+                parsed.command,
+                Some(crate::Commands::Config {
+                    action: ConfigAction::Storage {
+                        action: StorageAction::AuditReferences { repair: actual }
+                    }
+                }) if actual == repair
+            ));
         }
     }
 }

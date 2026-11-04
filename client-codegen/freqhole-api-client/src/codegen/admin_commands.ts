@@ -31,6 +31,8 @@ export const adminCommands = {
   library_scan_status: { req: s.LibraryScanStatusRequestSchema, resp: s.SessionJobCountsSchema, auth: { type: 'admin' } as const },
   library_source_availability: { req: z.void().optional(), resp: s.SourceAvailabilitySchema.array(), auth: { type: 'admin' } as const },
   library_source_summaries: { req: z.void().optional(), resp: s.LibrarySourceSummarySchema.array(), auth: { type: 'admin' } as const },
+  maintenance_audit_blob_references: { req: z.any(), resp: z.any(), auth: { type: 'admin' } as const },
+  maintenance_blob_reference_status: { req: z.any(), resp: z.any(), auth: { type: 'admin' } as const },
   maintenance_retranscode_video_renditions: { req: s.RetranscodeVideoRenditionsRequestSchema, resp: s.RetranscodeVideoRenditionsSummarySchema, auth: { type: 'admin' } as const },
   peers_allow: { req: s.AdminPeersAllowRequestSchema, resp: s.AdminPeersAllowResponseSchema, auth: { type: 'admin' } as const },
   peers_hard_delete: { req: s.AdminPeersHardDeleteRequestSchema, resp: s.AdminPeersHardDeleteResponseSchema, auth: { type: 'admin' } as const },

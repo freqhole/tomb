@@ -4,6 +4,7 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import { resolvePath, directoryDisplayName, isDocumentPortalPath } from "../util/resolvePath";
 import { useAdminTransport } from "../admin/context";
 import LibraryDiskPicker, { type DiskFolderSelection } from "../components/LibraryDiskPicker";
+import BlobReferenceMaintenance from "../components/BlobReferenceMaintenance";
 
 interface ScannedDir {
   id: string;
@@ -2415,6 +2416,8 @@ export default function LibraryView() {
             </Show>
           </div>
         </details>
+
+        <BlobReferenceMaintenance />
 
         {/* reorganize-library - its own section (not a repair-checklist
               item) since it needs a target directory, not just toggles. */}

@@ -9,10 +9,10 @@ updatedBy: "edwardsharp"
 updatedSha: "5eeaf1c"
 ---
 
-import SchemaDiagram from '../../../components/SchemaDiagram.astro';
-import schemas from '../../../data/database-schema.json';
+import SchemaDiagram from "../../../components/SchemaDiagram.astro";
+import schemas from "../../../data/database-schema.json";
 
-each native node owns its music + video metadata. spume keeps a separate browser
+each node owns its music + video metadata. spume keeps a separate browser
 cache. these three diagrams are generated from the current SQL migrations,
 registered query views, and the actual fresh-install IndexedDB upgrade functions.
 regenerate them with `npm --prefix freqhole.net run gen:schema`.

@@ -359,26 +359,201 @@ fn refuses_symlinks_even_when_their_contents_match() {
     assert!(preview(&f.config, Operation::MoveData, &f.target).is_err());
 }
 
-#[test]
-fn p2p_index_blocks_moves_but_not_select_or_future_fetch_assignment() {
+#[tokio::test]
+async fn malformed_p2p_index_stops_before_config_cutover_or_source_deletion() {
     let f = Fixture::new();
     fs::create_dir(f.source.join("freqhole-blobz")).unwrap();
     fs::write(f.source.join("freqhole-blobz/blobs.db"), b"index").unwrap();
     let report = preview(&f.config, Operation::MoveData, &f.target).unwrap();
-    assert!(report
-        .blocked_reason
-        .unwrap()
-        .contains("absolute file references"));
-    assert!(schedule(&f.config, Operation::MoveData, &f.target, true, CONFIRM).is_err());
-    assert!(preview(&f.config, Operation::SelectData, &f.target)
-        .unwrap()
-        .blocked_reason
-        .is_none());
-    assign_fetch_directory(&f.config, &f.target).unwrap();
+    assert!(report.blocked_reason.is_none());
+    schedule(&f.config, Operation::MoveData, &f.target, true, CONFIRM).unwrap();
+    assert!(apply(&f.config).await.is_err());
+    assert_eq!(
+        fs::read(f.source.join("freqhole-blobz/blobs.db")).unwrap(),
+        b"index"
+    );
+    assert_eq!(read_config_from_file(&f.config).unwrap().data_dir, f.source);
+    assert!(pending(&f.config).unwrap());
 }
 
 #[tokio::test]
-async fn upstream_reference_paths_survive_reopen_and_reimport_does_not_replace_them() {
+async fn data_and_fetch_moves_repair_real_p2p_references_before_cleanup() {
+    use iroh_blobs::api::blobs::{AddPathOptions, ImportMode};
+    use iroh_blobs::store::fs::FsStore;
+    for operation in [Operation::MoveData, Operation::MoveFetch] {
+        let f = Fixture::new();
+        fs::create_dir_all(f.source.join("fetch")).unwrap();
+        let old = f.source.join("fetch/a-media.flac");
+        let bytes = vec![0x31; 1024 * 1024];
+        fs::write(&old, &bytes).unwrap();
+        let store = FsStore::load(f.source.join("freqhole-blobz"))
+            .await
+            .unwrap();
+        let tag = store
+            .blobs()
+            .add_path_with_opts(AddPathOptions {
+                path: old.clone(),
+                format: iroh_blobs::BlobFormat::Raw,
+                mode: ImportMode::TryReference,
+            })
+            .await
+            .unwrap();
+        let hash = tag.hash;
+        store.sync_db().await.unwrap();
+        store.shutdown().await.unwrap();
+        drop((tag, store));
+        schedule(&f.config, operation, &f.target, false, CONFIRM).unwrap();
+        apply(&f.config).await.unwrap();
+        assert!(!old.exists());
+        let (index, new) = if operation == Operation::MoveData {
+            (
+                f.target.join("freqhole-blobz"),
+                f.target.join("fetch/a-media.flac"),
+            )
+        } else {
+            (
+                f.source.join("freqhole-blobz"),
+                f.target.join("a-media.flac"),
+            )
+        };
+        assert_eq!(fs::read(new).unwrap(), bytes);
+        let store = FsStore::load(index).await.unwrap();
+        assert_eq!(store.blobs().get_bytes(hash).await.unwrap().as_ref(), bytes);
+        assert_reference_transfer_and_shutdown(&store, hash, Some(&bytes)).await;
+        assert!(!pending(&f.config).unwrap());
+    }
+}
+
+#[tokio::test]
+async fn reference_audit_is_read_only_until_repair_and_can_be_repeated() {
+    let f = Fixture::new();
+    let old = f.source.join("a-old.flac");
+    let new = f.source.join("z-new.flac");
+    let bytes = vec![0x42; 1024 * 1024];
+    fs::write(&old, &bytes).unwrap();
+    let hash = iroh_blobs::Hash::new(&bytes);
+    let index = f.source.join("freqhole-blobz");
+    let store = iroh_blobs::store::fs::FsStore::load(&index).await.unwrap();
+    reliquary::node::import_try_reference(&store, &old)
+        .await
+        .unwrap();
+    store.sync_db().await.unwrap();
+    store.shutdown().await.unwrap();
+    drop(store);
+    fs::rename(&old, &new).unwrap();
+    let config = read_config_from_file(&f.config).unwrap();
+    let options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(config.database_path())
+        .create_if_missing(true);
+    let mut db = SqliteConnection::connect_with(&options).await.unwrap();
+    sqlx::query("CREATE TABLE media_blobz (blake3 TEXT, local_path TEXT, deleted_at INTEGER)")
+        .execute(&mut db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO media_blobz (blake3, local_path) VALUES (?, ?)")
+        .bind(hash.to_hex().to_string())
+        .bind(new.to_str().unwrap())
+        .execute(&mut db)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO media_blobz (blake3, local_path) VALUES (?, ?)")
+        .bind(iroh_blobs::Hash::new(b"missing").to_hex().to_string())
+        .bind(f.source.join("missing").to_str().unwrap())
+        .execute(&mut db)
+        .await
+        .unwrap();
+    db.close().await.unwrap();
+    let before = fs::read(index.join("blobs.db")).unwrap();
+    let report = audit_references(&f.config, false).unwrap();
+    assert_eq!(
+        report
+            .entries
+            .iter()
+            .filter(|e| e.status == "source_verified")
+            .count(),
+        1
+    );
+    assert_eq!(
+        report.entries.iter().filter(|e| e.error.is_some()).count(),
+        1
+    );
+    assert_eq!(fs::read(index.join("blobs.db")).unwrap(), before);
+    for _ in 0..2 {
+        let report = audit_references(&f.config, true).unwrap();
+        assert_eq!(
+            report
+                .entries
+                .iter()
+                .filter(|e| e.status == "repaired")
+                .count(),
+            1
+        );
+        assert_eq!(
+            report.entries.iter().filter(|e| e.error.is_some()).count(),
+            1
+        );
+    }
+    let store = iroh_blobs::store::fs::FsStore::load(index).await.unwrap();
+    assert_reference_transfer_and_shutdown(&store, hash, Some(&bytes)).await;
+}
+
+#[tokio::test]
+async fn resumes_after_transport_repair_before_its_journal_commit() {
+    let f = Fixture::new();
+    let old = f.source.join("a-media.flac");
+    let bytes = vec![0x73; 1024 * 1024];
+    fs::write(&old, &bytes).unwrap();
+    let store = iroh_blobs::store::fs::FsStore::load(f.source.join("freqhole-blobz"))
+        .await
+        .unwrap();
+    let hash = reliquary::node::import_try_reference(&store, &old)
+        .await
+        .unwrap();
+    store.sync_db().await.unwrap();
+    store.shutdown().await.unwrap();
+    drop(store);
+    f.queue(false);
+    let mut journal: Journal =
+        serde_json::from_slice(&fs::read(pending_path(&f.config)).unwrap()).unwrap();
+    let entries: Vec<_> = tree(&f.source, &f.config, true)
+        .unwrap()
+        .into_iter()
+        .map(|source| {
+            let destination = f.target.join(source.strip_prefix(&f.source).unwrap());
+            let hash = digest(&source).unwrap();
+            Entry {
+                source,
+                destination,
+                hash: hash.clone(),
+                destination_hash: Some(hash),
+            }
+        })
+        .collect();
+    for entry in &entries {
+        copy_verified(entry).unwrap();
+    }
+    journal.entries = Some(entries);
+    journal.config_after = Some(config_after(&journal).unwrap());
+    journal.copied = true;
+    journal.paths_updated = true;
+    save(&f.config, &journal).unwrap();
+    repair_moved_references(
+        &f.target.join("freqhole-blobz"),
+        journal.entries.as_deref().unwrap(),
+    )
+    .await
+    .unwrap();
+    // simulate interruption before references_updated and new index hashes were saved.
+    apply(&f.config).await.unwrap();
+    assert!(!old.exists());
+    let store = iroh_blobs::store::fs::FsStore::load(f.target.join("freqhole-blobz"))
+        .await
+        .unwrap();
+    assert_reference_transfer_and_shutdown(&store, hash, Some(&bytes)).await;
+}
+
+#[tokio::test]
+async fn upstream_reference_reimport_survives_reopen_and_serves_new_path() {
     use iroh_blobs::api::blobs::{AddPathOptions, ImportMode};
     use iroh_blobs::store::fs::FsStore;
     let temp = tempfile::tempdir().unwrap();
@@ -401,10 +576,150 @@ async fn upstream_reference_paths_survive_reopen_and_reimport_does_not_replace_t
         .unwrap();
     let hash = tag.hash;
     store.sync_db().await.unwrap();
+    assert_reference_transfer_and_shutdown(&store, hash, Some(&bytes)).await;
+    drop((tag, store));
+    fs::rename(&old, &new).unwrap();
+    let store = FsStore::load(&store_dir).await.unwrap();
+    assert!(store.blobs().has(hash).await.unwrap());
+    assert_eq!(fs::read(&new).unwrap(), bytes);
+    assert!(store.blobs().get_bytes(hash).await.is_err());
+    let tag = store
+        .blobs()
+        .add_path_with_opts(AddPathOptions {
+            path: new.clone(),
+            format: iroh_blobs::BlobFormat::Raw,
+            mode: ImportMode::TryReference,
+        })
+        .await
+        .unwrap();
+    assert_eq!(tag.hash, hash);
+    store.sync_db().await.unwrap();
+    store.shutdown().await.unwrap();
+    drop((tag, store));
+    let store = FsStore::load(&store_dir).await.unwrap();
+    assert!(store.blobs().has(hash).await.unwrap());
+    assert_eq!(store.blobs().get_bytes(hash).await.unwrap().as_ref(), bytes);
+    assert!(store
+        .blobs()
+        .export(hash, root.join("export.flac"))
+        .await
+        .is_err());
+    reliquary::references::export_from_reader(&store, hash, &root.join("fixed-export.flac"))
+        .await
+        .unwrap();
+    assert_eq!(fs::read(root.join("fixed-export.flac")).unwrap(), bytes);
+    assert_reference_transfer_and_shutdown(&store, hash, Some(&bytes)).await;
+    drop(store);
+
+    fs::copy(&new, &old).unwrap();
+    let store = FsStore::load(&store_dir).await.unwrap();
+    assert_eq!(store.blobs().get_bytes(hash).await.unwrap().as_ref(), bytes);
+    store.shutdown().await.unwrap();
+    drop(store);
+
+    fs::remove_file(&old).unwrap();
+    let store = FsStore::load(&store_dir).await.unwrap();
+    assert_eq!(store.blobs().get_bytes(hash).await.unwrap().as_ref(), bytes);
+    // the convenience API uses Copy, unlike our explicit TryReference imports.
+    let tag = store.blobs().add_path(&new).await.unwrap();
+    assert_eq!(tag.hash, hash);
+    store.sync_db().await.unwrap();
+    store.shutdown().await.unwrap();
+    drop((tag, store));
+    let store = FsStore::load(&store_dir).await.unwrap();
+    assert_eq!(store.blobs().get_bytes(hash).await.unwrap().as_ref(), bytes);
+    let exported = root.join("repaired-export.flac");
+    store.blobs().export(hash, &exported).await.unwrap();
+    assert_eq!(fs::read(exported).unwrap(), bytes);
+    assert_reference_transfer_and_shutdown(&store, hash, Some(&bytes)).await;
+}
+
+async fn assert_reference_transfer_and_shutdown(
+    source: &iroh_blobs::store::fs::FsStore,
+    hash: iroh_blobs::Hash,
+    expected: Option<&[u8]>,
+) {
+    use iroh::{address_lookup::MemoryLookup, protocol::Router, Endpoint, RelayMode};
+    use iroh_blobs::{
+        api::downloader::Downloader, store::mem::MemStore, BlobsProtocol, HashAndFormat,
+    };
+    let provider = Endpoint::builder(iroh::endpoint::presets::Minimal)
+        .relay_mode(RelayMode::Disabled)
+        .clear_ip_transports()
+        .bind_addr("127.0.0.1:0")
+        .unwrap()
+        .bind()
+        .await
+        .unwrap();
+    let router = Router::builder(provider)
+        .accept(iroh_blobs::ALPN, BlobsProtocol::new(source, None))
+        .spawn();
+    let address = router.endpoint().addr();
+    let lookup = MemoryLookup::new();
+    lookup.add_endpoint_info(address.clone());
+    let receiver = Endpoint::builder(iroh::endpoint::presets::Minimal)
+        .relay_mode(RelayMode::Disabled)
+        .clear_ip_transports()
+        .bind_addr("127.0.0.1:0")
+        .unwrap()
+        .address_lookup(lookup)
+        .bind()
+        .await
+        .unwrap();
+    let destination = MemStore::new();
+    let downloader = Downloader::new(&destination, &receiver);
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        downloader.download(HashAndFormat::raw(hash), [address.id]),
+    )
+    .await
+    .expect("transfer must resolve, not hang");
+    match expected {
+        Some(bytes) => {
+            result.expect("healthy reference must transfer");
+            assert_eq!(
+                destination.blobs().get_bytes(hash).await.unwrap().as_ref(),
+                bytes
+            );
+        }
+        None => assert!(
+            result.is_err(),
+            "stale reference must fail the real transfer"
+        ),
+    }
+    drop(downloader);
+    receiver.close().await;
+    router.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn upstream_reference_reimport_can_heal_when_new_path_sorts_first() {
+    use iroh_blobs::api::blobs::{AddPathOptions, ImportMode};
+    use iroh_blobs::store::fs::FsStore;
+    let temp = tempfile::tempdir().unwrap();
+    let root = fs::canonicalize(temp.path()).unwrap();
+    let old = root.join("z-old.flac");
+    let new = root.join("a-new.flac");
+    let bytes = vec![0x55; 1024 * 1024];
+    fs::write(&old, &bytes).unwrap();
+    let store_dir = root.join("index");
+    let store = FsStore::load(&store_dir).await.unwrap();
+    let tag = store
+        .blobs()
+        .add_path_with_opts(AddPathOptions {
+            path: old.clone(),
+            format: iroh_blobs::BlobFormat::Raw,
+            mode: ImportMode::TryReference,
+        })
+        .await
+        .unwrap();
+    let hash = tag.hash;
+    store.sync_db().await.unwrap();
     store.shutdown().await.unwrap();
     drop((tag, store));
     fs::rename(&old, &new).unwrap();
     let store = FsStore::load(&store_dir).await.unwrap();
+    assert!(store.blobs().has(hash).await.unwrap());
     assert!(store.blobs().get_bytes(hash).await.is_err());
     let tag = store
         .blobs()
@@ -420,6 +735,6 @@ async fn upstream_reference_paths_survive_reopen_and_reimport_does_not_replace_t
     store.shutdown().await.unwrap();
     drop((tag, store));
     let store = FsStore::load(&store_dir).await.unwrap();
-    assert!(store.blobs().get_bytes(hash).await.is_err());
-    store.shutdown().await.unwrap();
+    assert_eq!(store.blobs().get_bytes(hash).await.unwrap().as_ref(), bytes);
+    assert_reference_transfer_and_shutdown(&store, hash, Some(&bytes)).await;
 }
