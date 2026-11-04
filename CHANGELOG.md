@@ -1,5 +1,16 @@
 # freqhole-release
 
+## 0.3.24
+
+### Patch Changes
+
+- 5262bba: yank add remote in wizard ui; reply with admin pin for oled display; add reboot, admin pin, wake sensitivity config to raspi menu.py oled scriptz;
+- 7224859: try to fix video series pick up where you left off resume && improve feed view for videos; try to make sure maintenance jobs are consistent between rathole, cli, and charnel; improve freqhole.net docz;
+- 34b23dc: try to fix radio station track switching, track countdown time, and pick up where you left off resume bugz; try to auto-expand less graph viz stuff so graph doesn't get so unwieldy;
+- 4995bbd: deal with iroh-blobs file paths (stored in redb) changing
+- 7add2ad: try to fix bugz in add media review flow for fetch urls; also handle video file uploads the same as music in browser/android/ios (adds to local library first, then sends to remote).
+- 5262bba: add remote flow: setup local user checkbox improvement; maintenance job to migrate to a new data dir; setup read-only mounted usb diskz; try to fix bug with unix domain socket getting stuck;
+
 ## 0.3.23
 
 ### Patch Changes
