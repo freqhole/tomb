@@ -11,43 +11,52 @@ updatedSha: "3f1c9aa"
 ---
 
 freqhole can use [ffmpeg](https://ffmpeg.org/) and [yt-dlp](https://github.com/yt-dlp/yt-dlp).
-
-these are optional, but recommended.
+which tools you need depends on where freqhole is running. browser and mobile
+clients do not run these command-line tools themselves; features that use them
+run on the native freqhole node.
 
 ---
 
 ## ffmpeg
 
-`ffmpeg` handles generating audio waveform images and using `ffprobe` for metadata. freqhole will look for it in your PATH and common install locations (`/opt/homebrew/bin`, `/usr/local/bin`, etc.).
+`ffmpeg` and `ffprobe` are used for media probing, waveform images, and some
+media-processing features. basic browsing and playback do not require a separate
+install on every client.
 
-**macOS**:
+**macOS and Windows**: the official Charnel desktop app bundles `ffmpeg` and
+`ffprobe`; no separate install is normally needed.
 
-```bash
-brew install ffmpeg
-```
-
-**Linux**:
+**Linux**: the Debian and RPM packages declare `ffmpeg` as a dependency, and
+the Flatpak build includes it. for an AppImage, manual build, or another package
+that does not install dependencies, install the distribution's package yourself:
 
 ```bash
 sudo apt install ffmpeg   # debian/ubuntu
 sudo dnf install ffmpeg   # fedora
 ```
 
-**Windows**:
-
-```powershell
-winget install --id Gyan.FFmpeg
-```
-
-no winget, or prefer a manual install? [this step-by-step guide](https://gist.github.com/edwardsharp/6fc9ce8eba14185225fd31667856f2e3) walks through installing both ffmpeg and yt-dlp binaries by hand.
+**rathole or development builds**: they may use tools installed on the system
+instead of the Charnel app's bundled binaries. make sure `ffmpeg` and `ffprobe`
+are on `PATH` when using features that need them.
 
 ---
 
 ## yt-dlp
 
-needed only if you want freqhole to fetch music from URLs. install via pip or download the binary directly,
+needed only when a native freqhole node is configured to fetch media from URLs.
+yt-dlp is not bundled with the desktop app. browser, Android, and iOS clients
+cannot run it locally; URL fetching must be handled by a native node with
+yt-dlp available.
 
 **see** [github.com/yt-dlp/yt-dlp](https://github.com/yt-dlp/yt-dlp) for best installation instructions.
+
+**macOS**:
+
+```bash
+brew install yt-dlp
+```
+
+**Linux**:
 
 ```bash
 # pip (into a venv or with --break-system-packages on newer distros)
@@ -64,7 +73,8 @@ chmod +x ~/.local/bin/yt-dlp
 winget install --id yt-dlp.yt-dlp
 ```
 
-freqhole will find yt-dlp automatically if it's in your PATH or a common install location. for non-standard paths, set it explicitly in `freqhole-config.toml`:
+freqhole will find yt-dlp automatically if it's in your PATH or a common install
+location. for non-standard paths, set it explicitly in `freqhole-config.toml`:
 
 ```toml
 [server.fetch_music]
@@ -72,15 +82,6 @@ fetch_command = "/full/path/to/yt-dlp ..."
 precheck_command = "yt-dlp --print-json --no-download"
 ```
 
-`precheck_command` enables the add-music review step before the actual download starts. use a metadata-only yt-dlp command here so freqhole can show you what will be fetched first.
-
----
-
-## mpv
-
-**Linux**: the "experimental" video player will use `mpv` to play video.
-
-```bash
-sudo apt install mpv   # debian/ubuntu
-sudo dnf install mpv   # fedora
-```
+`precheck_command` enables the add-media review step before the download starts.
+use a metadata-only yt-dlp command so freqhole can show what will be fetched
+first.

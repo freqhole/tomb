@@ -280,16 +280,19 @@ pub trait VideoPlayer {
 /// `Arc<Mutex<...>>`, shared with the `Send`-bound alpn handler tasks)
 /// without ratcore itself depending on threading primitives.
 ///
-/// the mutation methods here are all synchronous (lock, mutate,
-/// unlock) - unlike actual playback commands (which need a channel +
-/// oneshot round trip through `!Send` backend handles, see
-/// `tty::pairing::PairingDispatchRequest`), toggling session mode or
-/// regenerating a pin only ever touches this same shared store, so a
-/// direct call from the ui's key handler is safe and simple.
+/// most state mutations are synchronous; admin-code regeneration is
+/// asynchronous because it creates a durable invite and can optionally
+/// return the generated digits. actual playback commands still need a
+/// channel + oneshot round trip through `!Send` backend handles (see
+/// `tty::pairing::PairingDispatchRequest`).
 pub trait PairingStateReader {
     fn snapshot(&self) -> super::app::PairingSnapshot;
     fn set_session_mode(&self, mode: super::app::SessionMode);
     fn regenerate_admin_pin(&self);
+    fn regenerate_admin_pin_with_reply(
+        &self,
+        callback: Box<dyn FnOnce(Result<String, String>) + 'static>,
+    );
     fn regenerate_session_pin(&self);
     fn remove_controller(&self, node_id: &str);
 }

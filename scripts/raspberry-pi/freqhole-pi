@@ -20,6 +20,7 @@ system controls:
   enable            pick startup entries to enable (Enter: all); does not start
   disable           pick startup entries to disable and stop (Enter: all)
   poweroff          shut down the Pi
+  reboot            restart the Pi
   wifi-start        start the optional Wi-Fi setup portal (may interrupt SSH)
   wifi-stop         stop the Wi-Fi setup portal
 
@@ -345,7 +346,7 @@ case "$action" in
         manage_startup "$action"
         exit 0
         ;;
-    start|stop|restart|poweroff|wifi-start|wifi-stop)
+    start|stop|restart|poweroff|reboot|wifi-start|wifi-stop)
         exec sudo -n /usr/local/libexec/freqhole-pi-control "$action"
         ;;
     attach)

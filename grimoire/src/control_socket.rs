@@ -11,14 +11,15 @@
 //!
 //! wire protocol: one command per line (newline-delimited). action
 //! commands (`play_pause`, `next`, `previous`, `volume_up`,
-//! `volume_down`, `stop`, `show_admin_pin`, `rotate_pin`,
-//! `show_player`) are fire-and-forget - no reply is written back. two
-//! query commands DO write a single-line JSON reply back on the same
+//! `volume_down`, `stop`, `rotate_pin`,
+//! `show_player`) are fire-and-forget - no reply is written back. query
+//! commands write a single-line JSON reply back on the same
 //! connection: `get_state` (now-playing song/video, playing/paused,
-//! position/duration, volume) and `list_audio_devices` (the active
-//! backend's known output devices). `set_audio_device <name>` takes
-//! the device name (the rest of the line after the first space) and
-//! is fire-and-forget, same as the other action commands.
+//! position/duration, volume), `list_audio_devices` (the active
+//! backend's known output devices), and `show_admin_pin` (rotates an
+//! admin pairing code and replies with its digits).
+//! `set_audio_device <name>` takes the device name after its first space
+//! and is fire-and-forget, same as the other action commands.
 //! `library_storage <JSON>` replies with a restricted storage-admin envelope;
 //! its `watch` operation waits for the shared OS notifications.
 //!
@@ -44,9 +45,8 @@ pub enum ControlSocketCommand {
     VolumeUp,
     VolumeDown,
     Stop,
-    /// rotates the pairing session pin AND marks the next pairing
-    /// attempt using it for an admin-level grant, then shows the
-    /// player-pairing overview so the new pin is visible.
+    /// rotates the pairing code with an admin-level grant, shows the
+    /// player-pairing overview, and replies with the code digits.
     ShowAdminPin,
     /// rotates the pairing session pin (no admin grant), then shows
     /// the player-pairing overview so the new pin is visible.
@@ -70,8 +70,8 @@ pub enum ControlSocketCommand {
 /// `None` and nothing is written back to the client.
 pub struct ControlSocketRequest {
     pub command: ControlSocketCommand,
-    /// query commands (`get_state`/`list_audio_devices`) send their
-    /// JSON reply here; action commands leave this `None`.
+    /// query commands (`get_state`/`list_audio_devices`/`show_admin_pin`)
+    /// send their JSON reply here; action commands leave this `None`.
     pub reply: Option<oneshot::Sender<String>>,
 }
 
@@ -228,7 +228,9 @@ async fn handle_connection(
                     Some(command) => {
                         let needs_reply = matches!(
                             command,
-                            ControlSocketCommand::GetState | ControlSocketCommand::ListAudioDevices
+                            ControlSocketCommand::GetState
+                                | ControlSocketCommand::ListAudioDevices
+                                | ControlSocketCommand::ShowAdminPin
                         );
                         if needs_reply {
                             let (reply_tx, reply_rx) = oneshot::channel();
@@ -327,7 +329,9 @@ mod tests {
         let (reader, mut writer) = stream.into_split();
         let mut lines = BufReader::new(reader).lines();
         writer
-            .write_all(b"library_storage {\"command\":\"users_delete\"}\nplay_pause\nget_state\n")
+            .write_all(
+                b"library_storage {\"command\":\"users_delete\"}\nplay_pause\nget_state\nshow_admin_pin\n",
+            )
             .await
             .unwrap();
         let line = timeout(Duration::from_secs(2), lines.next_line())
@@ -359,6 +363,17 @@ mod tests {
         assert_eq!(
             lines.next_line().await.unwrap().unwrap(),
             r#"{"kind":"idle"}"#
+        );
+        let admin_pin = requests.recv().await.unwrap();
+        assert_eq!(admin_pin.command, ControlSocketCommand::ShowAdminPin);
+        admin_pin
+            .reply
+            .unwrap()
+            .send(r#"{"pin":"123456"}"#.into())
+            .unwrap();
+        assert_eq!(
+            lines.next_line().await.unwrap().unwrap(),
+            r#"{"pin":"123456"}"#
         );
 
         server.abort();

@@ -64,6 +64,7 @@
       "rpm": {
         "depends": [
           "libayatana-appindicator-gtk3",
+          "ffmpeg",
           "pipewire-alsa",
           "mpv-libs"
         ],

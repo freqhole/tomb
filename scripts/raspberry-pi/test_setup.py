@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import tarfile
+import threading
 import time
 import tomllib
 import unittest
@@ -1191,6 +1192,47 @@ class MenuTests(unittest.TestCase):
                     self.assertEqual(screen.screen, "error")
                     self.assertEqual(menu.DIRECTION, 1)
 
+    def test_wake_sensitivity_cycles_through_clicks_and_button_and_persists(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "menu.json"
+            path.write_text(json.dumps({"player": "charnel"}))
+            screen = menu.Menu.__new__(menu.Menu)
+            screen.selected = 0
+            with patch.object(menu, "COMMANDS", (("wake sensitivity", menu.WAKE_SENSITIVITY, (0, 0, 0)),)), \
+                 patch.object(menu, "SETTINGS_PATH", path), patch.object(menu, "WAKE_ENCODER_CLICKS", 3):
+                for expected in ("button", 1, 2, 3, "button"):
+                    screen.screen = "menu"
+                    screen.activate()
+                    self.assertEqual(menu.WAKE_ENCODER_CLICKS, expected)
+                    self.assertEqual(screen.screen, "success")
+                    self.assertEqual(json.loads(path.read_text())["wake_clicks"], expected)
+                with patch.object(menu.configure, "update_menu_settings", side_effect=OSError("disk full")):
+                    screen.screen = "menu"
+                    screen.activate()
+                    self.assertEqual(screen.screen, "error")
+                    self.assertEqual(menu.WAKE_ENCODER_CLICKS, "button")
+
+    def test_wake_sensitivity_button_only_ignores_encoder_but_not_button(self):
+        with patch.object(menu, "StorageMenu") as storage:
+            storage.return_value.tick.return_value = False
+            screen = menu.Menu(Mock(width=128), Mock(), 0)
+        self.addCleanup(screen.close)
+        screen.poll_state = Mock()
+        screen.poll_network = Mock()
+        screen.poll_updates = Mock()
+        with patch.object(menu, "WAKE_ENCODER_CLICKS", "button"):
+            screen.tick(31, 0, False)
+            self.assertEqual(screen.sleep_started, 31)
+            self.assertFalse(screen.asleep)
+            # a large encoder turn must not wake a "button"-only setup.
+            screen.tick(35, 5, False)
+            self.assertIsNotNone(screen.sleep_started)
+            self.assertFalse(screen.asleep)
+            # a button press always wakes it, regardless of wake_clicks.
+            screen.tick(35.1, 0, True)
+            self.assertIsNone(screen.sleep_started)
+            self.assertFalse(screen.asleep)
+
     def test_menu_settings_write_failure_keeps_original_and_cleans_temporary(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "menu.json"
@@ -1227,7 +1269,6 @@ class MenuTests(unittest.TestCase):
                     self.assertIn(f"start {player}", actions)
                     self.assertNotIn(f"start {'rathole' if player == 'charnel' else 'charnel'}", actions)
                     self.assertEqual(configured.UPDATE_ARGUMENTS, ("charnel",) if player == "charnel" else ())
-                    self.assertEqual("recover failed update" in actions, player == "charnel")
 
     def complete_update_check(self, screen, available=True):
         from concurrent.futures import Future
@@ -1264,27 +1305,42 @@ class MenuTests(unittest.TestCase):
             screen.activate()
             screen.start_command.assert_called_once_with("install update", (str(menu.PI_UPDATER), "update"))
 
-    def test_charnel_update_and_recovery_commands_need_confirmation(self):
-        for command, action in ((menu.UPDATE_SCREEN, "update"), (menu.RECOVERY_SCREEN, "recover")):
-            screen = menu.Menu.__new__(menu.Menu)
+    def test_charnel_update_needs_confirmation(self):
+        screen = menu.Menu.__new__(menu.Menu)
+        screen.screen = "menu"
+        screen.selected = 0
+        screen.start_command = Mock()
+        with patch.object(menu, "COMMANDS", (("action", menu.UPDATE_SCREEN, (0, 0, 0)),)), \
+             patch.object(menu, "UPDATE_ARGUMENTS", ("charnel",)):
+            screen.activate()
+            self.complete_update_check(screen)
+            self.assertEqual(screen.confirm_selected, 1)
+            screen.activate()
+            screen.start_command.assert_not_called()
             screen.screen = "menu"
-            screen.selected = 0
-            screen.start_command = Mock()
-            with patch.object(menu, "COMMANDS", (("action", command, (0, 0, 0)),)), \
-                 patch.object(menu, "UPDATE_ARGUMENTS", ("charnel",)):
-                screen.activate()
-                if command is menu.UPDATE_SCREEN:
-                    self.complete_update_check(screen)
-                self.assertEqual(screen.confirm_selected, 1)
-                screen.activate()
-                screen.start_command.assert_not_called()
+            screen.activate()
+            self.complete_update_check(screen)
+            screen.confirm_selected = 0
+            screen.activate()
+            self.assertEqual(screen.start_command.call_args.args[1], (str(menu.PI_UPDATER), "update", "charnel"))
+
+    def test_restart_and_shutdown_need_confirmation(self):
+        for index, label, command in (
+            (menu.REBOOT_INDEX, "restart pi", menu.REBOOT_COMMAND),
+            (menu.SHUTDOWN_INDEX, "shut down pi", menu.SHUTDOWN_COMMAND),
+        ):
+            with self.subTest(label=label):
+                screen = menu.Menu.__new__(menu.Menu)
                 screen.screen = "menu"
+                screen.selected = index
+                screen.start_command = Mock()
                 screen.activate()
-                if command is menu.UPDATE_SCREEN:
-                    self.complete_update_check(screen)
-                screen.confirm_selected = 0
+                self.assertEqual(screen.screen, "confirm")
+                self.assertEqual(screen.confirm_selected, 0)
+                self.assertFalse(screen.confirm_update)
+                self.assertEqual(screen.confirm_reboot, index == menu.REBOOT_INDEX)
                 screen.activate()
-                self.assertEqual(screen.start_command.call_args.args[1], (str(menu.PI_UPDATER), action, "charnel"))
+                screen.start_command.assert_called_once_with(label, command, shutdown=True)
 
     def test_update_check_reports_current_version_and_waits_a_day(self):
         screen = menu.Menu.__new__(menu.Menu)
@@ -1834,7 +1890,7 @@ class SessionTests(unittest.TestCase):
                 tool.write_text("#!/bin/sh\n" + body + "\n")
                 tool.chmod(0o755)
             environment = dict(os.environ, PATH=directory + os.pathsep + os.environ["PATH"])
-            for action in ("start", "stop", "restart", "poweroff", "wifi-start", "wifi-stop"):
+            for action in ("start", "stop", "restart", "poweroff", "reboot", "wifi-start", "wifi-stop"):
                 with self.subTest(action=action):
                     result = subprocess.run(
                         ["bash", str(HERE / "freqhole-pi"), action],
@@ -1870,6 +1926,31 @@ class SessionTests(unittest.TestCase):
                     else:
                         self.assertEqual(result.returncode, 0, result.stderr)
                         self.assertEqual(result.stdout.splitlines()[-1], expected)
+
+    def test_setup_defaults_to_charnel_only_with_desktop_and_graphical_session(self):
+        script = (HERE / "setup.sh").read_text()
+        head = script[script.index("charnel=false\n"):script.index('case "$app" in')]
+        with tempfile.TemporaryDirectory() as directory:
+            with_desktop = head.replace("/usr/share/xsessions", directory)
+            missing = directory + "-missing"
+            without_desktop = head.replace("/usr/share/xsessions", missing) \
+                                   .replace("/usr/share/wayland-sessions", missing + "2")
+            for snippet, architecture, display, wayland, expected in (
+                (with_desktop, "arm64", ":0", "", 1),
+                (with_desktop, "arm64", "", "wayland-0", 1),
+                (with_desktop, "arm64", "", "", 2),
+                (with_desktop, "armhf", ":0", "", 2),
+                (without_desktop, "arm64", ":0", "", 2),
+            ):
+                with self.subTest(architecture=architecture, display=display, wayland=wayland):
+                    prefix = f'set -euo pipefail\ndpkg() {{ echo "{architecture}"; }}\n'
+                    environment = dict(os.environ, DISPLAY=display, WAYLAND_DISPLAY=wayland)
+                    result = subprocess.run(
+                        ["bash", "-c", prefix + snippet + '\necho "$default_app"\n'],
+                        input="\n", env=environment, capture_output=True, text=True,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.splitlines()[-1], str(expected))
 
     def test_charnel_service_sets_both_webkit_graphics_workarounds(self):
         unit = (HERE / "charnel.service").read_text()
@@ -2209,6 +2290,41 @@ class MenuFeedbackTests(unittest.TestCase):
                         server.accept()[0].close()
                         self.assertIn(f"state: {expected}", output.getvalue())
 
+    def test_admin_pin_send_returns_the_code(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "s.sock"
+            with closing(socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)) as server:
+                server.bind(str(path))
+                server.listen(1)
+                received = []
+
+                def reply_with_pin():
+                    connection, _ = server.accept()
+                    with connection:
+                        request = bytearray()
+                        while b"\n" not in request:
+                            request.extend(connection.recv(128))
+                        received.append(bytes(request))
+                        connection.sendall(b'{"pin":"123456"}\n')
+
+                worker = threading.Thread(target=reply_with_pin)
+                worker.start()
+                with patch.object(menu, "current_socket_path", return_value=str(path)), \
+                     patch("sys.stdout", new_callable=io.StringIO) as output:
+                    self.assertEqual(menu.send_socket_command("show_admin_pin"), 0)
+                worker.join(timeout=2)
+                self.assertFalse(worker.is_alive())
+                self.assertEqual(received, [b"show_admin_pin\n"])
+                self.assertIn("admin pairing code: 123456", output.getvalue())
+
+    def test_admin_pin_output_is_not_written_to_the_journal(self):
+        screen = menu.Menu.__new__(menu.Menu)
+        screen.running_admin_pin = None
+        with patch("sys.stdout", new_callable=io.StringIO) as output:
+            screen.handle_output_line(b"admin pairing code: 123456")
+        self.assertEqual(screen.running_admin_pin, "123456")
+        self.assertEqual(output.getvalue(), "")
+
     def finished_socket_menu(self, state, result=0):
         screen = menu.Menu.__new__(menu.Menu)
         screen.process = Mock()
@@ -2217,6 +2333,7 @@ class MenuFeedbackTests(unittest.TestCase):
         screen.running_socket = True
         screen.running_shutdown = False
         screen.running_state = state
+        screen.running_admin_pin = None
         screen.oled = Mock(width=128)
         return screen
 
@@ -2229,6 +2346,23 @@ class MenuFeedbackTests(unittest.TestCase):
             self.assertEqual(screen.screen, "success")
             self.assertEqual(screen.message, message)
             self.assertEqual(screen.message_until, 100.0 + menu.TOAST_SECONDS)
+
+    def test_admin_pin_is_shown_for_longer_then_returns_to_menu(self):
+        with patch.object(menu.time, "monotonic", return_value=100.0), \
+             patch("sys.stdout", new_callable=io.StringIO):
+            screen = self.finished_socket_menu(None)
+            screen.running_label = menu.ADMIN_PIN_LABEL
+            screen.running_admin_pin = "123456"
+            screen.poll_command()
+        self.assertEqual(screen.screen, "success")
+        self.assertEqual(
+            screen.message,
+            ("admin pairing code", "123456", "enter in Charnel"),
+        )
+        self.assertEqual(
+            screen.message_until,
+            100.0 + menu.ADMIN_PIN_DISPLAY_SECONDS,
+        )
 
     def test_failed_send_sticks_without_log_hint(self):
         with patch("sys.stdout", new_callable=io.StringIO):

@@ -238,10 +238,22 @@ case "${1:-}" in
     *) die "usage: setup.sh [uninstall]" ;;
 esac
 charnel=false
+# auto-pick a sensible default instead of always suggesting rathole: a
+# desktop environment has to actually be installed for charnel to work at
+# all (the real requirement is re-checked below), and when it is, this
+# terminal itself being graphical (DISPLAY/WAYLAND_DISPLAY) is a good signal
+# the user is sitting at the Pi's own desktop rather than over SSH.
+has_desktop=false
+if [ -d /usr/share/xsessions ] || [ -d /usr/share/wayland-sessions ]; then has_desktop=true; fi
+default_app=2
+if [ "$(dpkg --print-architecture)" = arm64 ] && "$has_desktop" \
+    && { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; }; then
+    default_app=1
+fi
 echo "install/configure: 1) charnel (desktop GUI)  2) rathole (terminal ui)"
 echo
-read -r -p "choose [2]: " app
-app="${app:-2}"
+read -r -p "choose [$default_app]: " app
+app="${app:-$default_app}"
 mode=3
 case "$app" in
     1)
@@ -525,7 +537,7 @@ sudo install -o root -g root -m 755 "$source_dir/packages.py" /usr/local/libexec
 for action in enable-rathole disable-rathole enable-menu disable-menu disable-wifi; do
     printf '%s ALL=(root) NOPASSWD: /usr/local/libexec/freqhole-pi-control %s\n' "$user" "$action"
 done > "$work/sudoers"
-printf '%s ALL=(root) NOPASSWD: /usr/local/libexec/freqhole-pi-control start, /usr/local/libexec/freqhole-pi-control stop, /usr/local/libexec/freqhole-pi-control restart, /usr/local/libexec/freqhole-pi-control poweroff, /usr/local/libexec/freqhole-pi-control wifi-start, /usr/local/libexec/freqhole-pi-control wifi-stop\n' \
+printf '%s ALL=(root) NOPASSWD: /usr/local/libexec/freqhole-pi-control start, /usr/local/libexec/freqhole-pi-control stop, /usr/local/libexec/freqhole-pi-control restart, /usr/local/libexec/freqhole-pi-control poweroff, /usr/local/libexec/freqhole-pi-control reboot, /usr/local/libexec/freqhole-pi-control wifi-start, /usr/local/libexec/freqhole-pi-control wifi-stop\n' \
     "$user" >> "$work/sudoers"
 if "$charnel" || grep -q '^# managed by freqhole-pi setup$' "${configured_config%/*}/systemd/user/charnel.service" 2>/dev/null; then
     printf '%s ALL=(root) NOPASSWD: /usr/local/libexec/freqhole-pi-packages charnel-prepare, /usr/local/libexec/freqhole-pi-packages charnel-install *, /usr/local/libexec/freqhole-pi-packages charnel-rollback *\n' "$user" >> "$work/sudoers"

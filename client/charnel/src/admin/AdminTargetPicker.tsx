@@ -13,9 +13,7 @@
 import { createSignal, onMount, onCleanup, For, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { useAdminTransport, LOCAL_TARGET, type AdminTargetInfo } from "./context";
-import { dispatch as adminDispatch } from "./transport";
 
 interface Remote {
   remote_id: string;
@@ -38,19 +36,6 @@ export function AdminTargetPicker() {
   const [remotes, setRemotes] = createSignal<Remote[]>([]);
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
-
-  // add-remote inline form state
-  const [showAdd, setShowAdd] = createSignal(false);
-  const [addName, setAddName] = createSignal("");
-  const [addPeerAddr, setAddPeerAddr] = createSignal("");
-  const [adding, setAdding] = createSignal(false);
-  const [addError, setAddError] = createSignal<string | null>(null);
-  const [addNotice, setAddNotice] = createSignal<string | null>(null);
-
-  // spume link generation
-  const [linkUrl, setLinkUrl] = createSignal<string | null>(null);
-  const [linkCopied, setLinkCopied] = createSignal(false);
-  const [linkError, setLinkError] = createSignal<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -130,99 +115,6 @@ export function AdminTargetPicker() {
     }
   }
 
-  async function copyLink() {
-    const url = linkUrl();
-    if (!url) return;
-    await navigator.clipboard.writeText(url);
-    setLinkCopied(true);
-    setTimeout(() => setLinkCopied(false), 2000);
-  }
-
-  function resetAddForm() {
-    setAddName("");
-    setAddPeerAddr("");
-    setAddError(null);
-    setAddNotice(null);
-  }
-
-  async function onAddSubmit(e: Event) {
-    e.preventDefault();
-    const name = addName().trim();
-    const peerAddr = addPeerAddr().trim();
-    if (!peerAddr) {
-      setAddError("peer address (node id) is required");
-      return;
-    }
-    if (!name) {
-      setAddError("name is required");
-      return;
-    }
-    setAdding(true);
-    setAddError(null);
-    setAddNotice(null);
-    try {
-      // dedup against existing peer_addr first
-      const existing = await invoke<Remote | null>("remotez_get_by_peer_addr", {
-        peerAddr,
-      });
-      let row: Remote;
-      if (existing) {
-        row = existing;
-        setAddNotice("remote already exists; selecting it");
-      } else {
-        row = await invoke<Remote>("remotez_upsert", {
-          request: {
-            remote_id: crypto.randomUUID(),
-            name,
-            transport: "app",
-            base_url: null,
-            peer_addr: peerAddr,
-            api_key: null,
-            is_active: false,
-            is_charnel_managed: true,
-            last_connected_at: null,
-            description: null,
-            image_url: null,
-            image_blob_id: null,
-            version: null,
-            last_info_check: null,
-            is_offline: null,
-            offline_since: null,
-            last_checked: null,
-            metadata: null,
-          },
-        });
-      }
-      await load();
-      // switch active target to the new/existing remote
-      const target: AdminTargetInfo = {
-        kind: "remote",
-        label: row.name || shortPeerAddr(peerAddr),
-        peerAddr,
-        shortId: shortPeerAddr(peerAddr),
-      };
-      transport.setCurrent(target);
-      // verify reachability + admin role via server_info
-      setAddNotice("verifying admin access…");
-      const verify = await adminDispatch<Record<string, unknown>>(
-        "server_info",
-        {},
-        { kind: "remote", peerAddr },
-      );
-      if (verify.success) {
-        setAddNotice("connected. admin verified.");
-        resetAddForm();
-        setShowAdd(false);
-      } else {
-        setAddError(`connected but verification failed: ${verify.message || "unknown"}`);
-      }
-    } catch (e) {
-      setAddError(String(e));
-    } finally {
-      setAdding(false);
-    }
-  }
-
   return (
     <div class="admin-target-picker">
       <label class="admin-target-label" for="admin-target-select">
@@ -257,97 +149,6 @@ export function AdminTargetPicker() {
       </Show>
       <Show when={error()}>
         <div class="admin-target-error">{error()}</div>
-      </Show>
-      <Show
-        when={showAdd()}
-        fallback={
-          <div class="admin-target-add-buttons">
-            <button type="button" class="admin-target-add-toggle" onClick={() => setShowAdd(true)}>
-              + add remote
-            </button>
-            <Show when={linkUrl()}>
-              <div class="admin-target-link-box">
-                <input
-                  type="text"
-                  class="admin-target-link-url"
-                  readOnly
-                  value={linkUrl() ?? ""}
-                  onClick={(e) => e.currentTarget.select()}
-                />
-                <div class="admin-target-link-actions">
-                  <button
-                    type="button"
-                    class="admin-target-link-copy"
-                    onClick={() => void copyLink()}
-                  >
-                    {linkCopied() ? "copied" : "copy"}
-                  </button>
-                  <button
-                    type="button"
-                    class="admin-target-link-open"
-                    onClick={() => void openUrl(linkUrl()!)}
-                  >
-                    open in browser
-                  </button>
-                  <button
-                    type="button"
-                    class="admin-target-link-dismiss"
-                    onClick={() => {
-                      setLinkUrl(null);
-                      setLinkError(null);
-                    }}
-                  >
-                    dismiss
-                  </button>
-                </div>
-              </div>
-            </Show>
-            <Show when={linkError()}>
-              <div class="admin-target-error">{linkError()}</div>
-            </Show>
-          </div>
-        }
-      >
-        <form class="admin-target-add-form" onSubmit={onAddSubmit}>
-          <input
-            type="text"
-            class="admin-target-add-input"
-            placeholder="name"
-            value={addName()}
-            onInput={(e) => setAddName(e.currentTarget.value)}
-            disabled={adding()}
-          />
-          <input
-            type="text"
-            class="admin-target-add-input"
-            placeholder="node id (peer addr)"
-            value={addPeerAddr()}
-            onInput={(e) => setAddPeerAddr(e.currentTarget.value)}
-            disabled={adding()}
-          />
-          <div class="admin-target-add-actions">
-            <button type="submit" class="admin-target-add-submit" disabled={adding()}>
-              {adding() ? "adding…" : "add"}
-            </button>
-            <button
-              type="button"
-              class="admin-target-add-cancel"
-              onClick={() => {
-                resetAddForm();
-                setShowAdd(false);
-              }}
-              disabled={adding()}
-            >
-              cancel
-            </button>
-          </div>
-          <Show when={addError()}>
-            <div class="admin-target-error">{addError()}</div>
-          </Show>
-          <Show when={addNotice() && !addError()}>
-            <div class="admin-target-notice">{addNotice()}</div>
-          </Show>
-        </form>
       </Show>
     </div>
   );

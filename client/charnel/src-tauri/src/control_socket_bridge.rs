@@ -19,7 +19,8 @@
 //!   - show_admin_pin/rotate_pin/show_player act on the same
 //!     `SharedPairingState` the pairing screen and real controllers see
 //!     (`grimoire::cenotaph::state`), then bring charnel's main window
-//!     forward and tell spume to show the player-pairing route.
+//!     forward and tell spume to show the player-pairing route; the
+//!     admin-pin command also replies with the freshly generated digits.
 //!
 //! list_audio_devices/set_audio_device are a known gap (see their match
 //! arms below) - no audio-output-device enumeration exists anywhere in
@@ -81,8 +82,8 @@ pub fn init(app: AppHandle, shutdown: CancellationToken) {
     });
 }
 
-/// dispatches one command; returns `Some(json)` only for the two query
-/// commands (`get_state`/`list_audio_devices`), mirroring
+/// dispatches one command; returns `Some(json)` only for query commands,
+/// mirroring
 /// `ControlSocketRequest::reply`'s own "query commands only" contract.
 async fn dispatch(app: &AppHandle, command: ControlSocketCommand) -> Option<String> {
     match command {
@@ -111,12 +112,21 @@ async fn dispatch(app: &AppHandle, command: ControlSocketCommand) -> Option<Stri
             None
         }
         ControlSocketCommand::ShowAdminPin => {
-            rotate_pin(true).await;
+            let result = rotate_pin(true).await;
+            if let Err(error) = &result {
+                warn!(target: "charnel::control_socket", error = %error, "rotate_pin failed");
+            }
+            let reply = match result {
+                Ok(pin) => serde_json::json!({ "pin": pin }).to_string(),
+                Err(error) => serde_json::json!({ "error": error }).to_string(),
+            };
             show_player(app);
-            None
+            Some(reply)
         }
         ControlSocketCommand::RotatePin => {
-            rotate_pin(false).await;
+            if let Err(error) = rotate_pin(false).await {
+                warn!(target: "charnel::control_socket", error = %error, "rotate_pin failed");
+            }
             show_player(app);
             None
         }
@@ -303,22 +313,23 @@ async fn list_audio_devices_json() -> String {
     .to_string()
 }
 
-/// rotates the pairing session pin on the SAME shared state the pairing
-/// screen and real controllers use - a no-op (logged) if player pairing
-/// never started this launch (`[player_pairing].enabled` is off).
-async fn rotate_pin(admin_grant: bool) {
+/// rotates the pairing code on the SAME shared state the pairing screen
+/// and real controllers use - an error if player pairing never started
+/// this launch (`[player_pairing].enabled` is off).
+async fn rotate_pin(admin_grant: bool) -> Result<String, String> {
     let Some(state) = player_pairing_accept::shared_state() else {
-        warn!(target: "charnel::control_socket", "rotate_pin: player pairing not started");
-        return;
+        return Err("player pairing not started".to_string());
     };
     let result = if admin_grant {
         grimoire::cenotaph::state::regenerate_admin_pin(&state).await
     } else {
         grimoire::cenotaph::state::regenerate_session_pin(&state).await
     };
-    if let Err(e) = result {
-        warn!(target: "charnel::control_socket", error = %e, "rotate_pin failed");
-    }
+    result?;
+    grimoire::cenotaph::state::snapshot(&state)
+        .current_code
+        .map(|code| code.code)
+        .ok_or_else(|| "pairing code unavailable after rotation".to_string())
 }
 
 /// brings charnel's main window forward and tells spume to show the

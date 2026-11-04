@@ -2,7 +2,7 @@
 // interactive "brainstorm" widget for the freqhole docs.
 //
 // a stateful, multi-stage flow that helps a new user think through their setup
-// before they start: what hardware do you have, where does your music live,
+// before they start: what hardware do you have, where does your media live,
 // how do you want to share, and how to manage the library. vanilla TS state
 // machine + d3 for the two svg visuals (the hardware flow diagram and the
 // device-connection graph). all selections persist to a single localStorage
@@ -283,14 +283,14 @@
   type State = {
     picks: string[];   // selected flow node ids (path-scoped, e.g. "mac/gui/arm")
     files: string[];   // derived asset keys for the leaf nodes (consumed by the download page)
-    music: string[];   // local, url
-    library: string[]; // dirs, addmusic, enrich
+    media: string[];   // local, url
+    library: string[]; // dirs, addmedia, enrich
   };
   // always hand back fresh arrays. a shared const with array fields would get
   // mutated in place by the toggle/push helpers, which poisons the "empty"
   // baseline and makes reset fail to return to a clean slate.
   function freshState(): State {
-    return { picks: [], files: [], music: [], library: [] };
+    return { picks: [], files: [], media: [], library: [] };
   }
 
   function load(): State {
@@ -303,7 +303,11 @@
       return {
         picks: Array.isArray(p.picks) ? p.picks.slice() : base.picks,
         files: Array.isArray(p.files) ? p.files.slice() : base.files,
-        music: Array.isArray(p.music) ? p.music.slice() : base.music,
+        // "media" replaces the old "music"-only field name; fall back to a
+        // previously-stored "music" array so existing visitors don't lose
+        // their saved picks.
+        media: Array.isArray(p.media) ? p.media.slice()
+          : Array.isArray(p.music) ? p.music.slice() : base.media,
         library: Array.isArray(p.library) ? p.library.slice() : base.library,
       };
     } catch { return freshState(); }
@@ -333,7 +337,7 @@
 
     const STAGES = [
       { key: "hardware", label: "hardware", render: renderHardware },
-      { key: "music", label: "music", render: renderMusic },
+      { key: "media", label: "media", render: renderMedia },
       { key: "sharing", label: "sharing", render: renderSharing },
       { key: "library", label: "library", render: renderLibrary },
     ];
@@ -369,7 +373,7 @@
   function syncBrainstormToc() {
     const entries = [
       { id: "brainstorm-hardware", text: "1. hardware" },
-      { id: "brainstorm-music", text: "2. music" },
+      { id: "brainstorm-media", text: "2. media" },
       { id: "brainstorm-sharing", text: "3. sharing" },
       { id: "brainstorm-library", text: "4. library" },
     ];
@@ -704,35 +708,35 @@
     return (state.files || []).map((k) => CARDS[k]).filter(Boolean);
   }
 
-  // ===== stage 2: music sources ===========================================
-  function renderMusic(c: HTMLElement) {
-    stageHeader(c, "where's your music coming from?", "freqhole can import audio you already have, or fetch it from urls with yt-dlp.");
-    label(c, "music sources (multi-select)");
-    chipRow(c, state.music, [
-      { id: "local", label: "local audio files", icon: "music" },
+  // ===== stage 2: media sources ===========================================
+  function renderMedia(c: HTMLElement) {
+    stageHeader(c, "where's your media coming from?", "freqhole can import music and video you already have, or fetch either from urls with yt-dlp.");
+    label(c, "media sources (multi-select)");
+    chipRow(c, state.media, [
+      { id: "local", label: "local files", icon: "music" },
       { id: "url", label: "urls (yt-dlp)", icon: "link" },
-    ], () => { save(); renderMusicCards(); });
+    ], () => { save(); renderMediaCards(); });
 
     const holder = document.createElement("div");
     holder.style.marginTop = "1rem";
     c.appendChild(holder);
 
-    function renderMusicCards() {
+    function renderMediaCards() {
       holder.innerHTML = "";
       const cards: Card[] = [];
-      if (state.music.includes("local")) {
+      if (state.media.includes("local")) {
         cards.push({ icon: "music", title: "scan local files",
-          body: "point freqhole at folders of mp3, flac, m4a, ogg, opus, wav and more. it imports tags + builds your catalog without touching the originals.",
-          link: { href: "/guides/scanning/", text: "initial scan + add music" } });
+          body: "point freqhole at folders of music (mp3, flac, m4a, ogg, opus, wav and more) or video (mp4, mkv, webm, mov, avi). it imports tags/metadata + builds your catalog without touching the originals.",
+          link: { href: "/guides/scanning/", text: "initial scan + add media" } });
       }
-      if (state.music.includes("url")) {
+      if (state.media.includes("url")) {
         cards.push({ icon: "link", title: "fetch from urls",
-          body: "give freqhole a url that yt-dlp understands and it downloads + imports the audio. install yt-dlp first.",
+          body: "give freqhole a url that yt-dlp understands and it downloads + imports the music or video. install yt-dlp first.",
           link: { href: "/getting-started/prerequisites/", text: "set up yt-dlp" } });
       }
       cardGrid(holder, cards);
     }
-    renderMusicCards();
+    renderMediaCards();
   }
 
   // ===== stage 3: sharing ==================================================
@@ -744,7 +748,7 @@
     const phoneFirst = state.picks.includes("mobile") || state.picks.includes("android");
     const cards: Card[] = [
       { icon: "qr", title: phoneFirst ? "start with your phone" : "pair a device",
-        body: "open the app on another device and scan your server's node id qr code (or paste the node id). download music and listen offline.",
+        body: "open the app on another device and scan your server's node id qr code (or paste the node id). download music + video and listen/watch offline.",
         link: { href: "/guides/sharing/", text: "sharing with friends" } },
       { icon: "share", title: "p2p by default", badge: "recommended",
         body: "peer-to-peer connects devices directly by node id. encrypted, nat-friendly, no dns or ssl certificates to manage; but you can use http, and self-host everything if you want.",
@@ -996,7 +1000,7 @@
 
   // ===== stage 4: library management ======================================
   function renderLibrary(c: HTMLElement) {
-    stageHeader(c, "manage + enrich your library", "grow your catalog, let trusted users add music, and clean up metadata with free enrichment sources.");
+    stageHeader(c, "manage + enrich your library", "grow your catalog, let trusted users add music and video, and clean up metadata with free enrichment sources.");
 
     const holder = document.createElement("div");
     holder.style.marginTop = "1rem";
@@ -1004,18 +1008,18 @@
 
     const cards: Card[] = [
       { icon: "eyes", title: "scan directories",
-        body: "add more folders of music at any time. rescan existing folders to catch new or deleted files. you can tag all the music in a directory so it's easier to find later.",
+        body: "add more folders of music or video at any time. rescan existing folders to catch new or deleted files. you can tag all the media in a directory so it's easier to find later.",
         link: { href: "/guides/scanning/", text: "scanning your library" } },
-      { icon: "share", title: "users can add music",
-        body: "you or other users with a member or admin role can upload + add new music, create playlists, and edit metadata; viewer roles can browse and add things to their favorite list.",
+      { icon: "share", title: "users can add media",
+        body: "you or other users with a member or admin role can upload + add new music or video and edit metadata; music adders can also create playlists; viewer roles can browse and add things to their favorite list.",
         link: { href: "/concepts/user-roles/", text: "user roles" } },
       { icon: "edit", title: "edit metadata", badge: "one-off",
-        body: "open an album → edit album to fix a single release: titles, dates, art images, taxons, track + disc order, and a manual musicbrainz lookup.",
+        body: "music: open an album → edit album to fix a single release - titles, dates, art images, taxons, track + disc order, and a manual musicbrainz lookup. video: edit a single item's title, content type, series, season, and episode.",
         link: { href: "/guides/metadata-enrichment/", text: "metadata enrichment" } },
       { icon: "table", title: "albums table bulk edit", badge: "whole library",
-        body: "the albums table view has bulk tools for reviewing + enriching many albums at once - better for a full library pass.",
+        body: "the albums table view has bulk tools for reviewing + enriching many albums at once - better for a full library pass. (video doesn't have a bulk editor yet - edit videos one at a time.)",
         link: { href: "/guides/metadata-enrichment/", text: "bulk enrichment" } },
-      { icon: "sparkle", title: "enrichment sources",
+      { icon: "sparkle", title: "enrichment sources", badge: "music",
         body: "musicbrainz (canonical metadata + cover art), last.fm (related artists, bios, and tags note: you need to add an api key to freqhole-config.toml), and theaudiodb (artist imagery and tags).",
         link: { href: "/guides/metadata-enrichment/", text: "set up enrichment" } },
     ];

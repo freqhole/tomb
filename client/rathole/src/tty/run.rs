@@ -4506,9 +4506,6 @@ fn apply_control_socket_command(
             );
         }
         ControlSocketCommand::ShowAdminPin => {
-            if let Some(pairing) = &app.pairing {
-                pairing.regenerate_admin_pin();
-            }
             app.state.ephemeral.focus = Focus::PlayerPairing;
             app.state.ephemeral.player_pairing.mode = PairingViewMode::Overview;
         }
@@ -4571,13 +4568,35 @@ fn handle_control_socket_request(
     tx: &mpsc::UnboundedSender<AppAction>,
 ) {
     use super::control_socket::ControlSocketCommand;
+    let show_admin_pin = matches!(&req.command, ControlSocketCommand::ShowAdminPin);
+    let reply = req.reply;
+    if show_admin_pin {
+        apply_control_socket_command(app, req.command, tx);
+        let Some(pairing) = app.pairing.clone() else {
+            if let Some(reply) = reply {
+                let _ = reply
+                    .send(serde_json::json!({ "error": "player pairing not started" }).to_string());
+            }
+            return;
+        };
+        pairing.regenerate_admin_pin_with_reply(Box::new(move |result| {
+            if let Some(reply) = reply {
+                let payload = match result {
+                    Ok(pin) => serde_json::json!({ "pin": pin }),
+                    Err(error) => serde_json::json!({ "error": error }),
+                };
+                let _ = reply.send(payload.to_string());
+            }
+        }));
+        return;
+    }
     let reply_json = match &req.command {
         ControlSocketCommand::GetState => Some(control_socket_state_json(app)),
         ControlSocketCommand::ListAudioDevices => Some(control_socket_devices_json(app)),
         _ => None,
     };
     apply_control_socket_command(app, req.command, tx);
-    if let (Some(reply), Some(json)) = (req.reply, reply_json) {
+    if let (Some(reply), Some(json)) = (reply, reply_json) {
         let _ = reply.send(json);
     }
 }
