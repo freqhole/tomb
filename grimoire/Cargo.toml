@@ -47,6 +47,7 @@ unicode-normalization = "0.1"
 dirs = "5"
 gethostname = "1.1"
 which = "7"
+tempfile = "3"
 include_dir = "0.7"
 dialoguer = "0.11"
 iroh = { workspace = true }
@@ -139,7 +140,6 @@ workspace = true
 optional = true
 
 [dev-dependencies]
-tempfile = "3"
 tokio = { workspace = true, features = ["test-util"] }
 # webauthn credential-compatibility test's minimal software authenticator:
 # real p-256 keygen, sha-256 hashing, and ecdsa signing - the same crate

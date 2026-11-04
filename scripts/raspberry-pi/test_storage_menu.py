@@ -197,6 +197,30 @@ class StorageTests(unittest.TestCase):
         self.assertTrue(self.picker.cancelled.is_set())
         self.assertEqual(self.worker.closed, {"wait": False, "cancel_futures": True})
 
+    def test_readonly_requires_confirmation_then_runs_local_helper(self):
+        self.mounted()
+        self.picker.turn(3)
+        self.picker.press()
+        self.assertEqual(self.picker.mode, "readonly-confirm")
+        self.assertIsNone(self.picker.future)
+        self.assertEqual(self.picker.selected, 0)
+        self.picker.turn(1)
+        self.picker.press()
+        function, args, future = self.worker.calls[-1]
+        self.assertIs(function, storage.make_read_only)
+        self.assertEqual(args, (VOLUME,))
+        future.set_result({"read_only": True, "persistent": True})
+        self.picker.tick(3, False)
+        self.assertEqual(self.picker.mode, "readonly-done")
+
+    def test_readonly_cancel_does_not_call_helper(self):
+        self.mounted()
+        self.picker.turn(3)
+        self.picker.press()
+        self.picker.press()
+        self.assertEqual(self.picker.mode, "disks")
+        self.assertFalse(any(fn is storage.make_read_only for fn, _, _ in self.worker.calls))
+
 
 class WireTests(unittest.TestCase):
     def test_cancelled_request_stops_without_connecting(self):

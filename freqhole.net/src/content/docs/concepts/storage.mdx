@@ -125,15 +125,73 @@ charnel uses a local freqhole server embedded in the application. all storage fo
 
 the app also has a local web view (similar to the web app), but because it talks to the local embedded server over a private channel, media and artwork are served directly — no OPFS caching needed.
 
+### changing storage folders
+
+in Charnel's local wizard **settings**, these are separate operations:
+
+- **select a new folder without moving** updates the data-directory setting,
+  closes the app, and opens first-time setup for a fresh library/node next time.
+  the old files are not moved or deleted.
+- **select folder for future fetches** changes where subsequent music/video
+  fetches are saved. existing files and their database paths stay where they are.
+- **move existing files** preflights the destination, asks for typed
+  confirmation, then runs before services start on the next launch.
+
+:::caution[P2P reference relocation follow-up]
+moving existing files is currently blocked when a node has a
+`freqhole-blobz/blobs.db` transport index. upstream iroh can retain absolute file
+references there, separately from SQLite. the guard prevents deleting files
+that P2P serving might still need. select-only and future-fetch changes do not
+move those files and remain available.
+:::
+
+for eligible moves, destination files are never overwritten. identical media
+can be reused after hashing; different media with matching names require an
+explicit **merge**, which keeps both under distinct names and updates paths.
+non-media/freqhole metadata in the destination blocks the operation. existing
+destination media is not automatically imported: scan this folder afterward
+using **library → add directory** if you want to add it.
+
+keep both disks connected and stop all other freqhole apps, including older
+versions and other nodes sharing that fetch folder. copies are verified before
+database/config cutover, and old copies are deleted only after a durable
+cutover. the original config remains at its existing path so launchers still
+find it; host preferences, webview state, locks and empty folders can remain
+there too. do not remove that original folder wholesale.
+
+CLI equivalents (also available through Charnel's terminal passthrough):
+
+```sh
+freqhole --config /path/freqhole-config.toml config storage preview move-data /new/folder
+freqhole --config /path/freqhole-config.toml config storage queue move-data /new/folder --confirm "move my storage"
+# close all other apps before applying:
+freqhole --config /path/freqhole-config.toml config storage apply
+```
+
+use `move-fetch` or `select-data` instead of `move-data` for the other
+restart-time operations; `--merge` explicitly permits renaming differing media
+collisions. `config storage assign-fetch /new/folder` changes future fetches
+only. folders must already exist and source/destination must not be nested.
+symlinks and special files are rejected.
+
+the adjacent `freqhole-config.toml.storage-move.json` journal makes interrupted
+moves resumable. fix the reported error and relaunch or run `config storage
+apply`. `config storage cancel` is allowed only before copying starts. do not
+delete a started journal, either folder, or the pre-change config backup to
+try to force a restart.
+
 ---
 
 ## backing up
 
-to back up your freqhole setup you need:
+stop all freqhole apps before making a filesystem backup so SQLite/WAL and the
+blob stores are consistent. preserve the config and the whole configured data
+folder, including `grimoire.db`, `haruspex.db`, `reliquary.db`, `blob-files/`,
+`freqhole-blobz/`, identity files, and any legacy blob-data database still
+present. include separately configured database/fetch folders and your original
+media too.
 
-1. **`data/grimoire.db`** — main database: metadata, playlists, accounts
-2. **`data/grimoire-blobdata.db`** — blob binary data (artwork, thumbnails)
-3. **`data/blobs/`** — blob files on disk
-4. **`data/fetch/`** — any media downloaded via the fetch features (if you use them)
-
-your original media files are managed entirely by you.
+`freqhole-blobz/blobs.db` is an upstream redb transport index, not another SQLite
+database. some entries reference external files by absolute path; moving a
+backup to a different root therefore also needs reference relocation, not just
+a `data_dir` config change.

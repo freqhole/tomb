@@ -1213,6 +1213,8 @@ pub fn init_config_for_tests() {
 /// allowing runtime config changes (e.g., toggling federation).
 pub fn init_config(path: Option<PathBuf>) -> Result<(), ConfigError> {
     let config_path = find_config(path)?;
+    crate::storage_migration::prepare_startup(&config_path)
+        .map_err(|e| ConfigError::StorageMigration(format!("{e:#}")))?;
     let mut config = GrimoireConfig::load(&config_path)?;
     config.loaded_from = Some(config_path);
     resolve_media_paths(&mut config.media);
@@ -1284,6 +1286,8 @@ pub fn find_config(explicit_path: Option<PathBuf>) -> Result<PathBuf, ConfigErro
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
+    #[error("storage migration: {0}")]
+    StorageMigration(String),
     #[error("Config file not found: {path}\nError: {error}")]
     FileNotFound { path: String, error: String },
 

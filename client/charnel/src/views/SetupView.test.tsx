@@ -21,7 +21,7 @@ afterEach(() => {
   mocks.invoke.mockReset();
 });
 
-async function mount(hostname: Promise<string>) {
+async function mount(hostname: Promise<string>, selectedDataDir?: string) {
   mocks.invoke.mockImplementation(async (command: string) => {
     switch (command) {
       case "get_default_server_name": return hostname;
@@ -29,7 +29,7 @@ async function mount(hostname: Promise<string>) {
       case "is_flatpak": return false;
       case "get_default_data_dir": return "/data";
       case "get_os_username": return "pi";
-      case "check_setup_status": return { needs_setup: true };
+      case "check_setup_status": return { needs_setup: true, data_dir: selectedDataDir };
       default: return null;
     }
   });
@@ -43,6 +43,18 @@ async function mount(hostname: Promise<string>) {
 }
 
 describe("setup server name", () => {
+  it("uses the selected fresh data folder instead of the app default", async () => {
+    await mount(Promise.resolve("music-pi"), "/selected/fresh");
+    mocks.invoke.mockResolvedValue({ success: true });
+    [...host.querySelectorAll("button")]
+      .find((button) => button.textContent?.trim() === "run setup")!.click();
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(mocks.invoke).toHaveBeenCalledWith("run_setup_core", expect.objectContaining({
+      configPath: "/selected/fresh/freqhole-config.toml",
+      dataDir: "/selected/fresh",
+      fetchMusicDir: "/selected/fresh/fetch",
+    }));
+  });
   it("suggests the system hostname and lets the user change it", async () => {
     const input = await mount(Promise.resolve("music-pi"));
     expect(input.value).toBe("music-pi");

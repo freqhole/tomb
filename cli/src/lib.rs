@@ -274,6 +274,10 @@ pub async fn run_with(mut cli: Cli) -> Result<()> {
         cli.command,
         Commands::Setup(_)
             | Commands::Config {
+                action: plumbing::ConfigAction::Storage { .. },
+                ..
+            }
+            | Commands::Config {
                 action: plumbing::ConfigAction::Init { .. },
                 ..
             }

@@ -137,6 +137,10 @@ export default function SetupView() {
 
       // check if already set up
       const status = await invoke<SetupStatus>("check_setup_status");
+      if (status.needs_setup && status.data_dir) {
+        setDataDir(status.data_dir);
+        setFetchMusicDir(`${status.data_dir}/fetch`);
+      }
       if (!status.needs_setup) {
         // setup is complete, redirect to logs
         navigate("/logs", { replace: true });

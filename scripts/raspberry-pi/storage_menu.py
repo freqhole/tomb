@@ -4,6 +4,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 import json
 import socket
+import subprocess
 import sys
 from threading import Event
 import time
@@ -68,6 +69,27 @@ def inventory(path, *, cancelled=None):
     return volumes, sources
 
 
+def make_read_only(volume, *, cancelled=None):
+    if cancelled is not None and cancelled.is_set():
+        raise OSError("read-only setup cancelled")
+    uuid = volume.get("uuid")
+    if not uuid:
+        raise ValueError("disk needs a filesystem UUID for persistent read-only mounts")
+    try:
+        result = subprocess.run(
+            ["sudo", "-n", "/usr/local/libexec/freqhole-pi-disks", "read-only", volume["device_path"], uuid],
+            capture_output=True, text=True, timeout=180, check=True,
+        )
+    except subprocess.CalledProcessError as error:
+        raise ValueError(error.stderr.strip() or "read-only helper failed; rerun setup.sh") from error
+    except subprocess.TimeoutExpired as error:
+        raise ValueError("read-only helper timed out; check the disk before retrying") from error
+    data = json.loads(result.stdout)
+    if not isinstance(data, dict) or data.get("read_only") is not True or data.get("persistent") is not True:
+        raise ValueError("read-only helper did not confirm persistent protection")
+    return data
+
+
 class StorageMenu:
     def __init__(self, socket_path):
         self.socket_path = socket_path
@@ -127,10 +149,12 @@ class StorageMenu:
 
     def entries(self):
         if self.mode == "notice":
-            return ["add entire disk", "choose folder", "not now"]
+            return ["add entire disk", "choose folder", "not now", "keep disk read-only"]
+        if self.mode == "readonly-confirm":
+            return ["cancel", "yes, read-only"]
         if self.mode == "folders":
             return ["use this folder", "parent folder" if self.selection["relative_path"] else "back to disks",
-                    *[folder["name"] for folder in self.folders]]
+                    *[folder["name"] for folder in self.folders], "keep disk read-only"]
         if self.mode == "disks":
             return ["back", "refresh disks", *[
                 (volume.get("label") or volume["device_path"]) +
@@ -147,6 +171,8 @@ class StorageMenu:
                     "known library disk", "press: back"]
         if self.mode == "done":
             return ["source registered", "player auto-scans", "music + video", "press: back"]
+        if self.mode == "readonly-done":
+            return ["disk is read-only", "also after reboot", "or unplug/replug", "press: back"]
         if self.error:
             return ["storage unavailable", self.error[:21], self.error[21:42], "press: back"]
         title = "library disks"
@@ -154,6 +180,8 @@ class StorageMenu:
             title = "USB DISK MOUNTED!"
         elif self.mode == "folders":
             title = self.selection["relative_path"].rsplit("/", 1)[-1] or "whole disk"
+        elif self.mode == "readonly-confirm":
+            title = "read-only at boot?"
         entries = self.entries()
         start = max(0, self.selected - 1)
         header = [title]
@@ -186,7 +214,7 @@ class StorageMenu:
         self.submit("folders", request, self.socket_path(), "library_browse_volume", selection)
 
     def press(self):
-        if self.future is not None or self.error or self.mode in ("known", "done"):
+        if self.future is not None or self.error or self.mode in ("known", "done", "readonly-done"):
             self.active = False
         elif self.mode == "disks":
             if self.selected == 0:
@@ -200,14 +228,20 @@ class StorageMenu:
                 else:
                     self.choose_volume(volume, volume["mount_points"][0])
         elif self.mode == "notice":
-            if self.selected == 2:
+            if self.selected == 3:
+                self.mode = "readonly-confirm"
+                self.selected = 0
+            elif self.selected == 2:
                 self.active = False
             elif self.selected == 1:
                 self.browse("")
             else:
                 self.submit("register", request, self.socket_path(), "library_register_source", self.selection)
         elif self.mode == "folders":
-            if self.selected == 0:
+            if self.selected == len(self.entries()) - 1:
+                self.mode = "readonly-confirm"
+                self.selected = 0
+            elif self.selected == 0:
                 self.submit("register", request, self.socket_path(), "library_register_source", self.selection)
             elif self.selected == 1:
                 relative = self.selection["relative_path"]
@@ -218,6 +252,11 @@ class StorageMenu:
                     self.selected = 0
             else:
                 self.browse(self.folders[self.selected - 2]["relative_path"])
+        elif self.mode == "readonly-confirm":
+            if self.selected == 0:
+                self.mode = "disks"
+            else:
+                self.submit("read-only", make_read_only, dict(self.current))
         self.dirty = True
 
     def fail(self, error):
@@ -301,6 +340,10 @@ class StorageMenu:
                     self.sources = [s for s in self.sources if s["id"] != data["id"]] + [data]
                     self.error = None
                     self.mode = "done"
+                    self.refresh = True
+                elif operation == "read-only":
+                    self.error = None
+                    self.mode = "readonly-done"
                     self.refresh = True
             except (OSError, ValueError) as error:
                 self.fail(error)

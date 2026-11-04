@@ -138,7 +138,8 @@ uninstall() {
 
     echo "removing helpers..."
     step "removing libexec helpers" sudo rm -f -- /usr/local/libexec/freqhole-pi-control \
-        /usr/local/libexec/freqhole-pi-packages /usr/local/libexec/freqhole-pi-wifi-recover
+        /usr/local/libexec/freqhole-pi-packages /usr/local/libexec/freqhole-pi-wifi-recover \
+        /usr/local/libexec/freqhole-pi-disks
     if [ -d /usr/local/share/freqhole-pi/wifi-connect ]; then
         step "removing wifi-connect" sudo rm -f -- /usr/local/bin/wifi-connect
     fi
@@ -435,7 +436,7 @@ fi
 mkdir -p "$root" "$HOME/.local/bin"
 chmod 700 "$root"
 work="$(mktemp -d "$root/setup.XXXXXX")"
-files=(menu.py storage_menu.py requirements.txt configure.py packages.py charnel.py splash.py freqhole-pi freqhole-pi-control
+files=(menu.py storage_menu.py requirements.txt configure.py packages.py disks.py charnel.py splash.py freqhole-pi freqhole-pi-control
     rathole.service rathole-tmux.service rathole-ctrl.service tmux.conf
     freqhole-wifi freqhole-wifi.service freqhole-pi-wifi-recover charnel.service charnel-session)
 cleanup() {
@@ -534,9 +535,11 @@ export PATH="$HOME/.local/bin:$PATH"
 sudo install -d -m 755 /usr/local/libexec
 sudo install -o root -g root -m 755 "$source_dir/freqhole-pi-control" /usr/local/libexec/freqhole-pi-control
 sudo install -o root -g root -m 755 "$source_dir/packages.py" /usr/local/libexec/freqhole-pi-packages
+sudo install -o root -g root -m 755 "$source_dir/disks.py" /usr/local/libexec/freqhole-pi-disks
+printf '%s ALL=(root) NOPASSWD: /usr/local/libexec/freqhole-pi-disks read-only *\n' "$user" > "$work/sudoers"
 for action in enable-rathole disable-rathole enable-menu disable-menu disable-wifi; do
     printf '%s ALL=(root) NOPASSWD: /usr/local/libexec/freqhole-pi-control %s\n' "$user" "$action"
-done > "$work/sudoers"
+done >> "$work/sudoers"
 printf '%s ALL=(root) NOPASSWD: /usr/local/libexec/freqhole-pi-control start, /usr/local/libexec/freqhole-pi-control stop, /usr/local/libexec/freqhole-pi-control restart, /usr/local/libexec/freqhole-pi-control poweroff, /usr/local/libexec/freqhole-pi-control reboot, /usr/local/libexec/freqhole-pi-control wifi-start, /usr/local/libexec/freqhole-pi-control wifi-stop\n' \
     "$user" >> "$work/sudoers"
 if "$charnel" || grep -q '^# managed by freqhole-pi setup$' "${configured_config%/*}/systemd/user/charnel.service" 2>/dev/null; then

@@ -54,6 +54,7 @@ freqhole-pi restart         # restart rathole
 freqhole-pi enable          # select autostart entries; Enter selects all
 freqhole-pi disable         # select entries to stop and disable
 freqhole-pi poweroff        # shut down the Pi
+freqhole-pi reboot          # restart the Pi
 freqhole-pi wifi-start      # start Wi-Fi setup; may disconnect SSH
 freqhole-pi wifi-stop       # stop Wi-Fi setup
 
@@ -99,8 +100,35 @@ user; updated player required). mount notices offer whole disk/folder/not now;
 registration lets the player's job runner auto-scan music + video.
 long playing-song titles and artists scroll automatically on the OLED.
 
+### read-only USB disks
+
+in an unknown-disk notice, or at the bottom of its folder picker, choose
+**keep disk read-only**, then confirm **yes, read-only**. this is an OS-level
+change on this Pi: the root helper remounts every mount of the filesystem
+read-only, verifies it, and sets the block device read-only. a UUID-specific
+udev rule reapplies protection before automounting after replugging or rebooting.
+the display only reports success after both immediate and persistent steps finish.
+stop fetches/imports and other writers first; a busy filesystem can reject remounting.
+
+rerun setup.sh to install the new root-owned helper and its restricted sudo rule.
+only removable/USB filesystems with a unique UUID are accepted. system/swap disks,
+mapped devices and mounts outside `/media/`, `/run/media/` or `/mnt/` are refused.
+there is no filesystem formatting or read-write action in the helper.
+the same action is available without the OLED:
+
+```sh
+sudo /usr/local/libexec/freqhole-pi-disks read-only /dev/sda1 FILESYSTEM-UUID
+```
+
+to undo this deliberately, remove that filesystem's
+`/etc/udev/rules.d/99-freqhole-readonly-FILESYSTEM-UUID.rules` as root, reload
+udev rules (`sudo udevadm control --reload-rules`), then unplug/replug or reboot.
+uninstalling freqhole keeps these protection rules. a failed operation may have
+already made some mounts read-only; inspect `findmnt` before retrying.
+this does not protect the disk on a different computer or against a root user.
+
 automatic hooks: `freqhole-pi launch charnel` validates startup;
 `freqhole-pi socket charnel` configures the selected app's OLED socket.
 
-[setup guide](https://freqhole.net/guides/rathole-on-a-pi/) ·
+[setup guide](https://freqhole.net/guides/freqhole-on-a-pi/) ·
 [manual setup / troubleshooting](https://freqhole.net/guides/rathole-on-a-pi-manual-setup/)

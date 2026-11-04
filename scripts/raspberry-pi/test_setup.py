@@ -689,7 +689,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(json.loads((self.root / "scripts.json").read_text()),
                          {"ref": "main", "revision": "a" * 40, "tree": "b" * 40})
         lines = result.stdout.splitlines()
-        self.assertIn("downloading menu.py (1/18)...", lines)
+        self.assertIn("downloading menu.py (1/19)...", lines)
         self.assertIn("menu: restart", lines)
         self.assertEqual(lines[-1], "pi scripts updated to bbbbbbb.")
         self.assertFalse(any(call[0] == "sudo" for call in self.calls()))

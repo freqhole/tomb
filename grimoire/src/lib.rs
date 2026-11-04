@@ -52,6 +52,7 @@ pub mod search;
 pub mod sessions;
 pub mod setup;
 pub mod shutdown;
+pub mod storage_migration;
 pub mod updates;
 pub mod upgrade;
 pub mod upload;
