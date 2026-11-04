@@ -58,4 +58,16 @@ describe("AppendedChunkLog", () => {
     log.clear();
     expect(log.trackPositionAt(20, 8.5)).toBe(0);
   });
+
+  it("finds each track's tail independently of later buffered tracks", () => {
+    const log = logWith();
+    expect(log.trackEndAt(10)).toBe(6);
+    expect(log.trackEndAt(20)).toBe(9);
+    expect(log.trackEndAt(30)).toBeNull();
+    log.record({ initSeq: 20, seq: 22, startS: 9, endS: 12 });
+    expect(log.trackEndAt(20)).toBe(12);
+    expect(log.trackEndAt(10)).toBe(6);
+    log.clear();
+    expect(log.trackEndAt(20)).toBeNull();
+  });
 });

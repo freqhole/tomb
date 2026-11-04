@@ -25,6 +25,58 @@ use std::path::Path;
 /// webp conversion + sized-thumbnail generation.
 pub const VIDEO_THUMBNAIL_BATCH_SIZE: i64 = 100;
 
+pub async fn regenerate_video_thumbnails_sync(
+    dry_run: bool,
+    scan_directory: Option<&str>,
+    created_by: Option<(String, String)>,
+) -> GrimoireResponse<RepairLibraryImagesResult> {
+    let mut totals = RepairLibraryImagesResult::default();
+    let mut offset = 0;
+    loop {
+        let response = regenerate_video_thumbnails_batch(
+            dry_run,
+            VIDEO_THUMBNAIL_BATCH_SIZE,
+            offset,
+            scan_directory,
+            created_by.clone(),
+        )
+        .await;
+        if !response.success {
+            return GrimoireResponse::failure(response.message, response.errors);
+        }
+        let Some(outcome) = response.data else {
+            return GrimoireResponse::failure(
+                "video poster regeneration returned no batch result",
+                vec![ErrorDetail::new(
+                    "missing_batch_result",
+                    "missing batch result",
+                    "video poster regeneration returned no batch result",
+                )],
+            );
+        };
+        let more = outcome.more_remaining;
+        totals.merge(outcome.result);
+        if !more {
+            break;
+        }
+        // regenerated videos remain candidates, so every batch must advance.
+        offset += VIDEO_THUMBNAIL_BATCH_SIZE;
+    }
+    let verb = if dry_run {
+        "would regenerate"
+    } else {
+        "regenerated"
+    };
+    GrimoireResponse::success(
+        format!(
+            "{verb} {} video poster(s) ({} error(s))",
+            totals.videos_posters_regenerated,
+            totals.errors.len()
+        ),
+        totals,
+    )
+}
+
 /// backfill a waveform for up to `limit` videos that don't have one yet
 /// and do have an audio stream (a silent video is skipped, not counted
 /// as an error - see `video::importer::video_has_audio_stream`).
@@ -281,8 +333,8 @@ pub async fn repair_video_thumbnails_batch(
 /// logic itself changes (e.g. the seek-percentage-into-the-clip used to
 /// pick the frame) and every already-imported video's existing poster
 /// needs to be redone to match, not just videos that slipped through
-/// without one. `offset` is only meaningful under `dry_run` - see
-/// `repair_waveforms_batch`'s doc comment for why. `scan_directory` and
+/// without one. `offset` must advance on both previews and real runs:
+/// regenerated videos still have a poster and remain candidates. `scan_directory` and
 /// `created_by` mirror `repair_waveforms_batch`'s same-named parameters.
 pub async fn regenerate_video_thumbnails_batch(
     dry_run: bool,
@@ -313,6 +365,7 @@ pub async fn regenerate_video_thumbnails_batch(
           AND v.poster_blob_id IS NOT NULL
           AND mb.local_path IS NOT NULL
           AND (?1 IS NULL OR mb.local_path LIKE ?1 ESCAPE '\')
+        ORDER BY v.id
         LIMIT ?2 OFFSET ?3
         "#,
         like_prefix,

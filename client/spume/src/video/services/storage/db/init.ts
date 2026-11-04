@@ -3,13 +3,14 @@
 import { openDB, type IDBPDatabase } from "idb";
 
 export const VIDEO_DB_NAME = "freqhole-video";
-export const VIDEO_DB_VERSION = 3;
+export const VIDEO_DB_VERSION = 4;
 
 export const STORE_VIDEOS = "videos";
 export const STORE_VIDEO_SERIES = "video_series";
 export const STORE_VIDEO_SEASONS = "video_seasons";
 export const STORE_TAGS = "tags";
 export const STORE_ENTITY_TAGS = "entity_tags";
+export const STORE_IMPORT_REVIEW_SESSIONS = "import_review_sessions";
 
 let dbInstance: IDBPDatabase | null = null;
 
@@ -20,6 +21,9 @@ export async function getVideoDB(): Promise<IDBPDatabase> {
 
   dbInstance = await openDB(VIDEO_DB_NAME, VIDEO_DB_VERSION, {
     upgrade(db, oldVersion, _newVersion, tx) {
+      if (!db.objectStoreNames.contains(STORE_IMPORT_REVIEW_SESSIONS)) {
+        db.createObjectStore(STORE_IMPORT_REVIEW_SESSIONS, { keyPath: "session_id" });
+      }
       if (!db.objectStoreNames.contains(STORE_VIDEOS)) {
         const videosStore = db.createObjectStore(STORE_VIDEOS, {
           keyPath: "id",

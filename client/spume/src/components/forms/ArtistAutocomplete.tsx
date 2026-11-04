@@ -15,7 +15,7 @@
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { useArtistAutocompleteQuery } from "../../music/queries/autocomplete";
-import type { Remote } from "../../app/services/storage/schemas/remote";
+import type { CurrentRemoteInfo } from "../../music/data/currentState";
 import { MediaImage } from "../media/MediaImage";
 
 export interface ArtistAutocompleteProps {
@@ -37,7 +37,7 @@ export interface ArtistAutocompleteProps {
   newLabel?: (input: string) => string;
   /** when set, autocomplete queries route through the picked remote's
    *  client instead of the global active datasource. */
-  remote?: Remote;
+  remote?: CurrentRemoteInfo | null;
 }
 
 interface ArtistOption {

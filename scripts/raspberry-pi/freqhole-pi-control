@@ -7,6 +7,7 @@ case "$1" in
     stop) exec /usr/bin/systemctl stop rathole.service ;;
     restart) exec /usr/bin/systemctl restart rathole.service ;;
     poweroff) exec /usr/bin/systemctl poweroff ;;
+    reboot) exec /usr/bin/systemctl reboot ;;
     wifi-start) exec /usr/bin/systemctl start freqhole-wifi.service ;;
     wifi-stop) exec /usr/bin/systemctl stop freqhole-wifi.service ;;
     enable-rathole|disable-rathole|enable-menu|disable-menu|disable-wifi)

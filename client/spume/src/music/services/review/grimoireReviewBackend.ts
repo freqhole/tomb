@@ -133,7 +133,9 @@ export function createGrimoireReviewBackend(remote: CurrentRemoteInfo): ReviewBa
     async listPendingSessions(): Promise<PendingReviewSession[]> {
       const client = await getClientForRemote(remote);
       const resp = await client.music.listPendingImportReview({ session_id: null });
-      if (!resp.success) return [];
+      if (!resp.success) {
+        throw new Error(resp.error?.issues?.[0]?.message ?? "music review lookup failed");
+      }
       return resp.data ?? [];
     },
 

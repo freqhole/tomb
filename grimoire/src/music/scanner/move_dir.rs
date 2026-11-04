@@ -48,9 +48,8 @@ pub struct MoveScanDirectoryOptions {
     /// rows alone (the next `RescanDirectories` job will mark them deleted via
     /// its existing orphan-detection pass).
     pub soft_delete_unmatched: bool,
-    /// when true, also re-add matched files to the iroh-blobs FsStore so its
-    /// path reference points at the new location. set to false only when
-    /// federation/blobs is disabled (no `freqhole-blobz` store to update).
+    /// retained for caller compatibility; known hashed files are always verified
+    /// and registered at the new path before updating their metadata.
     pub refresh_blobs_store: bool,
     /// user attribution for the underlying writes (`updated_by`, `deleted_by`).
     pub updated_by: Option<String>,
@@ -89,7 +88,7 @@ pub struct MoveScanDirectoryResult {
     /// `soft_delete_unmatched=true`, otherwise just counted.
     pub unmatched_old_blobs: usize,
     pub unmatched_old_blobs_soft_deleted: usize,
-    /// FsStore re-add failures (best-effort; doesn't fail the operation).
+    /// relocation/verification failures; these files retain their original metadata.
     pub fs_store_refresh_failures: usize,
     pub dry_run: bool,
 }
@@ -106,7 +105,6 @@ struct OldBlob {
     parent_and_name: String,
     filename: String,
     size: i64,
-    has_blake3: bool,
 }
 
 /// public entry point. see module docs for behavior.
@@ -202,7 +200,6 @@ pub async fn move_scanned_directory(
             parent_and_name,
             filename,
             size,
-            has_blake3: r.blake3.is_some(),
         });
     }
 
@@ -340,25 +337,17 @@ pub async fn move_scanned_directory(
                     )
                     .await
                     {
+                        result.fs_store_refresh_failures += 1;
+                        match tier {
+                            MatchTier::ExactPath => result.relocated_exact_path -= 1,
+                            MatchTier::Parent => result.relocated_parent -= 1,
+                            MatchTier::Filename => result.relocated_filename -= 1,
+                        }
                         tracing::error!(
                             blob = %blob.id,
                             error = %e,
-                            "move_scan_dir: relocate sql failed (continuing)"
+                            "move_scan_dir: relocation failed; original metadata retained"
                         );
-                    }
-                    if opts.refresh_blobs_store && blob.has_blake3 {
-                        match crate::blobz::add_file_to_store(&new_full).await {
-                            Ok(_) => {}
-                            Err(e) => {
-                                result.fs_store_refresh_failures += 1;
-                                tracing::warn!(
-                                    blob = %blob.id,
-                                    path = %new_full.display(),
-                                    error = %e,
-                                    "move_scan_dir: FsStore re-add failed (verified streaming for this blob may break until next backfill_blake3)"
-                                );
-                            }
-                        }
                     }
                 }
             }
@@ -415,6 +404,18 @@ pub async fn move_scanned_directory(
         })
         .collect();
     result.unmatched_old_blobs = unmatched_ids.len();
+
+    if result.fs_store_refresh_failures > 0 {
+        return GrimoireResponse::failure(
+            "some files could not be verified or relocated; scan root and unmatched files were retained",
+            vec![crate::error::ErrorDetail::new(
+                "reference_relocation_failed",
+                "reference relocation failed",
+                format!("{} files failed; successfully relocated files were retained at their new paths",
+                    result.fs_store_refresh_failures),
+            )],
+        );
+    }
 
     // ---- update scanned_directories row + soft-delete unmatched ---------------
     if !opts.dry_run {
@@ -542,7 +543,29 @@ pub(crate) async fn relocate_blob(
     new_path: &str,
     new_size: i64,
     updated_by: Option<&str>,
-) -> Result<(), sqlx::Error> {
+) -> crate::error::GrimoireResult<()> {
+    relocate_blob_with_hash(pool, blob_id, new_path, new_size, updated_by, None).await
+}
+
+pub(crate) async fn relocate_blob_with_hash(
+    pool: &sqlx::SqlitePool,
+    blob_id: &str,
+    new_path: &str,
+    new_size: i64,
+    updated_by: Option<&str>,
+    content_hash: Option<&str>,
+) -> crate::error::GrimoireResult<()> {
+    let hash = sqlx::query_scalar!("SELECT blake3 FROM media_blobz WHERE id = ?", blob_id)
+        .fetch_one(pool)
+        .await?;
+    if let Some(hash) = content_hash.or(hash.as_deref()) {
+        let expected = hash
+            .parse()
+            .map_err(|e| crate::error::GrimoireError::ProcessingFailed {
+                message: format!("invalid blob hash for relocation: {e}"),
+            })?;
+        crate::blobz::ensure_file_reference(Path::new(new_path), expected).await?;
+    }
     // load current metadata for merge
     let row = sqlx::query!(
         r#"SELECT metadata, filename FROM media_blobz WHERE id = ?"#,
@@ -581,6 +604,7 @@ pub(crate) async fn relocate_blob(
         r#"
         UPDATE media_blobz
         SET local_path = ?,
+            blake3 = COALESCE(?, blake3),
             filename = ?,
             size = ?,
             metadata = ?,
@@ -589,6 +613,7 @@ pub(crate) async fn relocate_blob(
         WHERE id = ?
         "#,
         new_path,
+        content_hash,
         new_filename,
         new_size,
         meta_str,
@@ -598,6 +623,15 @@ pub(crate) async fn relocate_blob(
     .execute(pool)
     .await?;
 
+    if let Some(new_hash) = content_hash.filter(|new| Some(*new) != hash.as_deref()) {
+        let current = crate::media_blobz::get_media_blob(blob_id).await?;
+        crate::media_blobz::mirror_register_local_path(&current).await;
+        if let Some(old_hash) = hash.as_deref() {
+            crate::media_blobz::mirror_soft_delete(old_hash, updated_by.unwrap_or("system")).await;
+        }
+        tracing::info!(%new_hash, "relocated content-changing blob");
+        return Ok(());
+    }
     if let Ok(row) = sqlx::query!("SELECT blake3 FROM media_blobz WHERE id = ?", blob_id)
         .fetch_one(pool)
         .await

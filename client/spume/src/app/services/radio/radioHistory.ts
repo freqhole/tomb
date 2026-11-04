@@ -33,20 +33,23 @@ async function getLatestHistoryEntry(): Promise<RadioHistoryEntry | null> {
   return (cursor?.value as RadioHistoryEntry | undefined) ?? null;
 }
 
-function isSameHistoryTrack(a: Omit<RadioHistoryEntry, "id" | "played_at">, b: RadioHistoryEntry): boolean {
+function isSameHistoryTrack(
+  a: Omit<RadioHistoryEntry, "id" | "played_at">,
+  b: RadioHistoryEntry
+): boolean {
   const sameSongIdentity =
     (a.song_id && b.song_id && a.song_id === b.song_id) ||
-    (!a.song_id && !b.song_id && a.title === b.title && a.artist === b.artist && a.album === b.album);
-  return (
-    a.station_id === b.station_id &&
-    a.peer_addr === b.peer_addr &&
-    sameSongIdentity
-  );
+    (!a.song_id &&
+      !b.song_id &&
+      a.title === b.title &&
+      a.artist === b.artist &&
+      a.album === b.album);
+  return a.station_id === b.station_id && a.peer_addr === b.peer_addr && sameSongIdentity;
 }
 
 /** insert one history row. caller is responsible for de-duping (only call on track change). */
 export async function recordHistoryEntry(
-  partial: Omit<RadioHistoryEntry, "id" | "played_at">,
+  partial: Omit<RadioHistoryEntry, "id" | "played_at">
 ): Promise<RadioHistoryEntry> {
   const latest = await getLatestHistoryEntry();
   if (latest && isSameHistoryTrack(partial, latest)) {
@@ -77,12 +80,14 @@ export async function getHistoryPage(opts: {
   // open a descending cursor; iterate until we've collected `limit`.
   const upper = opts.before !== undefined ? IDBKeyRange.upperBound(opts.before, true) : null;
   const out: RadioHistoryEntry[] = [];
-  let cursor = upper
-    ? await idx.openCursor(upper, "prev")
-    : await idx.openCursor(null, "prev");
+  let cursor = upper ? await idx.openCursor(upper, "prev") : await idx.openCursor(null, "prev");
   while (cursor && out.length < opts.limit) {
     const v = cursor.value as RadioHistoryEntry;
-    if (opts.stationId === undefined || opts.stationId === null || v.station_id === opts.stationId) {
+    if (
+      opts.stationId === undefined ||
+      opts.stationId === null ||
+      v.station_id === opts.stationId
+    ) {
       out.push(v);
     }
     cursor = await cursor.continue();

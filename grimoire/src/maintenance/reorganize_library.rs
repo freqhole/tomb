@@ -3,7 +3,7 @@
 //! Series/Movie for videos) - shares the same path-naming/collision-
 //! avoidance primitives as removable-storage sync
 //! (`external_storage::path_naming`/`file_ops`), but MOVES rather than
-//! copies (no 2x disk usage required) and additionally embeds id3/
+//! copies permanently (one verified staging copy is needed per file), and embeds id3/
 //! vorbis/etc tags + cover art into whichever audio file formats
 //! actually support writing them (anything lofty can't parse or save to
 //! is silently skipped - not every format supports embedded metadata,
@@ -463,17 +463,17 @@ async fn reorganize_one_song(
         return;
     }
     let src_abs = PathBuf::from(&local_path);
-    if let Err(e) = file_ops::move_file(&src_abs, &dest_abs) {
-        result.errors.push(ErrorDetail::new(
-            "move_failed",
-            "Move Failed",
-            format!("song {song_id}: {e}"),
-        ));
-        return;
-    }
-    if let Some(old_parent) = src_abs.parent() {
-        file_ops::prune_empty_ancestors(old_parent.to_path_buf(), Path::new(source_root));
-    }
+    let source_hash = match file_ops::copy_for_relocation(&src_abs, &dest_abs) {
+        Ok(hash) => hash,
+        Err(e) => {
+            result.errors.push(ErrorDetail::new(
+                "move_failed",
+                "move failed",
+                format!("song {song_id}: {e}"),
+            ));
+            return;
+        }
+    };
 
     // embed tags BEFORE recording the move in the db: this can rewrite
     // the file's bytes in place (new id3/vorbis frames, embedded cover
@@ -489,67 +489,77 @@ async fn reorganize_one_song(
                 tags_embedded = true;
             }
             Ok(false) => result.tags_skipped_unsupported_format += 1,
-            Err(e) => result.errors.push(ErrorDetail::new(
-                "tag_embed_failed",
-                "Tag Embed Failed",
-                format!("song {song_id}: {e}"),
-            )),
+            Err(e) => {
+                result.errors.push(ErrorDetail::new(
+                    "tag_embed_failed",
+                    "tag embed failed",
+                    format!("song {song_id}: {e}; original and staged files retained"),
+                ));
+                return;
+            }
         }
     }
 
     let new_path_str = dest_abs.to_string_lossy().to_string();
-    let new_size = tokio::fs::metadata(&dest_abs)
-        .await
-        .map(|m| m.len() as i64)
-        .unwrap_or_else(|_| blob.size.unwrap_or(0));
-
-    // recompute blake3 now, before `relocate_blob` below re-reads
-    // `media_blobz.blake3` to repoint the reliquary mirror's path - doing
-    // this first means that re-read already sees the correct (new) hash
-    // instead of silently repointing a now-stale hash at this file.
-    if tags_embedded {
-        match crate::blobz::compute_blake3_hash(&dest_abs).await {
-            Ok(new_blake3) if Some(&new_blake3) != blob.blake3.as_ref() => {
-                if let Err(e) = crate::media_blobz::update_blob_blake3_for_content_change(
-                    &blob.id,
-                    &new_blake3,
-                    created_by.as_ref().map(|(id, _)| id.as_str()),
-                )
-                .await
-                {
-                    result.errors.push(ErrorDetail::new(
-                        "blake3_update_failed",
-                        "Blake3 Update Failed",
-                        format!("song {song_id}: {e}"),
-                    ));
-                }
-            }
-            Ok(_) => {}
-            Err(e) => result.errors.push(ErrorDetail::new(
-                "blake3_recompute_failed",
-                "Blake3 Recompute Failed",
-                format!("song {song_id}: {e}"),
-            )),
+    let new_size = match tokio::fs::metadata(&dest_abs).await {
+        Ok(metadata) => metadata.len() as i64,
+        Err(e) => {
+            result.errors.push(ErrorDetail::new(
+                "file_metadata_failed",
+                "file metadata failed",
+                format!("song {song_id}: {e}; original and staged files retained"),
+            ));
+            return;
         }
-    }
+    };
 
-    if let Err(e) = crate::music::scanner::move_dir::relocate_blob(
+    // commit a changed hash together with its new path, never against the old bytes.
+    let content_hash = if tags_embedded {
+        match crate::blobz::compute_blake3_hash(&dest_abs).await {
+            Ok(new_blake3) => Some(new_blake3),
+            Err(e) => {
+                result.errors.push(ErrorDetail::new(
+                    "blake3_recompute_failed",
+                    "blake3 recompute failed",
+                    format!("song {song_id}: {e}"),
+                ));
+                return;
+            }
+        }
+    } else {
+        None
+    };
+
+    if let Err(e) = crate::music::scanner::move_dir::relocate_blob_with_hash(
         pool,
         &blob.id,
         &new_path_str,
         new_size,
         created_by.as_ref().map(|(id, _)| id.as_str()),
+        content_hash.as_deref(),
     )
     .await
     {
-        // the file itself already moved successfully at this point - a
-        // metadata-update failure here is surfaced loudly but doesn't
-        // undo the move (undoing risks a second collision of its own).
+        // keep both files when metadata or transport registration fails.
         result.errors.push(ErrorDetail::new(
             "local_path_update_failed",
             "Local Path Update Failed",
             format!("song {song_id}: {e}"),
         ));
+        return;
+    }
+    let destination_hash = content_hash.unwrap_or_else(|| source_hash.to_hex().to_string());
+    if let Err(e) = file_ops::finish_relocation(&src_abs, &dest_abs, source_hash, &destination_hash)
+    {
+        result.errors.push(ErrorDetail::new(
+            "source_cleanup_failed",
+            "source cleanup failed",
+            format!("song {song_id}: {e}"),
+        ));
+        return;
+    }
+    if let Some(old_parent) = src_abs.parent() {
+        file_ops::prune_empty_ancestors(old_parent.to_path_buf(), Path::new(source_root));
     }
     result.songs_moved += 1;
 }
@@ -755,17 +765,17 @@ async fn reorganize_one_video(
         return;
     }
     let src_abs = PathBuf::from(&local_path);
-    if let Err(e) = file_ops::move_file(&src_abs, &dest_abs) {
-        result.errors.push(ErrorDetail::new(
-            "move_failed",
-            "Move Failed",
-            format!("video {video_id}: {e}"),
-        ));
-        return;
-    }
-    if let Some(old_parent) = src_abs.parent() {
-        file_ops::prune_empty_ancestors(old_parent.to_path_buf(), Path::new(source_root));
-    }
+    let source_hash = match file_ops::copy_for_relocation(&src_abs, &dest_abs) {
+        Ok(hash) => hash,
+        Err(e) => {
+            result.errors.push(ErrorDetail::new(
+                "move_failed",
+                "move failed",
+                format!("video {video_id}: {e}"),
+            ));
+            return;
+        }
+    };
 
     let new_path_str = dest_abs.to_string_lossy().to_string();
     let new_size = blob.size.unwrap_or(0);
@@ -783,6 +793,23 @@ async fn reorganize_one_video(
             "Local Path Update Failed",
             format!("video {video_id}: {e}"),
         ));
+        return;
+    }
+    if let Err(e) = file_ops::finish_relocation(
+        &src_abs,
+        &dest_abs,
+        source_hash,
+        source_hash.to_hex().as_str(),
+    ) {
+        result.errors.push(ErrorDetail::new(
+            "source_cleanup_failed",
+            "source cleanup failed",
+            format!("video {video_id}: {e}"),
+        ));
+        return;
+    }
+    if let Some(old_parent) = src_abs.parent() {
+        file_ops::prune_empty_ancestors(old_parent.to_path_buf(), Path::new(source_root));
     }
     result.videos_moved += 1;
 }

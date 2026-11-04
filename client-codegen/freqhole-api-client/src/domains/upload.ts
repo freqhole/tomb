@@ -127,11 +127,17 @@ export function createUploadMethods(transport: Transport) {
     video: async (
       file: File | Blob,
       onProgress?: (loaded: number, total: number) => void,
+      options?: ImportSendTargetOptions,
     ): Promise<SafeParseResult<s.VideoUploadResponse>> => {
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await transport.upload("/api/upload/video", formData, onProgress);
+      const response = await transport.upload(
+        "/api/upload/video",
+        formData,
+        onProgress,
+        toUploadMetadata(options),
+      );
       return parseResponse(response.body, response.status, VideoUploadResponseSchema);
     },
 

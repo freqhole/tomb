@@ -80,7 +80,7 @@ export async function tuneRadioCharnel(
   resumeHint: RadioResumeHint | undefined,
   on_hello: (json: string) => void,
   on_meta: (json: string) => void,
-  on_chunk: (seq: number, isInit: boolean, bytes: Uint8Array) => void,
+  on_chunk: (seq: number, isInit: boolean, bytes: Uint8Array) => void
 ): Promise<RadioHandleLike> {
   if (!isCharnelMode()) {
     throw new Error("tuneRadioCharnel called outside tauri");
@@ -136,7 +136,7 @@ export async function tuneRadioCharnel(
       // reference before clearing so the closure captures retainedEvents.
       void retainedEvents;
       invoke("radio_leave", { sessionId }).catch((e) =>
-        console.warn("[radio-charnel] radio_leave failed:", e),
+        console.warn("[radio-charnel] radio_leave failed:", e)
       );
       retainedEvents = null;
     },
@@ -156,7 +156,7 @@ export async function tuneRadioCharnelLocal(
   resumeHint: RadioResumeHint | undefined,
   on_hello: (json: string) => void,
   on_meta: (json: string) => void,
-  on_chunk: (seq: number, isInit: boolean, bytes: Uint8Array) => void,
+  on_chunk: (seq: number, isInit: boolean, bytes: Uint8Array) => void
 ): Promise<RadioHandleLike> {
   if (!isCharnelMode()) {
     throw new Error("tuneRadioCharnelLocal called outside tauri");
@@ -204,7 +204,7 @@ export async function tuneRadioCharnelLocal(
       // reference before clearing so the closure captures retainedEvents.
       void retainedEvents;
       invoke("radio_leave", { sessionId }).catch((e) =>
-        console.warn("[radio-charnel-local] radio_leave failed:", e),
+        console.warn("[radio-charnel-local] radio_leave failed:", e)
       );
       retainedEvents = null;
     },

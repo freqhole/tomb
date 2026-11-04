@@ -10,7 +10,15 @@
 // in one shot server-side). edit state here is kept live so patchAlbum always
 // sends the current user-visible state.
 
-import { createSignal, createEffect, createMemo, createResource, on, onCleanup } from "solid-js";
+import {
+  createSignal,
+  createEffect,
+  createMemo,
+  createResource,
+  on,
+  onCleanup,
+  Show,
+} from "solid-js";
 import {
   ImportAlbumEditorPanel,
   type ImportAlbumEdit,
@@ -20,6 +28,8 @@ import type { AlbumEditorRenderProps } from "../modals/ImportReviewModal";
 import { mbBrowserClient } from "../../lib/musicbrainzBrowserClient";
 import { getClientForRemote } from "../../app/api/client";
 import { localDataSource } from "../../music/data/local/localSource";
+import { localTaxonomyClient } from "../../music/services/local-api/localTaxonomyClient";
+import type { TaxonomyClient } from "../../music/data";
 import { toast } from "../feedback/Toast";
 import type { CurrentRemoteInfo } from "../../music/data/currentState";
 import type { ImportReviewHandle } from "../../music/hooks/useImportReview";
@@ -65,9 +75,7 @@ function albumToEdit(album: ImportReviewAlbum): ImportAlbumEdit {
 // -------------------------------------------------------------------------
 
 export interface ImportReviewEditorProps extends AlbumEditorRenderProps {
-  /** null selects the local-idb backend - see reviewBackend.ts's
-   *  resolveActiveReviewRemote(), which is always null outside charnel
-   *  mode regardless of whether the session has a send target. */
+  /** session origin: null selects browser storage; URL sessions use their fetch remote. */
   remote: CurrentRemoteInfo | null;
   reviewHandle: ImportReviewHandle;
   sessionId: string;
@@ -85,8 +93,9 @@ export function ImportReviewEditor(props: ImportReviewEditorProps) {
   // build the api client for the review's remote once - used by taxons editor
   // and other sub-components so they don't fall back to getCurrentRemote()
   const [reviewClient] = createResource(
-    () => props.remote,
-    (remote) => getClientForRemote(remote)
+    () => ({ remote: props.remote }),
+    async ({ remote }): Promise<TaxonomyClient> =>
+      remote ? getClientForRemote(remote) : localTaxonomyClient
   );
 
   // reset edit state only when navigating to a different album - keyed on
@@ -250,36 +259,45 @@ export function ImportReviewEditor(props: ImportReviewEditorProps) {
   const canonicalArtistName = createMemo(() => props.album.artist ?? "");
 
   return (
-    <ImportAlbumEditorPanel
-      value={edit()}
-      onChange={setEdit}
-      albumId={props.album.id}
-      artistId={props.album.artistId ?? ""}
-      canonicalAlbumTitle={canonicalAlbumTitle()}
-      canonicalArtistName={canonicalArtistName()}
-      existingArtworkUrl={props.album.artworkUrl ?? null}
-      existingArtworkBlobId={props.album.artworkBlobId ?? null}
-      existingArtworkServerId={props.album.remoteServerId ?? null}
-      apiClient={reviewClient()}
-      reviewRemote={props.remote}
-      onArtworkFilePicked={(file) => void handleArtworkFilePicked(file)}
-      onImageUpload={(file) => void handleImageUpload(file)}
-      onImageDelete={(index) => void handleImageDelete(index)}
-      onImageSetPrimary={(index) => void handleImageSetPrimary(index)}
-      mbSearchFn={async (params) => {
-        try {
-          return await mbBrowserClient.searchReleases({
-            artist: params.artist ?? undefined,
-            release: params.release ?? undefined,
-            limit: params.limit,
-            offset: params.offset ?? undefined,
-          });
-        } catch {
-          return null;
-        }
-      }}
-      mbGetReleaseFn={(mbid) => mbBrowserClient.getRelease(mbid)}
-      onAlbumUpdated={() => props.reviewHandle.refetch()}
-    />
+    <Show
+      when={reviewClient()}
+      fallback={
+        <p class="body-small text-[var(--color-text-secondary)]">loading review library...</p>
+      }
+    >
+      {(client) => (
+        <ImportAlbumEditorPanel
+          value={edit()}
+          onChange={setEdit}
+          albumId={props.album.id}
+          artistId={props.album.artistId ?? ""}
+          canonicalAlbumTitle={canonicalAlbumTitle()}
+          canonicalArtistName={canonicalArtistName()}
+          existingArtworkUrl={props.album.artworkUrl ?? null}
+          existingArtworkBlobId={props.album.artworkBlobId ?? null}
+          existingArtworkServerId={props.album.remoteServerId ?? null}
+          apiClient={client()}
+          reviewRemote={props.remote}
+          onArtworkFilePicked={(file) => void handleArtworkFilePicked(file)}
+          onImageUpload={(file) => void handleImageUpload(file)}
+          onImageDelete={(index) => void handleImageDelete(index)}
+          onImageSetPrimary={(index) => void handleImageSetPrimary(index)}
+          mbSearchFn={async (params) => {
+            try {
+              return await mbBrowserClient.searchReleases({
+                artist: params.artist ?? undefined,
+                release: params.release ?? undefined,
+                limit: params.limit,
+                offset: params.offset ?? undefined,
+              });
+            } catch {
+              return null;
+            }
+          }}
+          mbGetReleaseFn={(mbid) => mbBrowserClient.getRelease(mbid)}
+          onAlbumUpdated={() => props.reviewHandle.refetch()}
+        />
+      )}
+    </Show>
   );
 }

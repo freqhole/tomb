@@ -34,7 +34,8 @@ pub use models::{
 // re-exported here; service.rs calls the rest directly through the
 // reliquary_mirror module path.
 pub(crate) use reliquary_mirror::{
-    mirror_hard_delete, mirror_insert_bytes, mirror_register_local_path, mirror_update_path,
+    mirror_hard_delete, mirror_insert_bytes, mirror_register_local_path, mirror_soft_delete,
+    mirror_update_path,
 };
 pub use service::{
     count_blake3_backfill_status, count_blobs_needing_blake3, create_media_blob, delete_media_blob,

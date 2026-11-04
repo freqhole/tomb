@@ -168,7 +168,7 @@ pub enum VideoAction {
     /// only - orphaned media blobs/files are reclaimed separately by the
     /// domain-agnostic `maintenance cleanup-orphaned-blobs`/`run-full` pass)
     HardDeleteOldRecords {
-        #[arg(long, default_value = "90")]
+        #[arg(long, default_value_t = grimoire::maintenance::DEFAULT_RETENTION_DAYS as i64)]
         retention_days: i64,
         #[arg(long)]
         dry_run: bool,

@@ -20,6 +20,7 @@ system controls:
   enable            pick startup entries to enable (Enter: all); does not start
   disable           pick startup entries to disable and stop (Enter: all)
   poweroff          shut down the Pi
+  reboot            restart the Pi
   wifi-start        start the optional Wi-Fi setup portal (may interrupt SSH)
   wifi-stop         stop the Wi-Fi setup portal
 
@@ -68,7 +69,7 @@ install_user_file() {
     mv -f "$staged" "$destination"
 }
 
-scripts_files=(menu.py storage_menu.py requirements.txt configure.py packages.py charnel.py splash.py freqhole-pi
+scripts_files=(menu.py storage_menu.py requirements.txt configure.py packages.py disks.py charnel.py splash.py freqhole-pi
     freqhole-pi-control rathole.service rathole-tmux.service rathole-ctrl.service tmux.conf
     freqhole-wifi freqhole-wifi.service freqhole-pi-wifi-recover charnel.service charnel-session)
 
@@ -129,7 +130,7 @@ scripts_action() {
             "https://raw.githubusercontent.com/freqhole/tomb/$revision/scripts/raspberry-pi/$file" -o "$work/$file"
     done
     echo "checking downloaded scripts..."
-    for file in menu.py storage_menu.py configure.py packages.py charnel.py splash.py freqhole-wifi; do
+    for file in menu.py storage_menu.py configure.py packages.py disks.py charnel.py splash.py freqhole-wifi; do
         python3 -c 'import ast, sys; ast.parse(open(sys.argv[1]).read(), sys.argv[1])' "$work/$file" \
             || die "downloaded $file does not parse; nothing was installed."
     done
@@ -181,6 +182,7 @@ scripts_action() {
     }
     queue_system "$work/freqhole-pi-control" /usr/local/libexec/freqhole-pi-control 755
     queue_system "$work/packages.py" /usr/local/libexec/freqhole-pi-packages 755
+    queue_system "$work/disks.py" /usr/local/libexec/freqhole-pi-disks 755
     queue_system "$work/freqhole-pi-wifi-recover" /usr/local/libexec/freqhole-pi-wifi-recover 755
     if grep -qsx '# managed by freqhole-pi setup' /etc/systemd/system/freqhole-wifi.service; then
         queue_system "$work/freqhole-wifi.service" /etc/systemd/system/freqhole-wifi.service 644
@@ -345,7 +347,7 @@ case "$action" in
         manage_startup "$action"
         exit 0
         ;;
-    start|stop|restart|poweroff|wifi-start|wifi-stop)
+    start|stop|restart|poweroff|reboot|wifi-start|wifi-stop)
         exec sudo -n /usr/local/libexec/freqhole-pi-control "$action"
         ;;
     attach)

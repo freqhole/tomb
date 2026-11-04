@@ -3,7 +3,7 @@ title: raspberry pi manual setup
 description: command-by-command charnel/rathole installation, services, OLED, Wi-Fi, splash and recovery without setup.sh
 ---
 
-for the interactive installer, use [rathole on a pi](/guides/rathole-on-a-pi/).
+for the interactive installer, use [freqhole on a pi](/guides/freqhole-on-a-pi/).
 these steps use the same helpers/templates but do **not** run `setup.sh`.
 run as your app account; use sudo only where shown. commands assume Bash,
 Raspberry Pi OS Bookworm/Trixie, and a home path without spaces/metacharacters.
@@ -91,7 +91,7 @@ sudo install -d -m 755 /usr/local/libexec
 sudo install -o root -g root -m 755 "$src/freqhole-pi-control" /usr/local/libexec/freqhole-pi-control
 sudo install -o root -g root -m 755 "$src/packages.py" /usr/local/libexec/freqhole-pi-packages
 policy="$(mktemp)"
-for action in start stop restart poweroff wifi-start wifi-stop \
+for action in start stop restart poweroff reboot wifi-start wifi-stop \
     enable-rathole disable-rathole enable-menu disable-menu disable-wifi; do
     printf '%s ALL=(root) NOPASSWD: /usr/local/libexec/freqhole-pi-control %s\n' \
         "$user" "$action" >> "$policy"

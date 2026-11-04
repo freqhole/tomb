@@ -11,6 +11,11 @@ use std::path::PathBuf;
 
 #[derive(Subcommand)]
 pub enum ConfigAction {
+    /// inspect, queue, apply or cancel a restart-time storage change
+    Storage {
+        #[command(subcommand)]
+        action: StorageAction,
+    },
     /// Initialize a new configuration file
     Init {
         /// Output path for config file (default: ./freqhole-config.toml)
@@ -32,12 +37,132 @@ pub enum ConfigAction {
     Upgrade,
 }
 
+#[derive(Subcommand)]
+pub enum StorageAction {
+    /// inspect files and collisions without changing anything
+    Preview {
+        #[arg(value_enum)]
+        operation: grimoire::storage_migration::Operation,
+        destination: PathBuf,
+    },
+    /// queue a change; close all apps, then run `config storage apply`
+    Queue {
+        #[arg(value_enum)]
+        operation: grimoire::storage_migration::Operation,
+        destination: PathBuf,
+        /// keep differing media files under different names
+        #[arg(long)]
+        merge: bool,
+        /// must be exactly "move my storage"
+        #[arg(long)]
+        confirm: String,
+    },
+    /// execute/resume the queued change while all other apps are stopped
+    Apply,
+    /// cancel a queued change only if copying has not started
+    Cancel,
+    /// change only where future music/video fetches are saved
+    AssignFetch { destination: PathBuf },
+    /// verify canonical sources without modifying the transport index
+    AuditReferences {
+        /// register verified sources in the transport index; close all apps first
+        #[arg(long)]
+        repair: bool,
+    },
+}
+
+fn storage_command(
+    action: StorageAction,
+    config: Option<PathBuf>,
+) -> anyhow::Result<serde_json::Value> {
+    use grimoire::storage_migration as storage;
+    let path = find_config(config)?;
+    match action {
+        StorageAction::Preview {
+            operation,
+            destination,
+        } => Ok(serde_json::to_value(storage::preview(
+            &path,
+            operation,
+            &destination,
+        )?)?),
+        StorageAction::Queue {
+            operation,
+            destination,
+            merge,
+            confirm,
+        } => Ok(serde_json::to_value(storage::schedule(
+            &path,
+            operation,
+            &destination,
+            merge,
+            &confirm,
+        )?)?),
+        StorageAction::Apply => {
+            storage::prepare_startup(&path)?;
+            Ok(
+                serde_json::json!({"message": "storage is ready; select-only changes may require setup"}),
+            )
+        }
+        StorageAction::Cancel => {
+            storage::cancel(&path)?;
+            Ok(serde_json::json!({"message": "unstarted storage change cancelled"}))
+        }
+        StorageAction::AssignFetch { destination } => {
+            let path = storage::assign_fetch_directory(&path, &destination)?;
+            Ok(
+                serde_json::json!({"destination": path, "message": "future fetches only; existing files were not moved"}),
+            )
+        }
+        StorageAction::AuditReferences { repair } => Ok(serde_json::to_value(
+            storage::audit_references(&path, repair)?,
+        )?),
+    }
+}
+
 /// Handle config commands
 pub async fn handle_command(
     action: ConfigAction,
     global_config: Option<std::path::PathBuf>,
 ) -> CommandOutput<serde_json::Value> {
     match action {
+        ConfigAction::Storage { action } => match storage_command(action, global_config) {
+            Ok(data) => {
+                let errors: Vec<_> = data
+                    .get("entries")
+                    .and_then(|v| v.as_array())
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|entry| {
+                        entry.get("error").and_then(|v| v.as_str()).map(|error| {
+                            GrimoireError::Validation {
+                                field: "reference".into(),
+                                message: error.into(),
+                            }
+                            .into()
+                        })
+                    })
+                    .collect();
+                if errors.is_empty() {
+                    CommandOutput::success("storage command complete", data)
+                } else {
+                    CommandOutput::failure(
+                        "some references could not be resolved; no source files were deleted",
+                        errors,
+                        data,
+                    )
+                }
+            }
+            Err(error) => CommandOutput::failure(
+                "storage command failed",
+                vec![GrimoireError::Validation {
+                    field: "storage".into(),
+                    message: format!("{error:#}"),
+                }
+                .into()],
+                (),
+            ),
+        },
         ConfigAction::Init {
             output,
             data_dir,
@@ -215,6 +340,31 @@ pub async fn handle_command(
                     (),
                 ),
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn parses_reference_audit_and_explicit_repair() {
+        for repair in [false, true] {
+            let mut args = vec!["freqhole", "config", "storage", "audit-references"];
+            if repair {
+                args.push("--repair");
+            }
+            let parsed = crate::Cli::try_parse_from(args).unwrap();
+            assert!(matches!(
+                parsed.command,
+                Some(crate::Commands::Config {
+                    action: ConfigAction::Storage {
+                        action: StorageAction::AuditReferences { repair: actual }
+                    }
+                }) if actual == repair
+            ));
         }
     }
 }

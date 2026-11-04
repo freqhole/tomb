@@ -82,6 +82,8 @@ export interface PlayerBarProps {
   mediaTransferProgress?: number | null;
   /** current time in seconds */
   currentTime: number;
+  /** current track position, separate from a station's total listening time. */
+  trackCurrentTime?: number;
   /** total duration in seconds */
   duration: number;
   /** volume (0-1) */
@@ -363,6 +365,7 @@ export function PlayerBar(props: PlayerBarProps) {
         <div class="flex items-center gap-2 h-6">
           <PlaybackProgressBar
             currentTime={props.currentTime}
+            trackCurrentTime={props.trackCurrentTime}
             duration={props.duration}
             waveformImage={showWaveform() ? waveformImage()! : undefined}
             onSeek={props.onSeek}
@@ -850,6 +853,7 @@ export function PlayerBar(props: PlayerBarProps) {
           <PlaybackProgressBar
             currentTime={props.currentTime}
             duration={props.duration}
+            trackCurrentTime={props.trackCurrentTime}
             waveformImage={showWaveform() ? waveformImage()! : undefined}
             onSeek={props.onSeek}
             statusBadge={props.statusBadge}

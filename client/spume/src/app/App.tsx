@@ -215,8 +215,7 @@ export function App() {
   const [reviewRemote, setReviewRemote] = createSignal<CurrentRemoteInfo | null>(null);
 
   // open a review session. `remoteOverride` is the session's actual origin
-  // (passed by AddMediaModal, which tracks it per-session - see
-  // sessionOriginRemote there) and should always be used when known: most
+  // (passed by AddMediaModal alongside each session) and should always be used when known: most
   // sessions live on the local/resolved review remote (path-based imports
   // redirect through local-first import - see handlePathsSelected), but a
   // url-fetch submitted while targeting a different remote runs - and is
@@ -227,16 +226,13 @@ export function App() {
     const remote =
       remoteOverride !== undefined ? remoteOverride : await resolveActiveReviewRemote();
     batch(() => {
-      setReviewRemote((remote as unknown as CurrentRemoteInfo) ?? null);
+      setReviewRemote(remote);
       setReviewSessionId(sid);
       // "opened" always yields a fresh { kind: "reviewing", albumIds: [] }
       // for this target - see importSessionReducer.ts's doc comment for why
       // this makes the stale-progress-on-reopen bug structurally impossible
       // rather than something that has to be remembered to reset by hand.
-      dispatchImportSession(
-        reviewTargetKey(remote as unknown as CurrentRemoteInfo | null, "music"),
-        { type: "opened", sessionId: sid }
-      );
+      dispatchImportSession(reviewTargetKey(remote, "music"), { type: "opened", sessionId: sid });
     });
   }
   // incremented when the review modal closes - triggers AddMediaModal to refetch pending sessions
@@ -448,6 +444,7 @@ export function App() {
     if (
       reviewVideoSessionId() &&
       !videoImportReview.loading() &&
+      !videoImportReview.error() &&
       videoImportReview.groups().length === 0
     ) {
       const sid = reviewVideoSessionId();
@@ -481,7 +478,7 @@ export function App() {
           sid,
           target!.id,
           target!.name,
-          localRemote as unknown as Remote,
+          localRemote,
           videoIds,
           onProgress
         ).then(() => {
@@ -1782,17 +1779,34 @@ export function App() {
   const handleVideoFilesSelected = async (files: FileList) => {
     const remote = addMediaTargetRemote();
 
-    if (remote) {
-      // remote upload: fire-and-forget, jobs are tracked reactively
-      await uploadVideoFilesToRemote(Array.from(files), onRemoteVideoJobComplete, remote);
+    if (isCharnelMode()) {
+      const localRemote = await getTauriManagedRemote();
+      if (!localRemote) {
+        toast.error("local library isn't set up yet", { title: "import error" });
+        return;
+      }
+      const target =
+        remote && remote.remote_id !== localRemote.remote_id
+          ? { remoteId: remote.remote_id, remoteName: remote.name ?? "remote" }
+          : undefined;
+      await uploadVideoFilesToRemote(
+        Array.from(files),
+        onRemoteVideoJobComplete,
+        localRemote,
+        target ? (sid) => setPendingSendTarget(sid, target) : undefined,
+        target
+      );
     } else {
       // local import: process files into OPFS/IndexedDB
       try {
-        const result = await importVideoFiles(Array.from(files));
+        const result = await importVideoFiles(
+          Array.from(files),
+          remote ? { remoteId: remote.remote_id, remoteName: remote.name ?? "remote" } : undefined
+        );
         if (result.errors.length > 0) {
           console.error("failed to import some video files:", result.errors);
         }
-        if (result.imported > 0) {
+        if (result.imported > 0 || (result.skipped > 0 && remote)) {
           onRemoteVideoJobComplete();
         } else if (result.errors.length > 0) {
           toast.error("failed to import video files", { title: "import error" });
@@ -1809,73 +1823,27 @@ export function App() {
     }
   };
 
-  // handle video paths selected via tauri dialog (desktop only, Android uses file input)
-  // supports local import (no remote), charnel-managed local remotes, and P2P remotes
+  // desktop and iOS pickers provide paths; Android provides File objects.
   const handleVideoPathsSelected = async (paths: string[]) => {
     const remote = addMediaTargetRemote();
-
-    if (!remote) {
-      // no remote selected yet - same reasoning as handlePathsSelected's
-      // matching branch above: hand the paths straight to grimoire's own
-      // batch-paths import (server reads each file from its own path in
-      // place, see import_video_paths / media_blobz.local_path) instead of
-      // uploading paths one-by-one with no shared review session.
-      try {
-        const videoFilePaths = await expandPathsToVideoFiles(paths);
-        const localRemote = await getTauriManagedRemote();
-        if (!localRemote) {
-          toast.error("local library isn't set up yet", { title: "import error" });
-          return;
-        }
-        await importVideoPathsToLocal(
-          videoFilePaths,
-          onRemoteVideoJobComplete,
-          undefined,
-          localRemote
-        );
-      } catch (error) {
-        console.error("failed to import local video paths:", error);
-        toast.error("failed to start import", { title: "import error" });
-      }
-      return;
-    }
-
-    // P2P remote: import into the local library first (so metadata can be
-    // reviewed/fixed), tag the session with this remote, and send it once
-    // review completes - see handlePathsSelected's matching branch above,
-    // now that sendVideoToRemote.ts exists (video's push-to-remote counterpart
-    // to music's sendToRemote.ts).
-    if (remote.peer_addr) {
+    try {
       const videoFilePaths = await expandPathsToVideoFiles(paths);
       const localRemote = await getTauriManagedRemote();
       if (!localRemote) {
         toast.error("local library isn't set up yet", { title: "import error" });
         return;
       }
-      const targetId = remote.remote_id;
-      const targetName = remote.name ?? "remote";
+      const target =
+        remote && remote.remote_id !== localRemote.remote_id
+          ? { remoteId: remote.remote_id, remoteName: remote.name ?? "remote" }
+          : undefined;
       await importVideoPathsToLocal(
         videoFilePaths,
         onRemoteVideoJobComplete,
-        (sessionId) =>
-          setPendingSendTarget(sessionId, { remoteId: targetId, remoteName: targetName }),
+        target ? (sessionId) => setPendingSendTarget(sessionId, target) : undefined,
         localRemote,
-        { remoteId: targetId, remoteName: targetName }
+        target
       );
-      return;
-    }
-
-    // charnel-managed local remote: send paths directly (server reads from disk)
-    if (!remote.is_charnel_managed) {
-      toast.warning("path-based import is only available for local or P2P remotes", {
-        title: "not supported",
-      });
-      return;
-    }
-
-    try {
-      const videoFilePaths = await expandPathsToVideoFiles(paths);
-      await importVideoPathsToLocal(videoFilePaths, onRemoteVideoJobComplete, undefined, remote);
     } catch (error) {
       console.error("failed to import video paths:", error);
       toast.error("failed to start import", { title: "import error" });
@@ -2128,6 +2096,7 @@ export function App() {
           return (
             <ImportVideoReviewEditor
               {...editorProps}
+              remote={reviewVideoRemote()}
               reviewHandle={videoImportReview}
               onRegisterSave={(id, fn) => videoEditorSaveFns.set(id, fn)}
               onUnregisterSave={(id) => videoEditorSaveFns.delete(id)}

@@ -211,10 +211,15 @@ pub fn build_gated_blobs_events(
     gate: Arc<dyn AccessGate>,
     transfers: Option<Arc<TransferRegistry>>,
 ) -> EventSender {
+    let request_mode = if transfers.is_some() {
+        RequestMode::InterceptLog
+    } else {
+        RequestMode::Intercept
+    };
     let mask = EventMask {
         connected: ConnectMode::Intercept,
-        get: RequestMode::InterceptLog,
-        get_many: RequestMode::InterceptLog,
+        get: request_mode,
+        get_many: request_mode,
         // iroh-blobs 0.103.1+ gates each request type by its own mode
         // (earlier versions used `get` for all of them), so `observe` -
         // which reveals whether we hold a hash and how much of it - must
@@ -259,89 +264,107 @@ pub fn build_gated_blobs_events(
                     connections.lock().await.remove(&msg.connection_id);
                 }
                 ProviderMessage::GetRequestReceived(msg) => {
-                    let peer = connections.lock().await.get(&msg.connection_id).cloned();
-                    let hash = msg.request.hash;
-                    let allowed = match &peer {
-                        Some(peer) => gate.allow_blob(peer, &hash.to_string()).await,
-                        None => false,
-                    };
-                    if allowed {
-                        tracing::info!(peer = ?peer, %hash, "gate: allowed get request");
-                    } else {
-                        tracing::warn!(peer = ?peer, %hash, "gate: denied get request");
-                    }
-                    let res: EventResult = if allowed {
-                        Ok(())
-                    } else {
-                        Err(AbortReason::Permission)
-                    };
-                    let key = (msg.connection_id, msg.request_id);
-                    let rx = msg.rx;
-                    msg.tx.send(res).await.ok();
-                    if let (true, Some(peer), Some(registry)) = (allowed, peer, transfers.clone()) {
-                        tokio::spawn(track_transfer(registry, rx, key, peer, hash.to_string()));
-                    }
+                    let connections = Arc::clone(&connections);
+                    let gate = Arc::clone(&gate);
+                    let transfers = transfers.clone();
+                    tokio::spawn(async move {
+                        let peer = connections.lock().await.get(&msg.connection_id).cloned();
+                        let hash = msg.request.hash;
+                        let allowed = match &peer {
+                            Some(peer) => gate.allow_blob(peer, &hash.to_string()).await,
+                            None => false,
+                        };
+                        if allowed {
+                            tracing::info!(peer = ?peer, %hash, "gate: allowed get request");
+                        } else {
+                            tracing::warn!(peer = ?peer, %hash, "gate: denied get request");
+                        }
+                        let res: EventResult = if allowed {
+                            Ok(())
+                        } else {
+                            Err(AbortReason::Permission)
+                        };
+                        let key = (msg.connection_id, msg.request_id);
+                        let rx = msg.rx;
+                        msg.tx.send(res).await.ok();
+                        if let (true, Some(peer), Some(registry)) =
+                            (allowed, peer, transfers.clone())
+                        {
+                            tokio::spawn(track_transfer(registry, rx, key, peer, hash.to_string()));
+                        }
+                    });
                 }
                 ProviderMessage::GetManyRequestReceived(msg) => {
-                    let peer = connections.lock().await.get(&msg.connection_id).cloned();
-                    let allowed = match &peer {
-                        Some(peer) => {
-                            let mut ok = true;
-                            for hash in &msg.request.hashes {
-                                if !gate.allow_blob(peer, &hash.to_string()).await {
-                                    ok = false;
-                                    break;
+                    let connections = Arc::clone(&connections);
+                    let gate = Arc::clone(&gate);
+                    let transfers = transfers.clone();
+                    tokio::spawn(async move {
+                        let peer = connections.lock().await.get(&msg.connection_id).cloned();
+                        let allowed = match &peer {
+                            Some(peer) => {
+                                let mut ok = true;
+                                for hash in &msg.request.hashes {
+                                    if !gate.allow_blob(peer, &hash.to_string()).await {
+                                        ok = false;
+                                        break;
+                                    }
                                 }
+                                ok
                             }
-                            ok
+                            None => false,
+                        };
+                        if allowed {
+                            tracing::info!(
+                                peer = ?peer,
+                                hash_count = msg.request.hashes.len(),
+                                "gate: allowed get_many request"
+                            );
+                        } else {
+                            tracing::warn!(peer = ?peer, "gate: denied get_many request");
                         }
-                        None => false,
-                    };
-                    if allowed {
-                        tracing::info!(
-                            peer = ?peer,
-                            hash_count = msg.request.hashes.len(),
-                            "gate: allowed get_many request"
-                        );
-                    } else {
-                        tracing::warn!(peer = ?peer, "gate: denied get_many request");
-                    }
-                    let res: EventResult = if allowed {
-                        Ok(())
-                    } else {
-                        Err(AbortReason::Permission)
-                    };
-                    // get_many isn't used by any snatch path in this app today
-                    // (single-hash `GetRequest`s only) - still drain the update
-                    // stream when allowed so the bounded channel never backs up,
-                    // but attribution across multiple hashes in one batch is
-                    // only ever as precise as the most recent `Started` event
-                    // (see `track_transfer`'s doc comment).
-                    let key = (msg.connection_id, msg.request_id);
-                    let rx = msg.rx;
-                    msg.tx.send(res).await.ok();
-                    if let (true, Some(peer), Some(registry)) = (allowed, peer, transfers.clone()) {
-                        tokio::spawn(track_transfer(registry, rx, key, peer, String::new()));
-                    }
+                        let res: EventResult = if allowed {
+                            Ok(())
+                        } else {
+                            Err(AbortReason::Permission)
+                        };
+                        // get_many isn't used by any snatch path in this app today
+                        // (single-hash `GetRequest`s only) - still drain the update
+                        // stream when allowed so the bounded channel never backs up,
+                        // but attribution across multiple hashes in one batch is
+                        // only ever as precise as the most recent `Started` event
+                        // (see `track_transfer`'s doc comment).
+                        let key = (msg.connection_id, msg.request_id);
+                        let rx = msg.rx;
+                        msg.tx.send(res).await.ok();
+                        if let (true, Some(peer), Some(registry)) =
+                            (allowed, peer, transfers.clone())
+                        {
+                            tokio::spawn(track_transfer(registry, rx, key, peer, String::new()));
+                        }
+                    });
                 }
                 ProviderMessage::ObserveRequestReceived(msg) => {
-                    let peer = connections.lock().await.get(&msg.connection_id).cloned();
-                    let hash = msg.request.hash;
-                    let allowed = match &peer {
-                        Some(peer) => gate.allow_blob(peer, &hash.to_string()).await,
-                        None => false,
-                    };
-                    if allowed {
-                        tracing::info!(peer = ?peer, %hash, "gate: allowed observe request");
-                    } else {
-                        tracing::warn!(peer = ?peer, %hash, "gate: denied observe request");
-                    }
-                    let res: EventResult = if allowed {
-                        Ok(())
-                    } else {
-                        Err(AbortReason::Permission)
-                    };
-                    msg.tx.send(res).await.ok();
+                    let connections = Arc::clone(&connections);
+                    let gate = Arc::clone(&gate);
+                    tokio::spawn(async move {
+                        let peer = connections.lock().await.get(&msg.connection_id).cloned();
+                        let hash = msg.request.hash;
+                        let allowed = match &peer {
+                            Some(peer) => gate.allow_blob(peer, &hash.to_string()).await,
+                            None => false,
+                        };
+                        if allowed {
+                            tracing::info!(peer = ?peer, %hash, "gate: allowed observe request");
+                        } else {
+                            tracing::warn!(peer = ?peer, %hash, "gate: denied observe request");
+                        }
+                        let res: EventResult = if allowed {
+                            Ok(())
+                        } else {
+                            Err(AbortReason::Permission)
+                        };
+                        msg.tx.send(res).await.ok();
+                    });
                 }
                 _ => {}
             }
@@ -380,15 +403,96 @@ mod tests {
     async fn two_local_endpoints() -> (iroh::Endpoint, iroh::Endpoint) {
         let a = iroh::Endpoint::builder(iroh::endpoint::presets::Minimal)
             .relay_mode(iroh::RelayMode::Disabled)
+            .clear_ip_transports()
+            .bind_addr("127.0.0.1:0")
+            .unwrap()
             .bind()
             .await
             .expect("bind endpoint a");
         let b = iroh::Endpoint::builder(iroh::endpoint::presets::Minimal)
             .relay_mode(iroh::RelayMode::Disabled)
+            .clear_ip_transports()
+            .bind_addr("127.0.0.1:0")
+            .unwrap()
             .bind()
             .await
             .expect("bind endpoint b");
         (a, b)
+    }
+
+    #[tokio::test]
+    async fn slow_verification_does_not_block_other_requests() {
+        struct DelayedHash {
+            hash: String,
+            started: tokio::sync::Notify,
+            released: tokio::sync::Notify,
+        }
+        #[async_trait]
+        impl AccessGate for DelayedHash {
+            async fn allow_blob(&self, _peer: &str, hash: &str) -> bool {
+                if hash == self.hash {
+                    self.started.notify_one();
+                    self.released.notified().await;
+                }
+                true
+            }
+        }
+        let (server, client) = two_local_endpoints().await;
+        let store = iroh_blobs::store::mem::MemStore::new();
+        let slow = store
+            .blobs()
+            .add_bytes(b"slow".to_vec())
+            .await
+            .unwrap()
+            .hash;
+        let fast = store
+            .blobs()
+            .add_bytes(b"fast".to_vec())
+            .await
+            .unwrap()
+            .hash;
+        let gate = Arc::new(DelayedHash {
+            hash: slow.to_string(),
+            started: tokio::sync::Notify::new(),
+            released: tokio::sync::Notify::new(),
+        });
+        let events = build_gated_blobs_events(gate.clone(), None);
+        let router = iroh::protocol::Router::builder(server)
+            .accept(
+                iroh_blobs::ALPN,
+                iroh_blobs::BlobsProtocol::new(&store, Some(events)),
+            )
+            .spawn();
+        let connection = client
+            .connect(router.endpoint().addr(), iroh_blobs::ALPN)
+            .await
+            .unwrap();
+        let slow_connection = connection.clone();
+        let pending = tokio::spawn(async move {
+            let receiver = iroh_blobs::store::mem::MemStore::new();
+            receiver
+                .remote()
+                .fetch(slow_connection, slow)
+                .await
+                .unwrap();
+        });
+        let timeout = std::time::Duration::from_secs(5);
+        tokio::time::timeout(timeout, gate.started.notified())
+            .await
+            .unwrap();
+        let receiver = iroh_blobs::store::mem::MemStore::new();
+        tokio::time::timeout(timeout, receiver.remote().fetch(connection, fast))
+            .await
+            .expect("unrelated fetch must not wait for the slow gate")
+            .unwrap();
+        assert_eq!(&receiver.get_bytes(fast).await.unwrap()[..], b"fast");
+        gate.released.notify_one();
+        tokio::time::timeout(timeout, pending)
+            .await
+            .unwrap()
+            .unwrap();
+        router.shutdown().await.unwrap();
+        client.close().await;
     }
 
     #[tokio::test]

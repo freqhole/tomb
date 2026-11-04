@@ -92,7 +92,7 @@ inquire = "0.7"
 bigdecimal = { version = "0.4", features = ["serde"] }
 image = "0.24"
 iroh = "1.4.1"
-iroh-blobs = "0.103.1"
+iroh-blobs = "0.104.0"
 irpc = "0.17"
 blake3 = "1.5"
 getrandom = "0.2"

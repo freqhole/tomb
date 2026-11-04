@@ -119,9 +119,24 @@ impl PairingStateReader for PairingStateHandle {
     /// spawned task (the trait itself must stay synchronous, see
     /// `PairingStateReader`'s own doc comment).
     fn regenerate_admin_pin(&self) {
+        self.regenerate_admin_pin_with_reply(Box::new(|_| {}));
+    }
+
+    fn regenerate_admin_pin_with_reply(
+        &self,
+        callback: Box<dyn FnOnce(Result<String, String>) + 'static>,
+    ) {
         let state = self.0.clone();
         tokio::task::spawn_local(async move {
-            let _ = grimoire::cenotaph::state::regenerate_admin_pin(&state).await;
+            let result = grimoire::cenotaph::state::regenerate_admin_pin(&state)
+                .await
+                .and_then(|()| {
+                    grimoire::cenotaph::state::snapshot(&state)
+                        .current_code
+                        .map(|code| code.code)
+                        .ok_or_else(|| "pairing code unavailable after rotation".to_string())
+                });
+            callback(result);
         });
     }
 

@@ -17,10 +17,7 @@ export type BufferedRange = readonly [number, number];
 export const LIVE_EDGE_EPSILON_S = 0.25;
 
 /** the buffered range holding the playhead, if any. */
-export function containingRange(
-  ranges: readonly BufferedRange[],
-  t: number
-): BufferedRange | null {
+export function containingRange(ranges: readonly BufferedRange[], t: number): BufferedRange | null {
   for (const range of ranges) {
     if (t >= range[0] - 0.05 && t <= range[1] + 0.05) return range;
   }

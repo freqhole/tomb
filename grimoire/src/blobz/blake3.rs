@@ -19,9 +19,7 @@ use std::sync::Arc;
 /// log pre-flight metadata about a path before handing it to iroh-blobs'
 /// reference-mode import, since iroh-blobs' own io errors are too terse
 /// (e.g. `Error::Io` with no path/kind/errno) to tell us why an import
-/// failed. also warns if the source file and the blobs store's data_dir
-/// live on different devices/volumes, since `ImportMode::TryReference`
-/// likely relies on a hardlink under the hood, which can't cross devices.
+/// failed. reference imports retain absolute paths, not hardlinks.
 fn log_preflight_metadata(canonical: &Path) {
     match std::fs::symlink_metadata(canonical) {
         Ok(meta) => {
@@ -44,24 +42,6 @@ fn log_preflight_metadata(canonical: &Path) {
                 ?ino,
                 "add_file_to_store: pre-flight metadata"
             );
-
-            #[cfg(unix)]
-            if let (Some(file_dev), Ok(store_meta)) = (
-                dev,
-                std::fs::metadata(&crate::config::get_config().data_dir),
-            ) {
-                use std::os::unix::fs::MetadataExt;
-                if file_dev != store_meta.dev() {
-                    tracing::warn!(
-                        path = ?canonical,
-                        file_dev,
-                        data_dir_dev = store_meta.dev(),
-                        "add_file_to_store: source file and blobs store data_dir are on \
-                         different devices/volumes - a reference-mode (hardlink) import may \
-                         fail and require falling back to a copy"
-                    );
-                }
-            }
         }
         Err(e) => {
             tracing::warn!(
@@ -155,6 +135,14 @@ pub async fn add_bytes_to_store(data: &[u8]) -> GrimoireResult<Hash> {
     Ok(tag.hash)
 }
 
+pub async fn ensure_file_reference(path: &Path, hash: Hash) -> GrimoireResult<()> {
+    let node = crate::database::storage_node().await?;
+    node.references.ensure(node.fs_store, hash, path).await.map_err(|e| {
+        tracing::error!(%hash, path = %path.display(), error = %e, "transport reference repair failed");
+        GrimoireError::ProcessingFailed { message: e.to_string() }
+    })
+}
+
 /// check if a blob exists in the shared storage node's iroh-blobs store by
 /// hash.
 async fn has_blob(hash: Hash) -> GrimoireResult<bool> {
@@ -223,7 +211,7 @@ pub async fn ensure_blake3_hash(blob_id: &str) -> GrimoireResult<String> {
 
             if let Some(blake3) = blob.blake3 {
                 // already has blake3, just ensure it's in FsStore
-                let _ = add_file_to_store(path).await;
+                ensure_file_reference(path, parse_hash(&blake3)?).await?;
                 return Ok(blake3);
             }
 
@@ -314,6 +302,23 @@ pub enum EnsureBlobOutcome {
     Error(GrimoireError),
 }
 
+async fn verified_transport_or(hash: Hash, missing: EnsureBlobOutcome) -> EnsureBlobOutcome {
+    let node = match crate::database::storage_node().await {
+        Ok(node) => node,
+        Err(e) => return EnsureBlobOutcome::Error(e),
+    };
+    match has_blob(hash).await {
+        Ok(false) => missing,
+        Err(e) => EnsureBlobOutcome::Error(e),
+        Ok(true) => match reliquary::references::verify_read(node.fs_store, hash).await {
+            Ok(()) => EnsureBlobOutcome::Available,
+            Err(e) => EnsureBlobOutcome::Error(GrimoireError::ProcessingFailed {
+                message: e.to_string(),
+            }),
+        },
+    }
+}
+
 /// ensure a blob is loaded into the shared storage node's iroh-blobs store
 /// by its blake3 hash.
 ///
@@ -323,34 +328,18 @@ pub enum EnsureBlobOutcome {
 ///
 /// this enables on-demand loading for iroh-blobs requests.
 pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> EnsureBlobOutcome {
-    // first check if already in store
     let hash = match parse_hash(blake3_hash) {
         Ok(h) => h,
         Err(_) => return EnsureBlobOutcome::NoSuchBlob,
     };
 
-    match has_blob(hash).await {
-        Ok(true) => {
-            tracing::info!(
-                "ensure_blob_by_blake3: already in FsStore: {}",
-                &blake3_hash[..16]
-            );
-            return EnsureBlobOutcome::Available;
-        }
-        Ok(false) => {}
-        Err(e) => return EnsureBlobOutcome::Error(e),
-    }
-
     // look up blob by blake3 in media_blobz
     let blob = match media_blobz::get_media_blob_by_blake3(blake3_hash).await {
         Ok(b) => b,
-        Err(_) => {
-            tracing::warn!(
-                "ensure_blob_by_blake3: NOT FOUND in media_blobz: {} (dest asked for a blake3 this source has never seen)",
-                &blake3_hash[..16]
-            );
-            return EnsureBlobOutcome::NoSuchBlob;
+        Err(GrimoireError::Database(sqlx::Error::RowNotFound)) => {
+            return verified_transport_or(hash, EnsureBlobOutcome::NoSuchBlob).await;
         }
+        Err(e) => return EnsureBlobOutcome::Error(e),
     };
     tracing::info!(
         "ensure_blob_by_blake3: found media_blob {} for blake3 {} (local_path={:?})",
@@ -369,11 +358,11 @@ pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> EnsureBlobOutcome {
                     &blake3_hash[..16],
                     local_path
                 );
-                return EnsureBlobOutcome::LocalFileMissing;
+                return verified_transport_or(hash, EnsureBlobOutcome::LocalFileMissing).await;
             }
 
-            match add_file_to_store(path).await {
-                Ok(_) => {
+            match ensure_file_reference(path, hash).await {
+                Ok(()) => {
                     tracing::info!(
                         "ensure_blob_by_blake3: added file to FsStore: {} -> {}",
                         &blake3_hash[..16],
@@ -404,7 +393,7 @@ pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> EnsureBlobOutcome {
                         &blake3_hash[..16],
                         blob.id,
                     );
-                    return EnsureBlobOutcome::LocalFileMissing;
+                    return verified_transport_or(hash, EnsureBlobOutcome::LocalFileMissing).await;
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -417,8 +406,13 @@ pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> EnsureBlobOutcome {
                 }
             };
 
+            if compute_blake3_from_bytes(&data) != blake3_hash {
+                return EnsureBlobOutcome::Error(GrimoireError::ProcessingFailed {
+                    message: format!("blob content changed for {blake3_hash}"),
+                });
+            }
             match add_bytes_to_store(&data).await {
-                Ok(_) => {
+                Ok(actual) if actual == hash => {
                     tracing::info!(
                         "ensure_blob_by_blake3: added db blob to FsStore: {} ({} bytes)",
                         &blake3_hash[..16],
@@ -426,6 +420,9 @@ pub async fn ensure_blob_by_blake3(blake3_hash: &str) -> EnsureBlobOutcome {
                     );
                     EnsureBlobOutcome::Available
                 }
+                Ok(_) => EnsureBlobOutcome::Error(GrimoireError::ProcessingFailed {
+                    message: format!("blob content changed for {blake3_hash}"),
+                }),
                 Err(e) => {
                     tracing::warn!(
                         "ensure_blob_by_blake3: failed to add db blob to FsStore: {}: {}",

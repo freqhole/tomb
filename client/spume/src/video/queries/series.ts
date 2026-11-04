@@ -9,6 +9,7 @@ import {
 import { getVideoDataSource } from "../data";
 import type { VideoSeason, VideoSeries, VideoSummary } from "../data/types";
 import { videoQueryKeys } from "./queryKeys";
+import type { CurrentRemoteInfo } from "../../music/data/currentState";
 
 interface UseVideoSeriesListQueryOptions {
   hideOffline?: () => boolean;
@@ -18,6 +19,7 @@ interface UseVideoSeriesListQueryOptions {
   // "browse all series" list — required for any small/typeahead usage
   // (see videoQueryKeys.series.autocomplete for why sharing a key is unsafe).
   keyScope?: "list" | "autocomplete";
+  remote?: () => CurrentRemoteInfo | null | undefined;
 }
 
 export function useVideoSeriesListQuery(options?: UseVideoSeriesListQueryOptions) {
@@ -27,14 +29,16 @@ export function useVideoSeriesListQuery(options?: UseVideoSeriesListQueryOptions
 
   return createInfiniteQuery(() => ({
     queryKey: [
-      ...(
-      keyScope === "autocomplete"
+      ...(keyScope === "autocomplete"
         ? videoQueryKeys.series.autocomplete(search?.())
         : videoQueryKeys.series.list(search?.())),
       options?.hideOffline?.() ?? false,
+      ...(options?.remote?.() === undefined
+        ? []
+        : ["remote", options.remote()?.remote_id ?? "local"]),
     ],
     queryFn: async ({ pageParam }: { pageParam: number }) => {
-      const dataSource = getVideoDataSource();
+      const dataSource = getVideoDataSource(options?.remote?.());
       const result = await dataSource.getVideoSeriesList({
         hide_offline: options?.hideOffline?.(),
         offset: pageParam,
@@ -121,13 +125,19 @@ export function useCreateVideoSeriesMutation() {
 /** every season belonging to a series (no search — series rarely have
  * enough seasons to need it, mirrors the plain-Select fetch this hook
  * replaces in EditVideoModal.tsx/BulkEditVideosModal.tsx). */
-export function useVideoSeasonsQuery(seriesId: () => string | undefined) {
+export function useVideoSeasonsQuery(
+  seriesId: () => string | undefined,
+  remote?: () => CurrentRemoteInfo | null | undefined
+) {
   return createQuery(() => ({
-    queryKey: videoQueryKeys.series.seasons(seriesId() || ""),
+    queryKey: [
+      ...videoQueryKeys.series.seasons(seriesId() || ""),
+      ...(remote?.() === undefined ? [] : ["remote", remote()?.remote_id ?? "local"]),
+    ],
     queryFn: async () => {
       const id = seriesId();
       if (!id) return [];
-      const dataSource = getVideoDataSource();
+      const dataSource = getVideoDataSource(remote?.());
       return dataSource.getVideoSeasons(id);
     },
     enabled: !!seriesId(),

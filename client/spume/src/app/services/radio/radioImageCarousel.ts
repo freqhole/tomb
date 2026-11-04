@@ -9,7 +9,11 @@ import type { MusicDataSource } from "../../../music/data/types";
 import { localDataSource } from "../../../music/data/local/localSource";
 import { RemoteMusicDataSource } from "../../../music/data/remote/remoteSource";
 import type { Remote } from "../storage/types";
-import { getRemoteById, getRemoteByPeerAddr, getTauriManagedRemote } from "../remotes/remoteManager";
+import {
+  getRemoteById,
+  getRemoteByPeerAddr,
+  getTauriManagedRemote,
+} from "../remotes/remoteManager";
 import {
   resolveBlobUrl,
   usesBlobResolver,
@@ -42,7 +46,7 @@ async function resolveRadioRemote(): Promise<Remote | null> {
     if (remote) return remote;
   }
   const peerAddr = radioCurrentPeerAddr();
-  return peerAddr ? (await getRemoteByPeerAddr(peerAddr)) ?? null : null;
+  return peerAddr ? ((await getRemoteByPeerAddr(peerAddr)) ?? null) : null;
 }
 
 export async function openRadioImageCarousel(): Promise<void> {

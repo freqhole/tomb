@@ -10,6 +10,10 @@ export default defineConfig({
 	// /download url; astro emits a redirect to the actual docs page at build.
 	redirects: {
 		'/download': '/getting-started/download',
+		// the guide was renamed from "rathole on a pi" to "freqhole on a pi"
+		// (it covers both the charnel GUI and rathole TUI installs) - keep
+		// the old permalink working for anyone who bookmarked/linked it.
+		'/guides/rathole-on-a-pi': '/guides/freqhole-on-a-pi',
 	},
 	integrations: [
 		// mermaid must come before starlight so it can register its remark plugin
@@ -58,26 +62,25 @@ export default defineConfig({
 					],
 				},
 				{
-					label: 'concepts',
-					items: [
-						{ label: 'configuration', slug: 'concepts/configuration' },
-						{ label: 'the database', slug: 'concepts/database' },
-						{ label: 'HTTP vs P2P', slug: 'concepts/transports' },
-						{ label: 'web app architecture', slug: 'concepts/web-app' },
-						{ label: 'where media lives', slug: 'concepts/storage' },
-						{ label: 'user roles', slug: 'concepts/user-roles' },
-						{ label: 'invite codes', slug: 'concepts/invite-codes' },
-					],
-				},
-				{
 					label: 'guides',
 					items: [
 						{ label: 'adding media', slug: 'guides/scanning' },
 						{ label: 'metadata enrichment', slug: 'guides/metadata-enrichment' },
 						{ label: 'sharing with friends', slug: 'guides/sharing' },
 						{ label: 'maintenance', slug: 'guides/maintenance' },
-						{ label: 'rathole on a pi', slug: 'guides/rathole-on-a-pi' },
+						{ label: 'freqhole on a pi', slug: 'guides/freqhole-on-a-pi' },
 						{ label: 'cenotaph', slug: 'guides/cenotaph' },
+					],
+				},
+				{
+					label: 'concepts',
+					items: [
+						{ label: 'configuration', slug: 'concepts/configuration' },
+						{ label: 'the database', slug: 'concepts/database' },
+						{ label: 'HTTP vs P2P', slug: 'concepts/transports' },
+						{ label: 'where media lives', slug: 'concepts/storage' },
+						{ label: 'user roles', slug: 'concepts/user-roles' },
+						{ label: 'invite codes', slug: 'concepts/invite-codes' },
 					],
 				},
 

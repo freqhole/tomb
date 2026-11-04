@@ -545,13 +545,19 @@ pub fn get_server_config_path_resolved(app_handle: &tauri::AppHandle) -> Option<
     }
 }
 
-/// check if setup is complete (has valid config)
-///
-/// returns true if either:
-/// - app config exists with a valid server_config_path, OR
-/// - legacy config exists in app data dir (backward compat)
+/// a selected empty data folder must go through setup on the next launch.
 pub fn is_setup_complete(app_handle: &tauri::AppHandle) -> bool {
-    get_server_config_path_resolved(app_handle).is_some()
+    let Some(path) = get_server_config_path_resolved(app_handle) else {
+        return false;
+    };
+    match grimoire::config::read_config_from_file(&path) {
+        Ok(config) => config.database_path().exists(),
+        Err(error) => {
+            tracing::error!(%error, "failed to read setup config");
+            // let normal startup surface a broken config, not replace it.
+            true
+        }
+    }
 }
 
 /// get the binary version from cargo

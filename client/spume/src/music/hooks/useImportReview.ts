@@ -70,15 +70,16 @@ export function useImportReview(
 
   const key = createMemo<[string, CurrentRemoteInfo | null | undefined, number] | null>(() => {
     const id = sessionId();
-    if (!id) return null;
-    return [id, remote(), reloadKey()];
+    const origin = remote();
+    if (!id || origin === undefined) return null;
+    return [id, origin, reloadKey()];
   });
 
   const [data] = createResource(key, async (k): Promise<ImportReviewAlbum[]> => {
     if (!k) return [];
     const [sid, r] = k;
 
-    const backend = getReviewBackend(r ?? null);
+    const backend = getReviewBackend(r);
     try {
       const target = await backend.getSessionTarget(sid);
       setTargetRemoteId(target?.id ?? undefined);
@@ -120,7 +121,7 @@ export function useImportReview(
     const sid = sessionId();
     if (!sid) return;
     try {
-      await getReviewBackend(remote() ?? null).patchAlbum(sid, albumId, req);
+      await getReviewBackend(remote()).patchAlbum(sid, albumId, req);
     } catch (err) {
       toast.error(`patch failed: ${(err as Error).message}`);
       return;
@@ -132,7 +133,7 @@ export function useImportReview(
     const sid = sessionId();
     if (!sid) return;
     try {
-      await getReviewBackend(remote() ?? null).mergeAlbums(sid, sourceIds, targetId);
+      await getReviewBackend(remote()).mergeAlbums(sid, sourceIds, targetId);
     } catch (err) {
       toast.error(`merge failed: ${(err as Error).message}`);
       return;
@@ -149,7 +150,7 @@ export function useImportReview(
     const sid = sessionId();
     if (!sid) return;
     try {
-      await getReviewBackend(remote() ?? null).moveSong(
+      await getReviewBackend(remote()).moveSong(
         sid,
         songId,
         toAlbumId,
@@ -167,7 +168,7 @@ export function useImportReview(
     const sid = sessionId();
     if (!sid) return;
     try {
-      await getReviewBackend(remote() ?? null).markAlbumReviewed(sid, albumId);
+      await getReviewBackend(remote()).markAlbumReviewed(sid, albumId);
     } catch (err) {
       toast.error(`mark reviewed failed: ${(err as Error).message}`);
       return;

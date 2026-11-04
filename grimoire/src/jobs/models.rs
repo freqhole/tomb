@@ -76,6 +76,7 @@ pub enum JobType {
     // id3/vorbis/etc tag + cover art embedding for songs where the
     // format supports it; see `maintenance::reorganize_library`.
     ReorganizeLibraryFiles,
+    AuditBlobReferences,
 }
 
 /// parameters for a `TranscodeVideo` job - produces rendition `MediaBlob`

@@ -12,8 +12,11 @@ while playing, title and artist replace the menu heading and scroll with the
 list. these are informational rows, not selectable actions.
 after 30 seconds idle, a sleeping cat animates for 10 seconds; the neopixel
 fades out during the final three seconds. both lights then turn off (the pi
-stays awake). two net encoder clicks within 0.75 seconds, or a button press,
-cancel the animation or wake the ui without activating or changing a selection.
+stays awake). by default, two net encoder clicks within 0.75 seconds, or a
+button press, cancel the animation or wake the ui without activating or
+changing a selection. "wake sensitivity" cycles 1/2/3 clicks or "button only"
+(ignores the encoder for waking, e.g. to avoid a bumped/vibrating knob
+accidentally waking it) and saves immediately, same as "reverse wheel".
 the menu appears immediately; the neopixel fades in on startup and wake.
 a sleeping shutdown confirmation is canceled. confirmed shutdown and normal
 exit fade the led out before clearing and powering off the display.
@@ -84,8 +87,8 @@ PI_MANAGED_PLAYER = PI_UPDATER.is_file() and (
 UPDATE_ARGUMENTS = ("charnel",) if PLAYER == "charnel" else ()
 PI_CONTROL = "/usr/local/libexec/freqhole-pi-control"
 UPDATE_SCREEN = object()
-RECOVERY_SCREEN = object()
 REVERSE_WHEEL = object()
+WAKE_SENSITIVITY = object()
 UPDATE_REFRESH_SECONDS = 24 * 60 * 60
 SOCKET_TIMEOUT_SECONDS = 2.0
 STATE_REFRESH_SECONDS = 0.5
@@ -101,6 +104,7 @@ WIFI_CONFIG = Path.home() / ".local/share/freqhole-pi/wifi.json"
 WIFI_TOOL = Path.home() / ".local/bin/freqhole-wifi"
 WIFI_INFO = json.loads(WIFI_CONFIG.read_text()) if WIFI_CONFIG.exists() else None
 
+ADMIN_PIN_LABEL = "show admin code"
 COMMANDS = (
     ("play / pause", "play_pause", (255, 0, 220)),
     ("next track", "next", (255, 25, 145)),
@@ -110,10 +114,11 @@ COMMANDS = (
     (f"show {PLAYER} player", "show_player", (255, 90, 180)),
     # both rotate the session pin; admin also grants the next pairing admin access.
     ("rotate pairing pin", "rotate_pin", (0, 255, 210)),
-    ("new admin pairing", "show_admin_pin", (50, 200, 165)),
+    (ADMIN_PIN_LABEL, "show_admin_pin", (50, 200, 165)),
     ("network status", NETWORK_SCREEN, (40, 255, 100)),
     ("library disks", STORAGE_SCREEN, (80, 160, 255)),
     ("reverse wheel", REVERSE_WHEEL, (80, 160, 255)),
+    ("wake sensitivity", WAKE_SENSITIVITY, (160, 160, 255)),
 )
 if PLAYER == "charnel":
     COMMANDS += (
@@ -131,20 +136,26 @@ if PI_MANAGED_PLAYER:
     COMMANDS += (
         ("check update", UPDATE_SCREEN, (255, 160, 0)),
     )
-    if PLAYER == "charnel":
-        COMMANDS += (("recover failed update", RECOVERY_SCREEN, (255, 80, 0)),)
 if WIFI_INFO is not None and WIFI_TOOL.is_file():
     COMMANDS += (
         ("set up wifi", WIFI_SCREEN, (40, 255, 100)),
         ("stop wifi setup", ("sudo", "-n", PI_CONTROL, "wifi-stop"), (150, 80, 0)),
     )
+# "restart pi" and "shut down pi" are always appended after COMMANDS, same as
+# before - not regular COMMANDS entries, so their menu index is derived below
+# once COMMANDS is fully built, instead of fixed at declaration time.
+REBOOT_INDEX = len(COMMANDS)
+SHUTDOWN_INDEX = REBOOT_INDEX + 1
+REBOOT_COMMAND = ("sudo", "-n", PI_CONTROL, "reboot")
 SHUTDOWN_COMMAND = ("sudo", "-n", PI_CONTROL, "poweroff")
+REBOOT_COLOR = (255, 140, 0)
 SHUTDOWN_COLOR = (255, 0, 0)
 CANCEL_COLOR = (0, 230, 255)
 IDLE_SECONDS = 30.0
 TOAST_SECONDS = 3.0  # how long a successful send stays up before the menu returns.
+ADMIN_PIN_DISPLAY_SECONDS = 30.0
 PLAY_STATE_DELAY_SECONDS = 0.4  # let the player apply a toggle before reading it back.
-PROGRESS_LABELS = {"install update": "updating", "recover failed update": "restoring"}
+PROGRESS_LABELS = {"install update": "updating"}
 # curl's progress bar (\r-separated "#### 12.3%" frames) and its unknown-size animation.
 PERCENT_PATTERN = re.compile(r"^[#\s]*(\d{1,3}(?:\.\d+)?)%$")
 PROGRESS_NOISE = frozenset("#=O- ")
@@ -154,7 +165,13 @@ SLEEP_ANIMATION_SECONDS = 10.0
 SLEEP_FADE_SECONDS = 3.0  # a long fade makes the low 8-bit brightness steps linger.
 SLEEP_FPS = 10
 SLEEP_ANIMATE_DURING_FADE = False  # avoid blocking led updates with full oled transfers.
-WAKE_ENCODER_CLICKS = 3
+# how a sleeping oled wakes: 1/2/3 net encoder clicks, or "button" to require
+# a button press and ignore encoder movement entirely (avoids accidental
+# wakes from a bumped/vibrating knob). persisted like DIRECTION below.
+WAKE_CLICK_OPTIONS = (1, 2, 3, "button")
+WAKE_ENCODER_CLICKS = SETTINGS.get("wake_clicks", 3)
+if WAKE_ENCODER_CLICKS not in WAKE_CLICK_OPTIONS:
+    raise ValueError("menu wake_clicks must be 1, 2, 3, or \"button\"")
 WAKE_ENCODER_WINDOW_SECONDS = 0.75  # isolated stray clicks must not accumulate forever.
 WAKE_FADE_SECONDS = 3.0
 POWER_OFF_FADE_SECONDS = 3.0  # shutdown and normal service exit wait for this fade.
@@ -263,10 +280,42 @@ def send_socket_command(command):
             connection.settimeout(SOCKET_TIMEOUT_SECONDS)
             connection.connect(path)
             connection.sendall((command + "\n").encode("ascii"))
-            # the protocol has no reply; close without waiting or retrying a toggle.
+            if command == "show_admin_pin":
+                deadline = time.monotonic() + SOCKET_TIMEOUT_SECONDS
+                reply = bytearray()
+                while b"\n" not in reply:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("admin pairing code reply timed out")
+                    connection.settimeout(remaining)
+                    chunk = connection.recv(4096)
+                    if not chunk:
+                        raise ValueError("socket closed without an admin pairing code")
+                    reply.extend(chunk)
+                    if len(reply) > 4096:
+                        raise ValueError("admin pairing code reply too large")
+    except (TimeoutError, ValueError) as error:
+        print(f"could not get admin pairing code: {error}", file=sys.stderr, flush=True)
+        return 1
     except OSError as error:
         print(f"could not send {command} to {path}: {error}", file=sys.stderr, flush=True)
         return 1
+    if command == "show_admin_pin":
+        try:
+            response = json.loads(reply.split(b"\n", 1)[0])
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            print(f"could not parse admin pairing code reply: {error}", file=sys.stderr, flush=True)
+            return 1
+        if not isinstance(response, dict) or not isinstance(response.get("pin"), str):
+            detail = response.get("error", "invalid reply") if isinstance(response, dict) else "invalid reply"
+            print(f"could not get admin pairing code: {detail}", file=sys.stderr, flush=True)
+            return 1
+        pin = response["pin"]
+        if len(pin) != 6 or not pin.isascii() or not pin.isdigit():
+            print("could not get admin pairing code: expected six digits", file=sys.stderr, flush=True)
+            return 1
+        print(f"admin pairing code: {pin}", flush=True)
+        return 0
     print(f"sent {command} to {path} (no reply expected)", flush=True)
     if command == "play_pause":
         time.sleep(PLAY_STATE_DELAY_SECONDS)
@@ -495,7 +544,7 @@ class Menu:
         self.selected = 0
         self.confirm_selected = 0
         self.confirm_update = False
-        self.confirm_recovery = False
+        self.confirm_reboot = False
         self.screen = "menu"
         self.message = ()
         self.asleep = False
@@ -516,6 +565,7 @@ class Menu:
         self.running_socket = False
         self.running_started = now
         self.running_output = ""
+        self.running_admin_pin = None
         self.running_state = None
         self.running_frame = None
         self.output_thread = None
@@ -565,7 +615,7 @@ class Menu:
                  "check update !" if self.update_error else "check update")
                 if command is UPDATE_SCREEN else label
                 for label, command, _ in COMMANDS
-            ] + ["shut down pi"]
+            ] + ["restart pi", "shut down pi"]
             items = [
                 ("> " if index == self.selected else "  ") + label
                 for index, label in enumerate(labels)
@@ -582,7 +632,11 @@ class Menu:
             else:
                 start = max(0, self.selected - 2)
                 lines = [f"{PLAYER} {self.selected + 1}/{len(labels)}", *items[start:start + 3]]
-            color = SHUTDOWN_COLOR if self.selected == len(COMMANDS) else COMMANDS[self.selected][2]
+            color = (
+                SHUTDOWN_COLOR if self.selected == SHUTDOWN_INDEX else
+                REBOOT_COLOR if self.selected == REBOOT_INDEX else
+                COMMANDS[self.selected][2]
+            )
         elif self.screen == "storage":
             lines = self.storage.lines()
             color = (255, 0, 0) if self.storage.error else (80, 160, 255)
@@ -602,15 +656,15 @@ class Menu:
             ]
             color = (255, 0, 0) if self.network_error else COMMANDS[self.selected][2]
         elif self.screen == "confirm":
-            title = ("restore pre-update?" if self.confirm_recovery else
-                     "update? stops playback" if self.confirm_update else "u sure? shut down pi?")
+            title = ("update? stops playback" if self.confirm_update else
+                     "u sure? restart pi?" if self.confirm_reboot else "u sure? shut down pi?")
             lines = [title]
             if self.confirm_update and self.update_status:
                 lines.append(update_summary(self.update_status))
             lines += [
                 ("> " if index == self.confirm_selected else "  ") + label
                 for index, label in enumerate((
-                    "restore" if self.confirm_recovery else "update" if self.confirm_update else "shut down", "cancel",
+                    "update" if self.confirm_update else "restart" if self.confirm_reboot else "shut down", "cancel",
                 ))
             ]
             color = SHUTDOWN_COLOR if self.confirm_selected == 0 else CANCEL_COLOR
@@ -756,7 +810,7 @@ class Menu:
         self.render()
         if shutdown:
             self.oled.fill(0)
-            self.oled.text("shutting down...", 0, 0, 1, font_name=FONT_PATH)
+            self.oled.text("restarting..." if label == "restart pi" else "shutting down...", 0, 0, 1, font_name=FONT_PATH)
             self.oled.show()
             # finish the fade before the command can cause systemd to stop this process.
             self.lights_off(fade=True)
@@ -766,6 +820,7 @@ class Menu:
             command = (sys.executable, str(Path(__file__).resolve()), "--send", command)
         self.running_started = time.monotonic()
         self.running_output = ""
+        self.running_admin_pin = None
         self.running_progress = ""
         self.restart_pending = False
         self.running_state = None
@@ -817,6 +872,9 @@ class Menu:
     def handle_output_line(self, raw):
         line = raw.decode("utf-8", "replace")
         text = " ".join(line.split())
+        if text.startswith("admin pairing code:"):
+            self.running_admin_pin = text.partition(":")[2].strip()
+            return
         percent = PERCENT_PATTERN.match(text)
         if percent:
             # keep download progress off the journal; the header shows it instead.
@@ -861,20 +919,27 @@ class Menu:
             self.last_activity = time.monotonic()
             self.dirty = True
             return
-        if self.running_label in ("install update", "recover failed update"):
+        if self.running_label == "install update":
             self.update_next_refresh = 0
         print(f"{self.running_label}: exit {result}", flush=True)
         if self.running_shutdown and result == 0:
             self.shutdown_requested = True
             self.lights_off()
-            print("shutdown requested.", flush=True)
+            print(f"{self.running_label} requested.", flush=True)
             return
         self.screen = "success" if result == 0 else "error"
         title = "done" if result == 0 else "command failed"
         if self.running_shutdown:
-            title = "onoz! shutdown failed"
+            title = "onoz! restart failed" if self.running_label == "restart pi" else "onoz! shutdown failed"
             self.wake_lights(time.monotonic())
-        if self.running_socket and result == 0:
+        if self.running_socket and result == 0 and self.running_label == ADMIN_PIN_LABEL:
+            self.message = (
+                "admin pairing code",
+                self.running_admin_pin or "unavailable",
+                "enter in Charnel",
+            )
+            self.message_until = time.monotonic() + ADMIN_PIN_DISPLAY_SECONDS
+        elif self.running_socket and result == 0:
             message = PLAY_STATE_MESSAGES.get(self.running_state)
             self.message = (message,) if message else (self.running_label, "sent")
             self.message_until = time.monotonic() + TOAST_SECONDS
@@ -1027,7 +1092,7 @@ class Menu:
                     self.screen = "confirm"
                     self.confirm_selected = 1
                     self.confirm_update = True
-                    self.confirm_recovery = False
+                    self.confirm_reboot = False
                 else:
                     self.screen = "success"
                     self.message = ("already up to date", PLAYER, self.update_status["installed"])
@@ -1038,13 +1103,18 @@ class Menu:
             self.update_future = self.update_worker.submit(read_update_status)
 
     def activate(self):
-        global DIRECTION
+        global DIRECTION, WAKE_ENCODER_CLICKS
         if self.screen == "menu":
-            if self.selected == len(COMMANDS):
+            if self.selected == REBOOT_INDEX:
                 self.screen = "confirm"
                 self.confirm_selected = 0
                 self.confirm_update = False
-                self.confirm_recovery = False
+                self.confirm_reboot = True
+            elif self.selected == SHUTDOWN_INDEX:
+                self.screen = "confirm"
+                self.confirm_selected = 0
+                self.confirm_update = False
+                self.confirm_reboot = False
             else:
                 label, command, _ = COMMANDS[self.selected]
                 if command is REVERSE_WHEEL:
@@ -1059,6 +1129,22 @@ class Menu:
                         DIRECTION = direction
                         self.screen = "success"
                         self.message = ("wheel reversed", "saved")
+                elif command is WAKE_SENSITIVITY:
+                    next_clicks = WAKE_CLICK_OPTIONS[
+                        (WAKE_CLICK_OPTIONS.index(WAKE_ENCODER_CLICKS) + 1) % len(WAKE_CLICK_OPTIONS)
+                    ]
+                    try:
+                        configure.update_menu_settings(SETTINGS_PATH, {"wake_clicks": next_clicks})
+                    except (OSError, ValueError) as error:
+                        print(f"could not save wake sensitivity: {error}", file=sys.stderr, flush=True)
+                        self.screen = "error"
+                        self.message = ("could not save", "wake sensitivity")
+                    else:
+                        WAKE_ENCODER_CLICKS = next_clicks
+                        self.screen = "success"
+                        label = ("button only" if next_clicks == "button" else
+                                 f"{next_clicks} click" + ("s" if next_clicks != 1 else ""))
+                        self.message = (f"wake: {label}", "saved")
                 elif command is None:
                     self.screen = "volume"
                     self.volume = None
@@ -1081,11 +1167,6 @@ class Menu:
                     self.update_requested = True
                     self.update_next_refresh = 0
                     self.screen = "update-check"
-                elif command is RECOVERY_SCREEN:
-                    self.screen = "confirm"
-                    self.confirm_selected = 1
-                    self.confirm_update = False
-                    self.confirm_recovery = True
                 else:
                     self.start_command(label, command)
         elif self.screen == "storage":
@@ -1110,10 +1191,10 @@ class Menu:
             self.screen = "menu"
         elif self.screen == "confirm":
             if self.confirm_selected == 0:
-                if self.confirm_recovery:
-                    self.start_command("recover failed update", (str(PI_UPDATER), "recover", "charnel"))
-                elif self.confirm_update:
+                if self.confirm_update:
                     self.start_command("install update", (str(PI_UPDATER), "update", *UPDATE_ARGUMENTS))
+                elif self.confirm_reboot:
+                    self.start_command("restart pi", REBOOT_COMMAND, shutdown=True)
                 else:
                     self.start_command("shut down pi", SHUTDOWN_COMMAND, shutdown=True)
             else:
@@ -1161,7 +1242,10 @@ class Menu:
                     self.wake_encoder_started = now
                 # count net movement so a +1/-1 wobble does not count as two clicks.
                 self.wake_encoder_delta += delta
-            encoder_wake = abs(self.wake_encoder_delta) >= max(1, WAKE_ENCODER_CLICKS)
+            encoder_wake = (
+                WAKE_ENCODER_CLICKS != "button"
+                and abs(self.wake_encoder_delta) >= max(1, WAKE_ENCODER_CLICKS)
+            )
             if encoder_wake or raw_pressed or edge is True:
                 self.wake_lights(now)
                 # consume the whole wake press, even if it is still debouncing.
@@ -1201,7 +1285,7 @@ class Menu:
             elif self.screen in ("network", "wifi"):
                 self.network_offset = max(0, min(max(0, len(self.network_rows) - 2), self.network_offset + delta))
             elif self.screen == "menu":
-                self.selected = max(0, min(len(COMMANDS), self.selected + delta))
+                self.selected = max(0, min(SHUTDOWN_INDEX, self.selected + delta))
             elif self.screen in ("confirm", "wifi-confirm", "wifi-ended"):
                 self.confirm_selected = max(0, min(1, self.confirm_selected + delta))
             elif self.screen in ("success", "error"):

@@ -43,6 +43,7 @@ export type Unsubscribe = () => void;
 /// command if needed. defaults to `true` when omitted.
 export interface LoadAndPlayOptions {
   userInitiated?: boolean;
+  /** seconds, matching the shared playback signals and queue history. */
   initialPosition?: number;
   initialDuration?: number;
   autoPlay?: boolean;
@@ -112,7 +113,7 @@ export class BackendPlaybackError extends Error {
 export type BackendKind = "html_audio" | "libmpv" | "sibyl" | "dummy" | "video";
 
 /**
- * classify a native `<audio>`/`<video>` element error (`HTMLMediaElement.
+ * classify a browser `<audio>`/`<video>` element error (`HTMLMediaElement.
  * error`) into a structured `error_type` + curated title/detail. the media
  * error `code` (1=ABORTED, 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED) is
  * encoded directly into `error_type` (e.g. `audio_element_error_network`)

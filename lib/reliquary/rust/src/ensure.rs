@@ -52,6 +52,7 @@ struct Inner {
     store: &'static FsStore,
     blobz: Arc<dyn BlobStore>,
     gate: Arc<dyn AccessGate>,
+    references: crate::references::ReferenceRepair,
 }
 
 impl std::fmt::Debug for EnsureBlobHandler {
@@ -75,6 +76,7 @@ impl EnsureBlobHandler {
                 store,
                 blobz,
                 gate,
+                references: crate::references::ReferenceRepair::default(),
             }),
         }
     }
@@ -199,33 +201,24 @@ async fn ensure(
         return (false, Some("blob file missing on disk".into()));
     }
 
-    // cheap pre-check: skip the (potentially expensive, full-file-hashing)
-    // `add_path` call entirely if this blake3 is already imported. without
-    // this, every ensure request re-pays the cost of `add_path` below, which
-    // for a large blob (hundreds of mb+) can take far longer than a probing
-    // client's timeout, even though the import only ever needs to happen
-    // once.
-    if let Ok(hash) = blake3_hex.parse::<iroh_blobs::Hash>() {
-        match handler.inner.store.blobs().has(hash).await {
-            Ok(true) => return (true, None),
-            Ok(false) => {}
-            Err(e) => {
-                tracing::debug!(blake3 = %blake3_hex, error = %e, "ensure: has() check failed, falling back to add_path")
-            }
+    let hash = match blake3_hex.parse::<iroh_blobs::Hash>() {
+        Ok(hash) => hash,
+        Err(e) => return (false, Some(format!("invalid blake3 hash: {e}"))),
+    };
+    match handler
+        .inner
+        .references
+        .ensure(handler.inner.store, hash, &path)
+        .await
+    {
+        Ok(()) => (true, None),
+        Err(e) => {
+            tracing::warn!(%hash, error = %e, "ensure: reference repair failed");
+            (
+                false,
+                Some(format!("transport reference repair failed: {e}")),
+            )
         }
-    }
-
-    // import the file into the iroh-blobs store by reference. iroh-blobs
-    // computes blake3 internally and dedupes on hash, so re-imports are
-    // cheap (outboard metadata only) - but the *first* import of a large
-    // file requires hashing the whole thing, which can take much longer
-    // than a probing client's timeout.
-    let started = std::time::Instant::now();
-    let result = handler.inner.store.blobs().add_path(path).await;
-    tracing::debug!(blake3 = %blake3_hex, elapsed_ms = started.elapsed().as_millis(), ok = result.is_ok(), "ensure: add_path complete");
-    match result {
-        Ok(_tag) => (true, None),
-        Err(e) => (false, Some(format!("FsStore import failed: {e}"))),
     }
 }
 

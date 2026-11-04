@@ -18,6 +18,9 @@
 // offer - no compatible/accepting station, or the video is already
 // available locally (see useStreamFlyoutActions.ts's `alreadyLocal`) -
 // a video that's already local just plays, no radio station stuff needed.
+// the one exception is a resumable collection (`onStartOver` +
+// `canStartOver`): the flyout then always offers "start over" next to
+// the "continue ..." label, station or not.
 //
 // the per-season mini play buttons use `useStreamFlyoutActions` +
 // `ClickDropdownMenu` directly with their own compact icon-button
@@ -44,6 +47,12 @@ export interface PlayWithStreamButtonProps {
    *  available locally - hides the whole flyout (see
    *  useStreamFlyoutActions.ts's `alreadyLocal` doc comment). */
   alreadyLocal?: () => boolean;
+  /** when set (a resumable series/season), the flyout also offers
+   *  "start over" (local play from the first item) and, with a station,
+   *  "stream from the start" - the primary label stays the resume action. */
+  onStartOver?: () => void;
+  canStartOver?: () => boolean;
+  resolveStartOverStreamItems?: () => Promise<RequestQueueItem[] | null>;
 }
 
 export function PlayWithStreamButton(props: PlayWithStreamButtonProps) {
@@ -52,7 +61,14 @@ export function PlayWithStreamButton(props: PlayWithStreamButtonProps) {
     resolveStreamItems: () => props.resolveStreamItems(),
     streamLabel: () => props.streamLabel,
     alreadyLocal: () => props.alreadyLocal?.() ?? false,
+    resolveStartOverItems: props.resolveStartOverStreamItems
+      ? () => props.resolveStartOverStreamItems!()
+      : undefined,
+    canStartOver: () => !!props.onStartOver && (props.canStartOver?.() ?? false),
   });
+
+  const startOverAvailable = () => !!props.onStartOver && (props.canStartOver?.() ?? false);
+  const showMenu = () => showCaret() || startOverAvailable();
 
   // the trigger button's own click behavior never changes based on
   // whether a menu exists - only a small trailing chevron appears when
@@ -76,14 +92,26 @@ export function PlayWithStreamButton(props: PlayWithStreamButtonProps) {
     </Button>
   );
 
-  const allActions = createMemo((): MenuAction[] => [
-    { label: props.label, icon: "play", onClick: props.onClick, disabled: props.disabled },
-    ...menuActions(),
-  ]);
+  const allActions = createMemo((): MenuAction[] => {
+    const actions: MenuAction[] = [
+      { label: props.label, icon: "play", onClick: props.onClick, disabled: props.disabled },
+    ];
+    if (startOverAvailable()) {
+      actions.push({
+        label: "start over",
+        icon: "previous",
+        onClick: () => props.onStartOver?.(),
+        disabled: props.disabled,
+      });
+    }
+    // stream entries only when streaming is actually useful (see showCaret)
+    if (showCaret()) actions.push(...menuActions());
+    return actions;
+  });
 
   return (
     <Show
-      when={showCaret()}
+      when={showMenu()}
       fallback={
         <Button
           variant={props.variant ?? "primary"}

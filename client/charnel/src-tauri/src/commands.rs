@@ -970,24 +970,9 @@ pub fn update_fetch_music_dir(
 ) -> Result<String, String> {
     let config_path = get_server_config_path_resolved(&app_handle)
         .ok_or_else(|| "config file not found - run setup first".to_string())?;
-    let resolved = canonicalize_or_original(&path);
-
-    std::fs::create_dir_all(&resolved)
-        .map_err(|e| format!("failed to create '{}': {}", resolved, e))?;
-    if !check_dir_writable(resolved.clone()) {
-        return Err(format!("'{}' is not writable", resolved));
-    }
-
-    grimoire::set_config_values(
-        &config_path,
-        &[
-            ("server.fetch_music.output_dir", resolved.clone().into()),
-            ("server.fetch_video.output_dir", resolved.clone().into()),
-        ],
-    )
-    .map_err(|e| format!("failed to update config: {}", e))?;
-
-    Ok(resolved)
+    grimoire::storage_migration::assign_fetch_directory(&config_path, Path::new(&path))
+        .map(|p| p.display().to_string())
+        .map_err(|e| format!("failed to update fetch directory: {e:#}"))
 }
 
 /// freqhole config info for the bridge (exposed to frontend via CustomEvent)

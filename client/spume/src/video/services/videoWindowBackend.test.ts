@@ -54,7 +54,7 @@ describe("loadAndPlay", () => {
   });
 
   it("passes a resume position in seconds", async () => {
-    await backend.loadAndPlay(videoItem(), { initialPosition: 90_000 });
+    await backend.loadAndPlay(videoItem(), { initialPosition: 90 });
     expect(sendVideoWindowCommand).toHaveBeenCalledWith(
       expect.objectContaining({ start_seconds: 90 })
     );

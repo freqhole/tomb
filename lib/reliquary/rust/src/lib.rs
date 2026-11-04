@@ -47,6 +47,8 @@ pub mod identity;
 pub mod media;
 #[cfg(feature = "node")]
 pub mod node;
+#[cfg(feature = "node")]
+pub mod references;
 #[cfg(feature = "snatch")]
 pub mod snatch;
 

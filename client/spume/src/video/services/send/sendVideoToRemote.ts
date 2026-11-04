@@ -166,12 +166,10 @@ export async function sendVideosToRemote(
     // import only computes blake3, it doesn't register it - see
     // docs/blob-transfer-opfs-and-sha256-refactor-plan.md phase 6) would
     // otherwise fail the pull outright with no fallback.
-    if (item.video.opfs_path) {
-      await ensureBlobServable(blake3, () => readVideoFromOPFS(item.video.opfs_path!)).catch(
-        () => {}
-      );
-    }
     try {
+      if (item.video.opfs_path) {
+        await ensureBlobServable(blake3, () => readVideoFromOPFS(item.video.opfs_path!));
+      }
       const attemptSyncVideo = async (
         attemptBlake3: string,
         attemptSize: number | null | undefined

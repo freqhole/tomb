@@ -25,9 +25,15 @@
 
 import { createEffect, createRoot } from "solid-js";
 import { appState } from "../../../app/services/storage/db";
-import { videosOnly } from "../../../app/services/storage/mediaItem";
-import { currentTime, duration } from "../../../music/services/audio/playerState";
-import { markVideoCompleted, recordVideoTimeProgress } from "./videoListenProgress";
+import { videosOnly, type QueuedVideo } from "../../../app/services/storage/mediaItem";
+import { currentTime, duration, isPlaying } from "../../../music/services/audio/playerState";
+import {
+  flushVideoProgress,
+  markVideoCompleted,
+  recordVideoTimeProgress,
+} from "./videoListenProgress";
+import { startVideoRemoteSync, syncVideoProgress } from "./videoServerProgressSync";
+import { getSessionIdForRemote } from "../../../music/services/queue/serverSession";
 import { queueAnalyticsEvent } from "../../../music/services/analytics/analyticsQueue";
 
 // max delta (seconds) between consecutive ticks attributed to actual
@@ -43,6 +49,13 @@ let lastTimeForId: string | null = null;
 let lastTimeValue = 0;
 let lastVideoIndex = -1;
 let completionRecordedFor: string | null = null;
+let lastSnapshot: {
+  video: QueuedVideo;
+  position: number;
+  duration: number;
+  sessionId?: string;
+} | null = null;
+let wasPlaying = false;
 
 /**
  * install the video playback orchestrator. idempotent — subsequent
@@ -58,15 +71,31 @@ export function installVideoPlaybackOrchestrator(): void {
     createEffect(() => {
       const ct = currentTime();
       const dur = duration();
+      const playing = isPlaying();
       const state = appState();
-      if (!state) return;
-      const { queue, current_item_key: currentItemKey } = state;
-      if (!currentItemKey) return;
+      const currentItemKey = state?.current_item_key ?? null;
 
-      const queueVideos = videosOnly(queue);
+      const queueVideos = videosOnly(state?.queue ?? []);
       const videoIdx = queueVideos.findIndex((v) => v.id === currentItemKey);
       const currentVideo = videoIdx >= 0 ? queueVideos[videoIdx] : null;
-      if (!currentVideo) return;
+      if (
+        lastSnapshot &&
+        (lastSnapshot.video.id !== currentVideo?.id || (wasPlaying && !playing))
+      ) {
+        void syncVideoProgress(
+          lastSnapshot.video,
+          lastSnapshot.position,
+          lastSnapshot.duration,
+          lastSnapshot.sessionId
+        );
+        void flushVideoProgress(true);
+      }
+      wasPlaying = playing;
+      if (!currentVideo) {
+        lastSnapshot = null;
+        lastTimeForId = null;
+        return;
+      }
 
       // active item changed (initial load, or advanced/skipped to a
       // different video). if the outgoing video never hit the 90%
@@ -83,12 +112,21 @@ export function installVideoPlaybackOrchestrator(): void {
         lastTimeValue = ct;
         lastVideoIndex = videoIdx;
         completionRecordedFor = null;
+        lastSnapshot = null;
+        startVideoRemoteSync();
         return;
       }
       lastVideoIndex = videoIdx;
+      lastSnapshot = {
+        video: currentVideo,
+        position: ct,
+        duration: dur,
+        sessionId:
+          getSessionIdForRemote(currentVideo.remote_server_id ?? "") ?? lastSnapshot?.sessionId,
+      };
 
       // 1. watch-history progress accumulation, forward motion only.
-      if (ct > lastTimeValue) {
+      if (playing && ct > lastTimeValue) {
         const delta = ct - lastTimeValue;
         if (delta > 0 && delta < MAX_DELTA_SECONDS) {
           recordVideoTimeProgress(delta, videoIdx, ct, currentVideo);
@@ -102,6 +140,7 @@ export function installVideoPlaybackOrchestrator(): void {
       const progress = ct / dur;
       if (completionRecordedFor !== currentItemKey && progress >= COMPLETION_THRESHOLD) {
         completionRecordedFor = currentItemKey;
+        void syncVideoProgress(currentVideo, ct, dur, lastSnapshot.sessionId);
         markVideoCompleted(videoIdx, currentVideo);
 
         // locally-imported (OPFS) videos have no server to report a play to.

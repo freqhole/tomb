@@ -145,16 +145,14 @@ async function resolveVideoJobEntities(
   client: FreqholeClient,
   jobId: string
 ): Promise<{ sessionId?: string; videoId?: string; isDuplicate?: boolean }> {
-  try {
-    const statusResp = await client.music.getJobStatus({ job_ids: [jobId] });
-    if (!statusResp.success || !statusResp.data) return {};
-    const row = statusResp.data.jobs[jobId];
-    if (!row) return {};
-    const fromResult = parseVideoJobResult(row.result ?? null);
-    return { ...fromResult, sessionId: row.session_id ?? undefined };
-  } catch {
-    return {};
+  const statusResp = await client.music.getJobStatus({ job_ids: [jobId] });
+  if (!statusResp.success) {
+    throw new Error(statusResp.error?.issues?.[0]?.message ?? "video import status lookup failed");
   }
+  const row = statusResp.data.jobs[jobId];
+  if (!row) throw new Error("video import job was not found");
+  const fromResult = parseVideoJobResult(row.result ?? null);
+  return { ...fromResult, sessionId: row.session_id ?? undefined };
 }
 
 // merge entity ids/summary onto a tracked job once resolved from the
@@ -228,7 +226,9 @@ function humanizeJobError(
 export async function uploadVideoFilesToRemote(
   files: File[],
   onJobComplete?: () => void,
-  targetRemote?: RemoteLike
+  targetRemote?: RemoteLike,
+  onSessionResolved?: (sessionId: string) => void,
+  sendTarget?: { remoteId: string; remoteName: string }
 ): Promise<void> {
   const remote = targetRemote ?? getCurrentRemote();
   if (!remote) throw new Error("no active remote");
@@ -241,9 +241,15 @@ export async function uploadVideoFilesToRemote(
     (async () => {
       try {
         const client = await getClientForRemote(remote);
-        const result = await client.upload.video(file, (loaded, total) => {
-          if (total > 0) updateJobProgress(trackId, loaded / total);
-        });
+        const result = await client.upload.video(
+          file,
+          (loaded, total) => {
+            if (total > 0) updateJobProgress(trackId, loaded / total);
+          },
+          sendTarget
+            ? { targetRemoteId: sendTarget.remoteId, targetRemoteName: sendTarget.remoteName }
+            : undefined
+        );
         if (!result.success) {
           const errMsg = result.error?.issues?.[0]?.message || "upload request failed";
           updateJobStatus(trackId, "failed", { error: errMsg });
@@ -260,10 +266,11 @@ export async function uploadVideoFilesToRemote(
               : updateJobStage(trackId, message),
         });
         if (pollResult.status === "completed") {
+          const ids = await resolveVideoJobEntities(client, jobId);
+          if (!ids.sessionId) throw new Error("video import has no review session");
+          updateJobEntities(trackId, ids);
+          if (ids.sessionId) onSessionResolved?.(ids.sessionId);
           updateJobStatus(trackId, "completed");
-          void resolveVideoJobEntities(client, jobId).then((ids) =>
-            updateJobEntities(trackId, ids)
-          );
           onJobComplete?.();
         } else if (pollResult.status === "timeout") {
           updateJobStatus(trackId, "timeout", {
@@ -342,11 +349,10 @@ export async function uploadVideoPathsToRemote(
               : updateJobStage(trackId, message),
         });
         if (pollResult.status === "completed") {
+          const ids = await resolveVideoJobEntities(client, jobId);
+          updateJobEntities(trackId, ids);
+          if (ids.sessionId) onSessionResolved?.(ids.sessionId);
           updateJobStatus(trackId, "completed");
-          void resolveVideoJobEntities(client, jobId).then((ids) => {
-            updateJobEntities(trackId, ids);
-            if (ids.sessionId) onSessionResolved?.(ids.sessionId);
-          });
           onJobComplete?.();
         } else if (pollResult.status === "timeout") {
           updateJobStatus(trackId, "timeout", {
@@ -651,10 +657,9 @@ export async function fetchVideoUrlsOnRemote(
           onStage: (stage, message) => updateJobStage(trackId, formatStage(stage, message)),
         });
         if (pollResult.status === "completed") {
+          const ids = await resolveVideoJobEntities(client, jobId);
+          updateJobEntities(trackId, ids);
           updateJobStatus(trackId, "completed");
-          void resolveVideoJobEntities(client, jobId).then((ids) =>
-            updateJobEntities(trackId, ids)
-          );
           onJobComplete?.();
         } else if (pollResult.status === "timeout") {
           updateJobStatus(trackId, "timeout", {

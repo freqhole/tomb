@@ -10,6 +10,8 @@ import type { ImageMetadata } from "../../music/services/storage/types";
 
 export interface PlaybackProgressBarProps {
   currentTime: number;
+  /** track position for live countdowns when currentTime is total listening time. */
+  trackCurrentTime?: number;
   duration: number;
   /** waveform image to progressively reveal as playback advances; omit to
    *  fall back to a plain gradient bar fill. */
@@ -199,7 +201,7 @@ export function PlaybackProgressBar(props: PlaybackProgressBarProps) {
           class={`text-xs text-[var(--color-accent-500)] font-light min-w-[2rem] tabular-nums ${props.timeClass ?? ""}`}
           title="time remaining in this track"
         >
-          {formatRemainingDuration(props.currentTime, props.duration)}
+          {formatRemainingDuration(props.trackCurrentTime ?? props.currentTime, props.duration)}
         </span>
       </Show>
     </div>

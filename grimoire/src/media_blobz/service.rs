@@ -692,6 +692,13 @@ pub async fn update_blob_local_path(
     local_path: &str,
     _updated_by: Option<String>,
 ) -> GrimoireResult<MediaBlob> {
+    let current = get_media_blob(id).await?;
+    if let Some(hash) = current.blake3.as_deref() {
+        let expected = hash.parse().map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("invalid blob hash while changing its path: {e}"),
+        })?;
+        crate::blobz::ensure_file_reference(std::path::Path::new(local_path), expected).await?;
+    }
     let pool = database::connect().await?;
 
     let blob = sqlx::query_as!(
@@ -730,6 +737,7 @@ pub async fn update_blob_local_path(
         serde_json::from_str(blob_with_metadata.metadata.as_str().unwrap_or("{}"))
             .unwrap_or_default();
 
+    reliquary_mirror::mirror_register_local_path(&blob_with_metadata).await;
     Ok(blob_with_metadata)
 }
 
@@ -881,11 +889,8 @@ pub(crate) async fn try_self_heal_missing_local_path(
     );
 
     if let Err(e) = update_blob_local_path(blob_id, &candidate, None).await {
-        // still return the candidate below - at least THIS playback
-        // attempt can succeed even if persisting the fix failed; it'll
-        // just get re-derived the same way again next time this blob is
-        // requested.
         tracing::error!(blob_id = %blob_id, error = %e, "failed to persist self-healed local_path for this blob");
+        return None;
     }
 
     match repair_stale_local_paths(&correct_data_dir).await {

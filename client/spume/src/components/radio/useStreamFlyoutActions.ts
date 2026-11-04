@@ -38,6 +38,12 @@ export interface UseStreamFlyoutActionsProps {
    *  problem to solve, so the plain play button already does the right
    *  thing on its own, no radio station stuff needed. */
   alreadyLocal?: () => boolean;
+  /** optional second stream entry for resumable collections (a series/
+   *  season with watch progress): requests every item from the very
+   *  beginning, no start position. only offered while `canStartOver`
+   *  returns true. */
+  resolveStartOverItems?: () => Promise<RequestQueueItem[] | null>;
+  canStartOver?: () => boolean;
 }
 
 export function useStreamFlyoutActions(props: UseStreamFlyoutActionsProps) {
@@ -49,13 +55,13 @@ export function useStreamFlyoutActions(props: UseStreamFlyoutActionsProps) {
   // comment above).
   const showCaret = createMemo(() => !props.alreadyLocal?.() && streamStation() !== null);
 
-  const handleStream = async () => {
+  const handleStream = async (resolve: () => Promise<RequestQueueItem[] | null>) => {
     const station = streamStation();
     const remote = props.remote();
     if (!station || !remote || busy()) return;
     setBusy(true);
     try {
-      const items = await props.resolveStreamItems();
+      const items = await resolve();
       if (!items || items.length === 0) {
         toast.error("could not resolve an item to request");
         return;
@@ -69,14 +75,24 @@ export function useStreamFlyoutActions(props: UseStreamFlyoutActionsProps) {
   const menuActions = createMemo((): MenuAction[] => {
     const station = streamStation();
     if (!station) return [];
-    return [
+    const actions: MenuAction[] = [
       {
         label: `stream on "${station.name}"`,
         icon: "radioTower",
-        onClick: () => void handleStream(),
+        onClick: () => void handleStream(() => props.resolveStreamItems()),
         disabled: busy(),
       },
     ];
+    const resolveStartOver = props.resolveStartOverItems;
+    if (resolveStartOver && props.canStartOver?.()) {
+      actions.push({
+        label: `stream from the start on "${station.name}"`,
+        icon: "radioTower",
+        onClick: () => void handleStream(resolveStartOver),
+        disabled: busy(),
+      });
+    }
+    return actions;
   });
 
   return { showCaret, menuActions };

@@ -26,7 +26,6 @@ use std::time::Duration;
 use async_trait::async_trait;
 use futures::stream::{self, FuturesUnordered, StreamExt};
 use futures::Stream;
-use iroh_blobs::api::blobs::{ExportMode, ExportOptions};
 use iroh_blobs::api::downloader::{DownloadProgressItem, Downloader};
 use iroh_blobs::store::fs::FsStore;
 use iroh_blobs::{Hash, HashAndFormat};
@@ -768,6 +767,10 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
         // an earlier scan cycle entirely). if so, skip the network
         // download altogether instead of redoing it.
         if target_looks_complete(&target, expected_size).await {
+            crate::references::ReferenceRepair::default()
+                .ensure(self.fs_store, hash, &target)
+                .await
+                .map_err(|e| SnatchError::DownloadFailed(format!("verify existing export: {e}")))?;
             tracing::debug!(
                 blake3 = blake3_hash,
                 target = %target.display(),
@@ -851,86 +854,9 @@ impl<S: BlobRefSource, T: PeerProbeTransport> SnatchEngine<S, T> {
             Err(e) => return Err(e),
         }
 
-        // TryReference renames the fs store's data file to the blobz
-        // canonical path (same filesystem => no copy; EXDEV falls back to
-        // copy). the fs store then tracks it as External and keeps serving
-        // it for p2p. the per-hash lock held above (see `download_locks`)
-        // means this is the only caller for this hash attempting an export
-        // right now, and the fast-path check above already confirmed
-        // `target` did NOT look like a complete export before we got here
-        // - so if a file exists at `target` below, it can only be a
-        // stale/corrupt leftover from a PAST process lifetime (e.g. a
-        // previous run that crashed mid-export), never a live concurrent
-        // duplicate.
-        if let Err(e) = self
-            .fs_store
-            .blobs()
-            .export_with_opts(ExportOptions {
-                hash,
-                mode: ExportMode::TryReference,
-                target: target.clone(),
-            })
+        crate::node::export_try_reference(self.fs_store, hash, &self.blobz)
             .await
-        {
-            if tokio::fs::try_exists(&target).await.unwrap_or(false) {
-                tracing::warn!(
-                    blake3 = blake3_hash,
-                    target = %target.display(),
-                    error = ?e,
-                    "download_blob: export_with_opts failed and a stale file \
-                     already sits at the target (left over from a past \
-                     process lifetime - this hash's download lock rules out \
-                     a live concurrent export) - removing it and retrying \
-                     so this snatch can actually recover instead of failing \
-                     the same way forever"
-                );
-                if let Err(remove_err) = tokio::fs::remove_file(&target).await {
-                    tracing::warn!(
-                        blake3 = blake3_hash,
-                        target = %target.display(),
-                        error = %remove_err,
-                        "download_blob: failed to remove stale export target"
-                    );
-                    return Err(SnatchError::DownloadFailed(format!(
-                        "export to blobz path: {e:?}"
-                    )));
-                }
-
-                if let Err(e2) = self
-                    .fs_store
-                    .blobs()
-                    .export_with_opts(ExportOptions {
-                        hash,
-                        mode: ExportMode::TryReference,
-                        target: target.clone(),
-                    })
-                    .await
-                {
-                    tracing::warn!(
-                        blake3 = blake3_hash,
-                        target = %target.display(),
-                        error = ?e2,
-                        "download_blob: export retry after removing stale \
-                         target also failed"
-                    );
-                    return Err(SnatchError::DownloadFailed(format!(
-                        "export to blobz path (retry): {e2:?}"
-                    )));
-                }
-                return self
-                    .verify_exported_size(blake3_hash, &target, expected_size)
-                    .await;
-            }
-            tracing::warn!(
-                blake3 = blake3_hash,
-                target = %target.display(),
-                error = ?e,
-                "download_blob: export_with_opts failed"
-            );
-            return Err(SnatchError::DownloadFailed(format!(
-                "export to blobz path: {e:?}"
-            )));
-        }
+            .map_err(|e| SnatchError::DownloadFailed(format!("export to blobz path: {e}")))?;
 
         self.verify_exported_size(blake3_hash, &target, expected_size)
             .await
@@ -2006,6 +1932,55 @@ mod tests {
     // binding real sockets is slower and occasionally flakier than the pure
     // in-memory tests above. run explicitly with `cargo test -- --ignored`.
 
+    #[tokio::test]
+    async fn existing_export_must_match_hash_and_register_its_reference() {
+        let tmp = tempfile::tempdir().unwrap();
+        let deps = engine_deps(tmp.path()).await;
+        let bytes = vec![7; 1024 * 1024];
+        let hash = Hash::new(&bytes);
+        let target = deps
+            .blobz
+            .prepare_canonical_path(&hash.to_string())
+            .await
+            .unwrap();
+        tokio::fs::write(&target, &bytes).await.unwrap();
+        let engine = SnatchEngine::new(
+            deps.blobz,
+            deps.downloader,
+            deps.fs_store,
+            Arc::new(StdMutex::new(HashSet::new())),
+            "local-node",
+            MockSource::new(),
+            MockTransport::new(),
+            short_options(),
+        );
+        engine
+            .download_blob(
+                &hash.to_string(),
+                "unused-peer",
+                bytes.len() as u64,
+                Arc::new(AtomicU64::new(0)),
+            )
+            .await
+            .unwrap();
+        crate::references::verify_read(deps.fs_store, hash)
+            .await
+            .unwrap();
+        let changed = vec![8; bytes.len()];
+        tokio::fs::write(&target, &changed).await.unwrap();
+        assert!(engine
+            .download_blob(
+                &hash.to_string(),
+                "unused-peer",
+                changed.len() as u64,
+                Arc::new(AtomicU64::new(0)),
+            )
+            .await
+            .is_err());
+        assert_eq!(tokio::fs::read(target).await.unwrap(), changed);
+        deps.endpoint.close().await;
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "binds real iroh endpoints; run with --ignored"]
     async fn scan_and_snatch_downloads_real_bytes_from_a_live_peer() {
@@ -2037,6 +2012,9 @@ mod tests {
 
         let endpoint_a = iroh::Endpoint::builder(presets::Minimal)
             .relay_mode(RelayMode::Disabled)
+            .clear_ip_transports()
+            .bind_addr("127.0.0.1:0")
+            .unwrap()
             .bind()
             .await
             .unwrap();
@@ -2056,6 +2034,9 @@ mod tests {
         discovery_b.add_endpoint_info(addr_a.clone());
         let endpoint_b = iroh::Endpoint::builder(presets::Minimal)
             .relay_mode(RelayMode::Disabled)
+            .clear_ip_transports()
+            .bind_addr("127.0.0.1:0")
+            .unwrap()
             .address_lookup(discovery_b)
             .bind()
             .await
@@ -2064,20 +2045,16 @@ mod tests {
         // engine_deps() builds its own bare endpoint (no discovery) - swap
         // in the downloader bound to endpoint_b instead, which does know
         // how to reach peer A.
-        let downloader_b = Downloader::new_with_opts(
-            deps_b.fs_store,
-            &endpoint_b,
-            iroh_blobs::util::connection_pool::Options {
-                connect_timeout: Duration::from_secs(10),
-                ..Default::default()
-            },
-        );
+        let mut pool_options = iroh_blobs::util::connection_pool::Options::default();
+        pool_options.connect_timeout = Duration::from_secs(10);
+        let downloader_b = Downloader::builder(deps_b.fs_store, &endpoint_b)
+            .pool_options(pool_options)
+            .build();
 
         let source = MockSource::new();
-        source.set_doc(
-            "doc-1",
-            vec![descriptor(&record.blake3, &[node_id_a.as_str()])],
-        );
+        let mut remote_blob = descriptor(&record.blake3, &[node_id_a.as_str()]);
+        remote_blob.size = payload.len() as u64;
+        source.set_doc("doc-1", vec![remote_blob]);
         let transport = MockTransport::new();
         transport.set(&node_id_a, ProbeOutcome::Available);
 

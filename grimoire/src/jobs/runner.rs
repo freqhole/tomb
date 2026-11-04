@@ -206,6 +206,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                 JobType::SyncVideoByBlake3 => process_sync_video_by_blake3_job(&job).await,
                 JobType::RepairLibraryImages => process_repair_library_images_job(&job).await,
                 JobType::ReorganizeLibraryFiles => process_reorganize_library_files_job(&job).await,
+                JobType::AuditBlobReferences => super::reference_audit::process(&job).await,
             }
         })
         .await;
@@ -936,6 +937,7 @@ fn conflict_key_for(job: &Job) -> Option<(JobType, String)> {
             // with another one (or with itself if double-submitted).
             Some((JobType::RepairLibraryImages, String::new()))
         }
+        JobType::AuditBlobReferences => Some((JobType::AuditBlobReferences, String::new())),
         JobType::ProcessFile => {
             let params: serde_json::Value = serde_json::from_str(&job.parameters).ok()?;
             // prefer an explicit grouping key (set by fetch jobs etc. so

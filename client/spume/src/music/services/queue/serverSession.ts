@@ -104,10 +104,11 @@ function itemDurationMs(item: MediaItem): number {
 // map a client-side source `type` (song-side or video-side) to the
 // server's `session_type` enum, folding in "mixed" when the item list
 // spans both kinds regardless of the source type.
-function resolveSessionType(source: AnyQueueSource, items: MediaItem[]): string {
+export function resolveSessionType(source: AnyQueueSource, items: MediaItem[]): string {
   const hasSong = items.some((i) => i.kind === "song");
   const hasVideo = items.some((i) => i.kind === "video");
   if (hasSong && hasVideo) return "mixed";
+  if (hasVideo && source.type !== "series" && source.type !== "season") return "video";
   switch (source.type) {
     case "genre":
       return "taxon";
@@ -190,7 +191,17 @@ function updatePrimarySessionId(): void {
 export function activeSessionMatchesSource(source: AnyQueueSource): boolean {
   if (remoteSessions.size === 0 || !source.entity_id) return false;
   for (const session of remoteSessions.values()) {
-    if (session.entityId !== source.entity_id || session.sessionType !== source.type) {
+    const type =
+      source.type === "series"
+        ? "video_series"
+        : source.type === "season"
+          ? "video_season"
+          : source.type === "genre"
+            ? "taxon"
+            : source.type === "radio_station"
+              ? "radio"
+              : source.type;
+    if (session.entityId !== source.entity_id || session.sessionType !== type) {
       return false;
     }
   }

@@ -20,7 +20,7 @@ import type {
   VideoQueueSourceContext,
 } from "../../../app/services/storage/types";
 import { addVideoHistoryEntry, updateVideoHistoryServerSession } from "./videoQueueHistory";
-import { resumeVideoTracking, startVideoTracking } from "./videoListenProgress";
+import { resumeVideoTracking } from "./videoListenProgress";
 import { startVideoRemoteSync } from "./videoServerProgressSync";
 import { mirrorReplaceVideosToQueue } from "../../../app/services/players/remoteQueueMirror";
 import { triggerPreCache } from "../../../music/services/queue/triggerPreCache";
@@ -40,7 +40,8 @@ export async function playVideoQueue(
    *  $season-episode" action to resume mid-episode (mirrors
    *  resumeVideoHistoryEntry's identical use of playMediaItem's
    *  initialPosition). omit/0 for a plain from-the-start play. */
-  startPositionSeconds?: number
+  startPositionSeconds?: number,
+  options?: { skipServerSession?: boolean }
 ): Promise<void> {
   if (videos.length === 0) return;
   const items = videos.map((v) => videoToMediaItem({ ...v, queue_entry_id: undefined }));
@@ -71,10 +72,17 @@ export async function playVideoQueue(
   triggerPreCache(items, videos[startIndex].id);
 
   if (source) {
-    const entryId = await addVideoHistoryEntry(videosOnly(items), source);
+    const progress = {
+      watched_seconds: 0,
+      videos_completed: startIndex,
+      current_video_index: startIndex,
+      current_video_position: startPositionSeconds ?? 0,
+    };
+    const entryId = await addVideoHistoryEntry(videosOnly(items), source, progress);
     if (entryId) {
-      startVideoTracking(entryId);
+      resumeVideoTracking(entryId, progress);
       startVideoRemoteSync();
+      if (options?.skipServerSession) return;
       // create a server-side playback session for this (video-only) queue
       // and link it to the video-side history entry — createServerSessions
       // itself only links to the song-side history store, so the linking
@@ -130,7 +138,16 @@ export async function resumeVideoHistoryEntry(entry: VideoQueueHistoryEntry): Pr
         entry.server_session_id,
         { progress: entry.videos_completed || 0 },
         remote,
-        { label: entry.label, sessionType: entry.type, entityId: entry.entity_id },
+        {
+          label: entry.label,
+          sessionType:
+            entry.type === "series"
+              ? "video_series"
+              : entry.type === "season"
+                ? "video_season"
+                : "video",
+          entityId: entry.entity_id,
+        },
         undefined,
         items
       );

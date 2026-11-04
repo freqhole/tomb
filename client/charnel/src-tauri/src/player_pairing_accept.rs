@@ -65,6 +65,14 @@ fn next_request_id() -> String {
     format!("cenotaph-cmd-{n}")
 }
 
+async fn expire_pending_reply(request_id: String, timeout: std::time::Duration) {
+    tokio::time::sleep(timeout).await;
+    if let Some(tx) = pending().as_mut().and_then(|m| m.remove(&request_id)) {
+        tracing::warn!(target: "cenotaph", %request_id, "webview command reply timed out");
+        drop(tx);
+    }
+}
+
 #[derive(Serialize, Clone)]
 struct CenotaphCommandEvent {
     request_id: String,
@@ -200,6 +208,11 @@ fn spawn_dispatch_bridge(mut rx: PairingDispatchRx) {
                 .as_mut()
                 .unwrap()
                 .insert(request_id.clone(), req.reply);
+            let timeout = if req.peer_id == "control-socket" {
+                1
+            } else {
+                120
+            };
             let event = CenotaphCommandEvent {
                 request_id: request_id.clone(),
                 command_json,
@@ -217,6 +230,13 @@ fn spawn_dispatch_bridge(mut rx: PairingDispatchRx) {
                 if let Some(tx) = pending().as_mut().and_then(|m| m.remove(&request_id)) {
                     let _ = tx.send(CommandAck::err(CommandAckReason::InvalidCommand));
                 }
+            } else {
+                // events emitted before the webview listener starts are not replayed.
+                // never let a lost reply permanently block the socket dispatcher.
+                tauri::async_runtime::spawn(expire_pending_reply(
+                    request_id,
+                    std::time::Duration::from_secs(timeout),
+                ));
             }
         }
     });
@@ -359,4 +379,42 @@ pub fn player_pairing_set_enabled(enabled: bool) -> Result<(), String> {
 pub fn set_player_session_active(active: bool) {
     tracing::debug!(active, "tauri command set_player_session_active invoked");
     grimoire::player_session::set_active(active);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn lost_startup_reply_expires_and_later_commands_can_reply() {
+        let lost = next_request_id();
+        let (tx, rx) = oneshot::channel();
+        pending().as_mut().unwrap().insert(lost.clone(), tx);
+        expire_pending_reply(lost.clone(), Duration::from_millis(1)).await;
+        assert!(rx.await.is_err());
+        assert!(!pending().as_ref().unwrap().contains_key(&lost));
+
+        let ready = next_request_id();
+        let (tx, rx) = oneshot::channel();
+        pending().as_mut().unwrap().insert(ready.clone(), tx);
+        player_pairing_command_reply(
+            ready.clone(),
+            serde_json::to_string(&CommandAck::err(CommandAckReason::InvalidCommand)).unwrap(),
+        );
+        assert!(rx.await.is_ok());
+        expire_pending_reply(ready.clone(), Duration::ZERO).await;
+        assert!(!pending().as_ref().unwrap().contains_key(&ready));
+    }
+
+    #[tokio::test]
+    async fn late_webview_reply_after_expiry_is_harmless() {
+        let id = next_request_id();
+        let (tx, rx) = oneshot::channel();
+        pending().as_mut().unwrap().insert(id.clone(), tx);
+        expire_pending_reply(id.clone(), Duration::ZERO).await;
+        player_pairing_command_reply(id.clone(), "{}".to_string());
+        assert!(rx.await.is_err());
+        assert!(!pending().as_ref().unwrap().contains_key(&id));
+    }
 }

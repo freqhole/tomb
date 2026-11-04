@@ -4,6 +4,7 @@ import { invoke, Channel } from "@tauri-apps/api/core";
 import { resolvePath, directoryDisplayName, isDocumentPortalPath } from "../util/resolvePath";
 import { useAdminTransport } from "../admin/context";
 import LibraryDiskPicker, { type DiskFolderSelection } from "../components/LibraryDiskPicker";
+import BlobReferenceMaintenance from "../components/BlobReferenceMaintenance";
 
 interface ScannedDir {
   id: string;
@@ -2259,10 +2260,11 @@ export default function LibraryView() {
                   </svg>
                 </span>
                 <span class="checkbox-content">
-                  <span class="checkbox-label">purge long-soft-deleted orphaned blobs</span>
+                  <span class="checkbox-label">purge old orphaned blobs</span>
                   <span class="checkbox-hint">
-                    destructive: permanently removes files/rows soft-deleted 30+ days ago. off by
-                    default.
+                    destructive: soft-deletes unreferenced blob records created 30+ days ago and
+                    reclaims their app-managed data. scanned files outside the data directory are
+                    left alone. off by default.
                   </span>
                   <Show when={maintenancePreviewText("orphaned_blobs")}>
                     <span class="checkbox-count">{maintenancePreviewText("orphaned_blobs")}</span>
@@ -2415,6 +2417,8 @@ export default function LibraryView() {
             </Show>
           </div>
         </details>
+
+        <BlobReferenceMaintenance />
 
         {/* reorganize-library - its own section (not a repair-checklist
               item) since it needs a target directory, not just toggles. */}

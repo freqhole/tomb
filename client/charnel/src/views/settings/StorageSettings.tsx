@@ -2,6 +2,7 @@ import { createSignal, onMount, Show } from "solid-js";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { resolvePath } from "../../util/resolvePath";
+import StorageMigration from "./StorageMigration";
 
 // fetched-music storage directory health check + reselect flow - see
 // docs/flatpak-filesystem-access-plan.md (phase C). lives in settings
@@ -17,6 +18,7 @@ import { resolvePath } from "../../util/resolvePath";
  * growing further). */
 export default function StorageSettingsSection() {
   const [fetchMusicDir, setFetchMusicDir] = createSignal<string | null>(null);
+  const [dataDir, setDataDir] = createSignal<string | null>(null);
   const [isWritable, setIsWritable] = createSignal(true);
   const [checked, setChecked] = createSignal(false);
   const [isFlatpak, setIsFlatpak] = createSignal(false);
@@ -27,12 +29,15 @@ export default function StorageSettingsSection() {
   async function checkHealth() {
     try {
       const dir = await invoke<string | null>("get_fetch_music_dir");
+      setDataDir(await invoke<string | null>("get_data_dir"));
       setFetchMusicDir(dir);
       if (dir) {
         setIsWritable(await invoke<boolean>("check_dir_writable", { path: dir }));
       }
     } catch (e) {
       console.error("failed to check fetch music dir health:", e);
+      setMessage(`could not check storage: ${e}`);
+      setIsError(true);
     } finally {
       setChecked(true);
     }
@@ -66,6 +71,13 @@ export default function StorageSettingsSection() {
   }
 
   return (
+    <>
+    <div class="settings-section" style={{ "margin-top": "2rem" }}>
+      <h2>data directory</h2>
+      <p>library databases, node identity, and local data. storage changes take effect after closing and reopening the app.</p>
+      <p style={{ "overflow-wrap": "anywhere" }}>{dataDir()}</p>
+      <StorageMigration kind="data" disabled={busy()} />
+    </div>
     <div class="settings-section" style={{ "margin-top": "2rem" }}>
       <h2>
         fetched musi<span class="pinky">c</span> storage
@@ -78,7 +90,8 @@ export default function StorageSettingsSection() {
           "margin-bottom": "0.75rem",
         }}
       >
-        where media fetched from remotes is saved.
+        where media fetched from remotes is saved. selecting a new folder only
+        affects future fetches; files already saved stay in their current location.
       </p>
 
       <Show when={checked() && fetchMusicDir()}>
@@ -108,8 +121,9 @@ export default function StorageSettingsSection() {
           </Show>
 
           <button class="button" onClick={handleReselect} disabled={busy()}>
-            {busy() ? "working..." : "reselect folder"}
+            {busy() ? "working..." : "select folder for future fetches"}
           </button>
+          <StorageMigration kind="fetch" disabled={busy()} />
         </div>
       </Show>
 
@@ -127,5 +141,6 @@ export default function StorageSettingsSection() {
         </div>
       </Show>
     </div>
+    </>
   );
 }

@@ -102,6 +102,7 @@ import {
   radioConnectPhase,
   radioCurrentPeerAddr,
   radioElapsedMs,
+  radioTrackPositionMs,
   radioHasVideoCapability,
   radioNowPlaying,
   radioPause,
@@ -766,6 +767,7 @@ export function CenotaphPlayerApp() {
               <div class="w-full" data-testid="radio-now-playing-time">
                 <PlaybackProgressBar
                   currentTime={view().elapsedSeconds}
+                  trackCurrentTime={radioTrackPositionMs() / 1000}
                   duration={view().durationSeconds}
                   hideBarAndDuration
                   showPlayhead={false}

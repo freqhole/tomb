@@ -56,6 +56,7 @@ import { pushModal, popModal } from "../../music/hooks/modals";
 import { AuthForm } from "../auth/AuthForm";
 import { Button } from "../buttons/Button";
 import { QrScanner } from "../inputs/QrScanner";
+import { Checkbox } from "../inputs/Checkbox";
 import { MediaImage } from "../media/MediaImage";
 import { toast } from "../feedback/Toast";
 import {
@@ -298,7 +299,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
   // docs/player-peer-trust-bridge-plan.md's implementation plan, step 2).
   // only meaningful in charnel/tauri mode - local admin_dispatch has no
   // equivalent in a plain browser build.
-  const [setUpLocalUser, setSetUpLocalUser] = createSignal(false);
+  const [setUpLocalUser, setSetUpLocalUser] = createSignal(true);
   const [localUserRole, setLocalUserRole] = createSignal<"admin" | "member" | "viewer">("viewer");
   const [roleLoaded, setRoleLoaded] = createSignal(false);
 
@@ -314,10 +315,16 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
       if (role === "admin" || role === "member" || role === "viewer") {
         setLocalUserRole(role);
       }
-    } catch {
-      // best-effort prefill only - default stays "viewer"
+    } catch (err) {
+      error("AddRemoteModal", "could not load default player library role; keeping viewer:", err);
     }
   };
+
+  createEffect(() => {
+    if (props.isOpen && isCharnelAvailable() && setUpLocalUser() && !roleLoaded()) {
+      void handleToggleLocalUser(true);
+    }
+  });
 
   const handlePairPlayer = async (peerAddr: string, displayNameHint: string) => {
     const pin = playerPin().trim();
@@ -357,8 +364,7 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
       // baseline peer trust so the player can dial back into this device
       // for media resolution (songs/query, blob_metadata) once we push a
       // queue to it - plain browser/wasm clients only: charnel already has
-      // a real grimoire instance, and granting trust there is the explicit,
-      // opt-in "set up local user" checkbox below, not an automatic one.
+      // a real grimoire instance, with a default-on library access checkbox.
       // only grants if not already trusted - trustController() is an
       // upsert, so an unconditional call here would silently downgrade an
       // already-admin/member peer back to viewer on every re-pair.
@@ -372,10 +378,12 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
             error("AddRemoteModal", `failed to grant baseline peer trust for ${peerAddr}:`, err)
           );
       }
-      if (setUpLocalUser()) {
+      if (isCharnelAvailable() && setUpLocalUser()) {
         try {
           const client = getLocalAdminClient();
-          if (client) {
+          if (!client) throw new Error("local admin client is unavailable");
+          const peers = await client.dispatchOrThrow("peers_list_all", {});
+          if (!peers.some((peer) => peer.node_id === peerAddr)) {
             await client.dispatchOrThrow("peers_allow", {
               node_id: peerAddr,
               username: displayNameHint,
@@ -830,15 +838,13 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
             </Show>
             <Show when={isCharnelAvailable()}>
               <div class="flex flex-col gap-2">
-                <label class="flex items-center gap-2 text-sm text-[var(--color-text-primary)]">
-                  <input
-                    type="checkbox"
-                    checked={setUpLocalUser()}
-                    onChange={(e) => void handleToggleLocalUser(e.currentTarget.checked)}
-                    disabled={playerPairStatus() === "pairing"}
-                  />
-                  set up a local user for this node id
-                </label>
+                <Checkbox
+                  checked={setUpLocalUser()}
+                  onChange={(checked) => void handleToggleLocalUser(checked)}
+                  disabled={playerPairStatus() === "pairing"}
+                >
+                  allow this player to access your library
+                </Checkbox>
                 <Show when={setUpLocalUser()}>
                   <select
                     value={localUserRole()}

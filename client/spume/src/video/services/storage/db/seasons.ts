@@ -12,9 +12,13 @@ export interface LocalVideoSeasonRow extends VideoSeason {
   images?: ImageMetadata[];
 }
 
-export async function getLocalVideoSeasons(seriesId: string): Promise<VideoSeason[]> {
+export async function getLocalVideoSeasons(seriesId: string): Promise<LocalVideoSeasonRow[]> {
   const db = await getVideoDB();
-  return (await db.getAllFromIndex(STORE_VIDEO_SEASONS, "by_series_id", seriesId)) as VideoSeason[];
+  return (await db.getAllFromIndex(
+    STORE_VIDEO_SEASONS,
+    "by_series_id",
+    seriesId
+  )) as LocalVideoSeasonRow[];
 }
 
 /** every non-deleted season in local storage, across every series.

@@ -175,6 +175,12 @@ pub async fn handle(
         "radio_bumpers_set_frequency" => handlers::radio::bumpers_set_frequency(args).await,
 
         // -- maintenance --
+        "maintenance_blob_reference_status" => {
+            handlers::maintenance::blob_reference_status(args).await
+        }
+        "maintenance_audit_blob_references" => {
+            handlers::maintenance::audit_blob_references(args, caller).await
+        }
         "maintenance_cleanup_orphaned_tags" => {
             handlers::maintenance::cleanup_orphaned_tags(args).await
         }

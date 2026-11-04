@@ -86,6 +86,7 @@ pub struct StorageNode {
     /// the blobz metadata + canonical-file store this node exports
     /// downloaded blobs into.
     pub blobz: Arc<dyn BlobStore>,
+    pub references: crate::references::ReferenceRepair,
     /// iroh-blobs downloader for verified transfers from peers, if a live
     /// endpoint is currently attached. `None` before any endpoint has ever
     /// been attached, or after [`StorageNode::detach_endpoint`]. use
@@ -200,6 +201,7 @@ impl StorageNode {
         let node = Self {
             fs_store,
             blobz,
+            references: crate::references::ReferenceRepair::default(),
             downloader: Arc::new(RwLock::new(None)),
             in_flight,
             protect_refresh,
@@ -276,7 +278,11 @@ impl StorageNode {
             let fetched = records.len() as i64;
             for record in &records {
                 let path = self.blobz.path_for(record);
-                if let Err(e) = self.fs_store.blobs().add_path(path.clone()).await {
+                let hash = record
+                    .blake3
+                    .parse::<Hash>()
+                    .map_err(|e| NodeError::FsStore(e.to_string()))?;
+                if let Err(e) = self.references.ensure(self.fs_store, hash, &path).await {
                     tracing::warn!(
                         blake3 = %record.blake3,
                         path = %path.display(),
@@ -357,15 +363,71 @@ pub async fn export_try_reference(
 ) -> Result<PathBuf, NodeError> {
     let blake3_hex = hash.to_string();
     let target = blobz.prepare_canonical_path(&blake3_hex).await?;
-    fs_store
-        .blobs()
-        .export_with_opts(ExportOptions {
-            hash,
-            mode: ExportMode::TryReference,
-            target: target.clone(),
-        })
-        .await
-        .map_err(|e| NodeError::FsStore(format!("export to blobz path: {e}")))?;
+    if tokio::fs::try_exists(&target).await? {
+        let actual = crate::hash_file(&target)
+            .await
+            .map_err(|e| NodeError::FsStore(e.to_string()))?;
+        if actual != hash.to_hex().as_str() {
+            return Err(NodeError::FsStore(format!(
+                "export target contains different bytes; refusing to overwrite {}",
+                target.display()
+            )));
+        }
+        crate::references::ReferenceRepair::default()
+            .ensure(fs_store, hash, &target)
+            .await
+            .map_err(|e| NodeError::FsStore(e.to_string()))?;
+        return Ok(target);
+    }
+    let parent = target
+        .parent()
+        .ok_or_else(|| std::io::Error::other("export has no parent"))?;
+    // upstream export can replace its target. isolate it, then publish without clobbering.
+    // retain staging on failure/cancellation: export may have moved the store's only copy.
+    let staging = tempfile::Builder::new()
+        .prefix(".freqhole-export-")
+        .disable_cleanup(true)
+        .tempdir_in(parent)?;
+    let staged_target = staging.path().join("media");
+    let result = async {
+        if let Err(error) = fs_store
+            .blobs()
+            .export_with_opts(ExportOptions {
+                hash,
+                mode: ExportMode::TryReference,
+                target: staged_target.clone(),
+            })
+            .await
+        {
+            tracing::warn!(%hash, %error, "path export failed; retrying through verified reader");
+            crate::references::export_from_reader(fs_store, hash, &staged_target)
+                .await
+                .map_err(|e| NodeError::FsStore(format!("export to blobz path: {e}")))?;
+        }
+        tokio::fs::File::open(&staged_target)
+            .await?
+            .sync_all()
+            .await?;
+        let mut staged = tempfile::TempPath::try_from_path(&staged_target)?;
+        staged.disable_cleanup(true);
+        staged.persist_noclobber(&target).map_err(|e| e.error)?;
+        #[cfg(unix)]
+        tokio::fs::File::open(parent).await?.sync_all().await?;
+        crate::references::ReferenceRepair::default()
+            .ensure(fs_store, hash, &target)
+            .await
+            .map_err(|e| NodeError::FsStore(e.to_string()))
+    }
+    .await;
+    if let Err(error) = result {
+        tracing::warn!(
+            staging = %staging.path().display(),
+            %error,
+            "export failed; retaining staging files for recovery"
+        );
+        return Err(error);
+    }
+    staging.close()?;
     Ok(target)
 }
 
@@ -393,6 +455,9 @@ mod tests {
     async fn test_endpoint() -> Endpoint {
         Endpoint::builder(iroh::endpoint::presets::Minimal)
             .relay_mode(iroh::RelayMode::Disabled)
+            .clear_ip_transports()
+            .bind_addr("127.0.0.1:0")
+            .unwrap()
             .bind()
             .await
             .expect("bind test endpoint")
@@ -744,6 +809,9 @@ mod tests {
         discovery_b1.add_endpoint_info(addr_a.clone());
         let endpoint_b1 = Endpoint::builder(iroh::endpoint::presets::Minimal)
             .relay_mode(iroh::RelayMode::Disabled)
+            .clear_ip_transports()
+            .bind_addr("127.0.0.1:0")
+            .unwrap()
             .address_lookup(discovery_b1)
             .bind()
             .await
@@ -793,6 +861,9 @@ mod tests {
         discovery_b2.add_endpoint_info(addr_a.clone());
         let endpoint_b2 = Endpoint::builder(iroh::endpoint::presets::Minimal)
             .relay_mode(iroh::RelayMode::Disabled)
+            .clear_ip_transports()
+            .bind_addr("127.0.0.1:0")
+            .unwrap()
             .address_lookup(discovery_b2)
             .bind()
             .await

@@ -16,6 +16,66 @@ beforeEach(() => {
   ws.state.hidden.clear();
   ws.state.pinned.clear();
   ws.state.eagerExpansions.clear();
+  ws.clusterLeaderOf.clear();
+  ws.clusterMembers.clear();
+});
+
+function taxonomy(values: number, artistsPerValue: number, albumsPerArtist = 0) {
+  addNode("root", "root", null, 1);
+  addNode("remote", "remote", "root", 1);
+  addNode("kind", "relation", "remote", values);
+  for (let v = 0; v < values; v++) {
+    const value = `value${v}`;
+    addNode(value, "value", "kind", artistsPerValue);
+    for (let a = 0; a < artistsPerValue; a++) {
+      const artist = `${value}:artist${a}`;
+      addNode(artist, "artist", value, albumsPerArtist);
+      for (let i = 0; i < albumsPerArtist; i++) addNode(`${artist}:album${i}`, "album", artist);
+    }
+  }
+  ws.state.breadcrumb = ["root", "remote", "kind"];
+}
+
+describe("getVisible taxon auto-expansion budget", () => {
+  it("shows a large kind's values without automatically opening their artists", () => {
+    taxonomy(13, 1);
+    const visible = getVisible();
+    expect(visible.has("value12")).toBe(true);
+    expect(visible.has("value0:artist0")).toBe(false);
+    ws.state.breadcrumb.push("value0");
+    expect(getVisible().has("value0:artist0")).toBe(true);
+  });
+
+  it("limits the combined bloom, not each value independently", () => {
+    taxonomy(2, 7);
+    expect(getVisible().has("value0:artist0")).toBe(false);
+    expect(getVisible().has("value1:artist0")).toBe(false);
+  });
+
+  it("counts artists' albums in the same budget", () => {
+    taxonomy(2, 1, 6);
+    expect(getVisible().has("value0:artist0")).toBe(false);
+    expect(getVisible().has("value0:artist0:album0")).toBe(false);
+  });
+
+  it("still opens small taxonomies up to the existing twelve-node limit", () => {
+    taxonomy(2, 1, 5);
+    expect(getVisible().has("value0:artist0")).toBe(true);
+    expect(getVisible().has("value1:artist0:album4")).toBe(true);
+  });
+
+  it("applies the same limit to a value with many nested values", () => {
+    taxonomy(13, 1);
+    ws.nodeMap.get("kind")!.role = "value";
+    expect(getVisible().has("value12")).toBe(true);
+    expect(getVisible().has("value0:artist0")).toBe(false);
+  });
+
+  it("preserves explicit expand-all requests", () => {
+    taxonomy(13, 1, 2);
+    ws.state.eagerExpansions.add("kind");
+    expect(getVisible().has("value12:artist0:album1")).toBe(true);
+  });
 });
 
 function addNode(id: string, role: string, parentId: string | null, childCount = 0) {

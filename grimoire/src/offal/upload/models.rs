@@ -74,6 +74,10 @@ pub struct UploadVideoRequest {
     /// if true, wait for job to complete before returning
     #[serde(default)]
     pub wait_for_completion: bool,
+    #[serde(default)]
+    pub target_remote_id: Option<String>,
+    #[serde(default)]
+    pub target_remote_name: Option<String>,
 }
 
 /// request for music import by paths (tauri-local optimization)

@@ -6,6 +6,7 @@ mod commands;
 mod ephemeral_blob_commands;
 mod external_storage;
 mod media_protocol;
+mod storage_migration;
 
 #[cfg(desktop)]
 mod menu;
@@ -1209,6 +1210,14 @@ pub fn run() {
                 }
             });
 
+            #[cfg(desktop)]
+            if let Some(path) = get_server_config_path_resolved(app.handle()) {
+                if storage_migration::start_pending(app.handle(), path.clone())? {
+                    return Ok(());
+                }
+                grimoire::storage_migration::prepare_startup(&path)?;
+            }
+
             // load app config
             let app_config = FreqholeAppConfig::load(app.handle()).unwrap_or_default();
             tracing::info!(elapsed_ms = %boot_start.elapsed().as_millis(), "boot: app config loaded");
@@ -1713,6 +1722,9 @@ pub fn run() {
             commands::check_dir_writable,
             commands::get_fetch_music_dir,
             commands::update_fetch_music_dir,
+            storage_migration::preview_storage_change,
+            storage_migration::schedule_storage_change,
+            storage_migration::close_for_storage_change,
             commands::get_freqhole_config,
             commands::get_client_config,
             commands::open_config_dir,
@@ -1867,13 +1879,14 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            if let RunEvent::ExitRequested { api, .. } = &event {
+            if let RunEvent::ExitRequested { api, code, .. } = &event {
                 let state = app.state::<JobRunnerShutdown>();
                 if !state.ready.load(std::sync::atomic::Ordering::SeqCst) {
                     api.prevent_exit();
                     if !state.requested.swap(true, std::sync::atomic::Ordering::SeqCst) {
                         app.state::<ShutdownToken>().cancel();
                         let handle = app.clone();
+                        let exit_code = code.unwrap_or(0);
                         tauri::async_runtime::spawn(async move {
                             let state = handle.state::<JobRunnerShutdown>();
                             let drain = async {
@@ -1885,7 +1898,7 @@ pub fn run() {
                                 tracing::error!("job runner did not stop within the shutdown budget; startup recovery will reconcile interrupted jobs");
                             }
                             state.ready.store(true, std::sync::atomic::Ordering::SeqCst);
-                            handle.exit(0);
+                            handle.exit(exit_code);
                         });
                     }
                 }

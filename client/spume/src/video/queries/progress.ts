@@ -12,10 +12,9 @@
 // entity_id/progress row for "the same" underlying file - blake3 is the
 // one identity that's stable across both databases.
 //
-// remote-only, same limitation as useVideoTaxonsQuery.ts: a purely
-// local (opfs-only, no remote at all) source has no server to report
-// progress to (videoServerProgressSync.ts only syncs
-// `source_type === "remote"` videos), so it resolves to an empty map.
+// local queue history fills the gap before the next server sync and
+// also supplies progress for browser-imported videos.
+import { createMemo } from "solid-js";
 import { createQuery } from "@tanstack/solid-query";
 import type { PlaybackProgress } from "@freqhole/api-client";
 import { getRemoteClient } from "../../music/data";
@@ -24,6 +23,50 @@ import { getClientForRemote } from "../../app/api/client";
 import { getTauriManagedRemote } from "../../app/services/remotes/remoteManager";
 import { isCharnelMode } from "../../app/services/charnel";
 import { videoQueryKeys } from "./queryKeys";
+import { videoQueueHistory } from "../services/queue/videoQueueHistory";
+import type { VideoQueueHistoryEntry } from "../../app/services/storage/types";
+import { warn } from "../../utils/logger";
+
+export type VideoProgress = Pick<
+  PlaybackProgress,
+  "position_fraction" | "position_seconds" | "duration_seconds" | "updated_at"
+>;
+
+interface ProgressVideo {
+  id: string;
+  blake3?: string | null;
+  remote_server_id?: string;
+}
+
+export function mergeVideoHistoryProgress(
+  videos: ProgressVideo[],
+  serverProgress: ReadonlyMap<string, VideoProgress>,
+  history: VideoQueueHistoryEntry[]
+): Map<string, VideoProgress> {
+  const merged = new Map(serverProgress);
+  for (const entry of history) {
+    const watched = entry.videos[entry.current_video_index];
+    if (!watched || entry.current_video_position <= 0) continue;
+    const updatedAt = (entry.progress_updated_at ?? entry.queued_at) / 1000;
+    for (const video of videos) {
+      const sameContent = video.blake3 && watched.blake3 === video.blake3;
+      const sameEntity =
+        video.id === watched.id && video.remote_server_id === watched.remote_server_id;
+      if (!sameContent && !sameEntity) continue;
+      const previous = merged.get(video.id);
+      if (previous && previous.updated_at > updatedAt) continue;
+      const duration = watched.duration_seconds;
+      if (!duration || duration <= 0) continue;
+      merged.set(video.id, {
+        position_fraction: Math.min(1, entry.current_video_position / duration),
+        position_seconds: entry.current_video_position,
+        duration_seconds: duration,
+        updated_at: updatedAt,
+      });
+    }
+  }
+  return merged;
+}
 
 /** a progress row at/above this fraction counts as "finished" (watched
  *  enough that resuming it isn't useful) - mirrors
@@ -51,13 +94,15 @@ async function fetchProgressByBlake3(
 
   try {
     const result = await client.entities.listPlaybackProgress({ blake3_in: blake3List });
-    if (!result.success) return map;
+    if (!result.success) {
+      warn("video/progress", "failed to fetch playback progress:", result.error);
+      return map;
+    }
     for (const row of result.data) {
       if (row.blake3) map.set(row.blake3, row);
     }
-  } catch {
-    // unreachable remote, etc. - treat as "no progress data from this
-    // source" rather than failing the whole query.
+  } catch (error) {
+    warn("video/progress", "failed to fetch playback progress:", error);
   }
   return map;
 }
@@ -87,7 +132,7 @@ function mergeByMostRecent(
  *  handler that only just fetched its video list, e.g. a context-menu
  *  "play all" action) that can't use a reactive query hook. `videos` only
  *  needs `id`/`blake3`. */
-export async function fetchVideoProgressForVideos(
+async function fetchServerVideoProgress(
   videos: { id: string; blake3?: string | null }[]
 ): Promise<Map<string, PlaybackProgress>> {
   const blake3List = [...new Set(videos.map((v) => v.blake3).filter((b): b is string => !!b))];
@@ -122,6 +167,16 @@ export async function fetchVideoProgressForVideos(
   return byVideoId;
 }
 
+export async function fetchVideoProgressForVideos(
+  videos: ProgressVideo[]
+): Promise<Map<string, VideoProgress>> {
+  return mergeVideoHistoryProgress(
+    videos,
+    await fetchServerVideoProgress(videos),
+    videoQueueHistory()
+  );
+}
+
 /** an episode/video to resume into, plus where. */
 export interface ResumeTarget {
   /** index of the target video within the `videos` list this was
@@ -141,12 +196,12 @@ export interface ResumeTarget {
  *  menu, favorites, graph viz). */
 export function pickResumeTarget(
   videos: { id: string }[],
-  progressByVideoId: Map<string, PlaybackProgress>
+  progressByVideoId: ReadonlyMap<string, VideoProgress>
 ): ResumeTarget | null {
   if (progressByVideoId.size === 0) return null;
 
   let bestIndex = -1;
-  let best: PlaybackProgress | undefined;
+  let best: VideoProgress | undefined;
   videos.forEach((video, index) => {
     const row = progressByVideoId.get(video.id);
     if (!row) return;
@@ -177,7 +232,7 @@ export function pickResumeTarget(
  *  a movie's extras row, a movie's own detail page). */
 export function resumePositionFor(
   videoId: string,
-  progressByVideoId: Map<string, PlaybackProgress>
+  progressByVideoId: ReadonlyMap<string, VideoProgress>
 ): number | undefined {
   const row = progressByVideoId.get(videoId);
   if (!row || row.position_fraction >= COMPLETED_PROGRESS_THRESHOLD) return undefined;
@@ -194,16 +249,25 @@ export function resumePositionFor(
  *  natural) - it's never sent to the server. */
 export function useVideoProgressQuery(
   groupId: () => string | undefined,
-  videos: () => { id: string; blake3?: string | null }[]
+  videos: () => ProgressVideo[]
 ) {
-  return createQuery(() => ({
+  const query = createQuery(() => ({
     queryKey: videoQueryKeys.progress.forGroup(groupId() || ""),
-    queryFn: () => fetchVideoProgressForVideos(videos()),
+    queryFn: () => fetchServerVideoProgress(videos()),
     enabled: !!groupId() && videos().length > 0,
     // matches videoServerProgressSync.ts's own ~60s server-sync cadence -
     // polling more often than the server data itself can change is just
     // wasted traffic.
     staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
     gcTime: 5 * 60 * 1000,
   }));
+  const progress = createMemo(() =>
+    mergeVideoHistoryProgress(videos(), query.data ?? new Map(), videoQueueHistory())
+  );
+  return {
+    get data() {
+      return progress();
+    },
+  };
 }

@@ -61,7 +61,7 @@ pub enum MaintenanceAction {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Run all cleanup operations
+    /// clean up orphaned tags and genres
     CleanupAll {
         /// Show what would be deleted without actually deleting
         #[arg(long)]
@@ -83,6 +83,20 @@ pub enum MaintenanceAction {
         /// Show what would be processed without actually generating
         #[arg(long)]
         dry_run: bool,
+    },
+    /// register already-hashed media in P2P storage
+    BackfillFsstore {
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, default_value = "16", value_parser = clap::value_parser!(u32).range(1..))]
+        concurrency: u32,
+    },
+    /// regenerate existing video posters, rather than only filling missing ones
+    RegenerateVideoThumbnails {
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        scan_dir: Option<String>,
     },
     /// Force regeneration of existing video renditions by enqueueing transcode jobs
     RetranscodeVideoRenditions {
@@ -194,6 +208,51 @@ pub async fn handle_command(
     global_config: Option<std::path::PathBuf>,
 ) -> CommandOutput<serde_json::Value> {
     match action {
+        MaintenanceAction::BackfillFsstore {
+            dry_run,
+            concurrency,
+        } => match grimoire::blobz::backfill_fsstore_sync(dry_run, concurrency as usize).await {
+            Ok(summary) => CommandOutput::success(
+                if dry_run {
+                    "P2P storage backfill preview"
+                } else {
+                    "P2P storage backfill completed"
+                },
+                serde_json::json!({
+                    "dry_run": dry_run,
+                    "checked": summary.checked,
+                    "already_present": summary.already_present,
+                    "added": summary.added,
+                    "local_file_missing": summary.local_file_missing,
+                }),
+            ),
+            Err(error) => {
+                CommandOutput::failure("P2P storage backfill failed", vec![error.into()], ())
+            }
+        },
+        MaintenanceAction::RegenerateVideoThumbnails { dry_run, scan_dir } => {
+            let response = grimoire::maintenance::regenerate_video_thumbnails_sync(
+                dry_run,
+                scan_dir.as_deref(),
+                None,
+            )
+            .await;
+            if !response.success {
+                return CommandOutput::failure(response.message, response.errors, ());
+            }
+            match response.data {
+                Some(result) => CommandOutput::success(response.message, result),
+                None => CommandOutput::failure(
+                    "video poster regeneration returned no result",
+                    vec![grimoire::error::ErrorDetail::new(
+                        "missing_batch_result",
+                        "missing batch result",
+                        "video poster regeneration returned no result",
+                    )],
+                    (),
+                ),
+            }
+        }
         MaintenanceAction::RetranscodeVideoRenditions { video_id } => {
             let response = grimoire::maintenance::enqueue_retranscode_video_renditions(
                 video_id.as_deref(),
@@ -675,5 +734,131 @@ pub async fn handle_command(
             };
             CommandOutput::success(response.message, summary)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Cli, Commands};
+    use clap::Parser;
+
+    #[test]
+    fn maintenance_parity_commands_accept_scope_and_preview_options() {
+        let cli = Cli::try_parse_from([
+            "freqhole",
+            "maintenance",
+            "backfill-fsstore",
+            "--dry-run",
+            "--concurrency",
+            "4",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Maintenance {
+                action: MaintenanceAction::BackfillFsstore {
+                    dry_run: true,
+                    concurrency: 4
+                }
+            })
+        ));
+        assert!(Cli::try_parse_from([
+            "freqhole",
+            "maintenance",
+            "backfill-fsstore",
+            "--concurrency",
+            "0",
+        ])
+        .is_err());
+        let cli = Cli::try_parse_from([
+            "freqhole",
+            "maintenance",
+            "regenerate-video-thumbnails",
+            "--dry-run",
+            "--scan-dir",
+            "/media",
+        ])
+        .unwrap();
+        assert!(matches!(cli.command, Some(Commands::Maintenance {
+            action: MaintenanceAction::RegenerateVideoThumbnails { dry_run: true, scan_dir: Some(path) }
+        }) if path == "/media"));
+    }
+
+    #[test]
+    fn maintenance_retention_defaults_match_shared_policy() {
+        use crate::plumbing::{MusicAction, VideoAction};
+        for command in [
+            "hard-delete-old-records",
+            "run-maintenance",
+            "cleanup-orphaned-blobs",
+        ] {
+            let cli = Cli::try_parse_from(["freqhole", "music", command]).unwrap();
+            let days = match cli.command {
+                Some(Commands::Music {
+                    action: MusicAction::HardDeleteOldRecords { retention_days, .. },
+                })
+                | Some(Commands::Music {
+                    action: MusicAction::RunMaintenance { retention_days, .. },
+                }) => retention_days,
+                Some(Commands::Music {
+                    action: MusicAction::CleanupOrphanedBlobs { min_age_days, .. },
+                }) => min_age_days,
+                _ => panic!("unexpected maintenance command"),
+            };
+            assert_eq!(days, grimoire::maintenance::DEFAULT_RETENTION_DAYS as i64);
+        }
+        let cli = Cli::try_parse_from(["freqhole", "video", "hard-delete-old-records"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Video {
+                action: VideoAction::HardDeleteOldRecords {
+                    retention_days: 30,
+                    ..
+                }
+            })
+        ));
+    }
+
+    #[test]
+    fn explicit_retention_overrides_are_preserved() {
+        use crate::plumbing::{MusicAction, VideoAction};
+        for (command, flag) in [
+            ("hard-delete-old-records", "--retention-days"),
+            ("run-maintenance", "--retention-days"),
+            ("cleanup-orphaned-blobs", "--min-age-days"),
+        ] {
+            let cli = Cli::try_parse_from(["freqhole", "music", command, flag, "14"]).unwrap();
+            let days = match cli.command {
+                Some(Commands::Music {
+                    action: MusicAction::HardDeleteOldRecords { retention_days, .. },
+                })
+                | Some(Commands::Music {
+                    action: MusicAction::RunMaintenance { retention_days, .. },
+                }) => retention_days,
+                Some(Commands::Music {
+                    action: MusicAction::CleanupOrphanedBlobs { min_age_days, .. },
+                }) => min_age_days,
+                _ => panic!("unexpected maintenance command"),
+            };
+            assert_eq!(days, 14);
+        }
+        let cli = Cli::try_parse_from([
+            "freqhole",
+            "video",
+            "hard-delete-old-records",
+            "--retention-days",
+            "60",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Video {
+                action: VideoAction::HardDeleteOldRecords {
+                    retention_days: 60,
+                    ..
+                }
+            })
+        ));
     }
 }

@@ -21,6 +21,18 @@ use thiserror::Error;
 
 const BLOB_FILES_DIR: &str = "blob-files";
 
+/// known live file references, without opening files or modifying metadata.
+pub async fn reference_paths(
+    connection: &mut sqlx::SqliteConnection,
+) -> Result<Vec<(String, String)>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT blake3, path FROM blobz
+         WHERE blake3 IS NOT NULL AND path IS NOT NULL AND soft_deleted_at IS NULL",
+    )
+    .fetch_all(connection)
+    .await
+}
+
 #[derive(Debug, Error)]
 pub enum BlobStoreError {
     #[error("storage backend error: {0}")]
@@ -1288,6 +1300,22 @@ mod tests {
         let pool = crate::db::open_in_memory().await;
         let store = SqliteBlobStore::new(pool.clone(), tmp.path());
         (store, pool, tmp)
+    }
+
+    #[tokio::test]
+    async fn reference_paths_excludes_soft_deleted_blobs() {
+        let (store, pool, _temporary) = make_store().await;
+        let live = store.insert(b"live", NewBlobMeta::default()).await.unwrap();
+        let deleted = store
+            .insert(b"deleted", NewBlobMeta::default())
+            .await
+            .unwrap();
+        store.soft_delete(&[deleted.blake3], "test").await.unwrap();
+        let mut connection = pool.acquire().await.unwrap();
+        assert_eq!(
+            reference_paths(&mut connection).await.unwrap(),
+            vec![(live.blake3, live.path)]
+        );
     }
 
     #[tokio::test]

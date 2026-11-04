@@ -8,6 +8,61 @@ use crate::offal::Caller;
 use crate::response::GrimoireResponse;
 use serde_json::{json, Value as JsonValue};
 
+pub(in crate::admin_dispatch) async fn blob_reference_status(
+    args: JsonValue,
+) -> GrimoireResponse<JsonValue> {
+    let pool = match crate::database::connect().await {
+        Ok(pool) => pool,
+        Err(error) => return internal(error.to_string()),
+    };
+    let job_id = opt_str(&args, "job_id");
+    match reference_job(&pool, job_id.as_deref()).await {
+        Ok(job) => GrimoireResponse::success("blob reference job status", json!(job)),
+        Err(error) => internal(error.to_string()),
+    }
+}
+
+async fn reference_job(
+    pool: &sqlx::SqlitePool,
+    job_id: Option<&str>,
+) -> Result<Option<crate::jobs::Job>, sqlx::Error> {
+    sqlx::query_as!(
+        crate::jobs::Job,
+        r#"SELECT id AS "id!", session_id, job_type AS "job_type!", status AS "status!",
+                  parameters AS "parameters!", result, retry_count AS "retry_count!: i32",
+                  max_retries AS "max_retries!: i32", scheduled_at AS "scheduled_at!",
+                  started_at, completed_at, error_message, created_by
+           FROM jobz WHERE job_type = 'AuditBlobReferences' AND (? IS NULL OR id = ?)
+           ORDER BY rowid DESC LIMIT 1"#,
+        job_id,
+        job_id,
+    )
+    .fetch_optional(pool)
+    .await
+}
+
+pub(in crate::admin_dispatch) async fn audit_blob_references(
+    args: JsonValue,
+    caller: &Caller,
+) -> GrimoireResponse<JsonValue> {
+    let repair = match args.get("repair").and_then(JsonValue::as_bool) {
+        Some(repair) => repair,
+        None => return bad_request("repair must be true or false"),
+    };
+    to_value(
+        crate::jobs::create_job(crate::jobs::CreateJobRequest {
+            job_type: crate::jobs::JobType::AuditBlobReferences,
+            session_id: Some(uuid::Uuid::new_v4().to_string()),
+            parameters: json!({ "repair": repair }),
+            max_retries: Some(0),
+            scheduled_at: None,
+            created_by: Some(caller.user_id.clone()),
+            priority: None,
+        })
+        .await,
+    )
+}
+
 pub(in crate::admin_dispatch) async fn cleanup_orphaned_tags(
     args: JsonValue,
 ) -> GrimoireResponse<JsonValue> {
@@ -501,8 +556,7 @@ pub(in crate::admin_dispatch) async fn update_spume() -> GrimoireResponse<JsonVa
     }
 }
 
-/// permanently delete media blobs that are soft-deleted and have no
-/// remaining references, and whose `deleted_at` is older than
+/// permanently delete unreferenced media blobs whose creation time is older than
 /// `min_age_days`. args: `{ min_age_days?: f64 (default 30.0), dry_run?: bool (default false) }`.
 pub(in crate::admin_dispatch) async fn cleanup_orphaned_blobs(
     args: JsonValue,
@@ -969,45 +1023,20 @@ pub(in crate::admin_dispatch) async fn regenerate_library_video_thumbnails(
     let scan_directory = opt_str(&args, "scan_directory");
     let created_by = Some((caller.user_id.clone(), caller.username.clone()));
 
-    let mut totals = crate::maintenance::RepairLibraryImagesResult::default();
-    let mut offset = 0i64;
-    loop {
-        let resp = crate::maintenance::regenerate_video_thumbnails_batch(
-            dry_run,
-            crate::maintenance::VIDEO_THUMBNAIL_BATCH_SIZE,
-            offset,
-            scan_directory.as_deref(),
-            created_by.clone(),
-        )
-        .await;
-        let Some(outcome) = resp.data else {
-            return GrimoireResponse::failure(resp.message, resp.errors);
-        };
-        let more_remaining = outcome.more_remaining;
-        let regenerated_this_batch = outcome.result.videos_posters_regenerated;
-        totals.merge(outcome.result);
-        if !more_remaining {
-            break;
-        }
-        offset = crate::maintenance::repair_library_images::next_batch_offset(
-            dry_run,
-            regenerated_this_batch,
-            offset,
-            crate::maintenance::VIDEO_THUMBNAIL_BATCH_SIZE,
-        );
+    let response = crate::maintenance::regenerate_video_thumbnails_sync(
+        dry_run,
+        scan_directory.as_deref(),
+        created_by,
+    )
+    .await;
+    if !response.success {
+        return to_value(response);
     }
-
-    let verb = if dry_run {
-        "would regenerate"
-    } else {
-        "regenerated"
+    let Some(totals) = response.data else {
+        return internal("video poster regeneration returned no result");
     };
     GrimoireResponse::success(
-        format!(
-            "{verb} {} video poster(s) ({} error(s))",
-            totals.videos_posters_regenerated,
-            totals.errors.len(),
-        ),
+        response.message,
         json!({
             "dry_run": dry_run,
             "scan_directory": scan_directory,
@@ -1493,4 +1522,63 @@ pub(in crate::admin_dispatch) async fn reorganize_library_enqueue(
             "errors": errors,
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn reference_status_uses_insertion_order_and_filters_job_type() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query(
+            "CREATE TABLE jobz (
+                id TEXT PRIMARY KEY NOT NULL, session_id TEXT, job_type TEXT NOT NULL,
+                status TEXT NOT NULL, parameters TEXT NOT NULL, result TEXT,
+                retry_count INTEGER NOT NULL DEFAULT 0, max_retries INTEGER NOT NULL DEFAULT 0,
+                scheduled_at INTEGER NOT NULL DEFAULT 0, started_at INTEGER,
+                completed_at INTEGER, error_message TEXT, created_by TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(reference_job(&pool, None).await.unwrap().is_none());
+        for (id, kind, scheduled_at) in [
+            ("first", "AuditBlobReferences", 100),
+            ("latest", "AuditBlobReferences", 50),
+            ("unrelated", "ScanDirectory", 200),
+        ] {
+            sqlx::query(
+                "INSERT INTO jobz (id, job_type, status, parameters, scheduled_at)
+                 VALUES (?, ?, 'Pending', '{}', ?)",
+            )
+            .bind(id)
+            .bind(kind)
+            .bind(scheduled_at)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        assert_eq!(
+            reference_job(&pool, None).await.unwrap().unwrap().id,
+            "latest"
+        );
+        assert_eq!(
+            reference_job(&pool, Some("first"))
+                .await
+                .unwrap()
+                .unwrap()
+                .id,
+            "first"
+        );
+        assert!(reference_job(&pool, Some("unrelated"))
+            .await
+            .unwrap()
+            .is_none());
+        assert!(reference_job(&pool, Some("missing"))
+            .await
+            .unwrap()
+            .is_none());
+    }
 }

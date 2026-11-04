@@ -341,7 +341,20 @@ export function getVisible(): Set<string> {
       }
     }
 
-    for (const childId of bloom(allowVideo)) {
+    const expanded = bloom(allowVideo);
+    const expansionNodes = new Set(expanded);
+    for (const id of expanded) {
+      if (nodeMap.get(id)?.role !== "artist") continue;
+      for (const childId of clusterChildrenOf(id)) {
+        if (nodeMap.get(childId)?.role === "album") expansionNodes.add(childId);
+      }
+    }
+    // a collection of individually small values can still reveal an entire library.
+    const allowTaxonBloom =
+      !pivIsTaxonHub ||
+      (new Set(clusterChildrenOf(piv)).size <= AUTO_EXPAND_MAX_CHILDREN &&
+        expansionNodes.size <= AUTO_EXPAND_MAX_CHILDREN);
+    for (const childId of allowTaxonBloom ? expanded : []) {
       visible.add(childId);
       if (nodeMap.get(childId)?.role === "artist") eagerArtists.add(childId);
     }

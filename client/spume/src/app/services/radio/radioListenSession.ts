@@ -31,6 +31,10 @@ export class RadioListenSession {
     private getClient: () => Promise<SessionClient>
   ) {}
 
+  get id(): string | null {
+    return this.sessionId;
+  }
+
   record(item: PlayedItem, historyKey: string, durationMs = 0): void {
     if (this.ended || !item.entity_id || this.historyKeys.has(historyKey)) return;
     if (!this.started) {

@@ -20,6 +20,10 @@ files are always added to **your own local library first** — reviewed there (m
 
 this two-step (local first, then send) is deliberate: it means you always get to review/fix metadata against your own fast local copy, and a flaky network mid-upload never leaves your library in a half-imported state.
 
+this includes video files on the web, desktop, Android, and iOS. review sessions keep their original destination when you close and reopen the app.
+
+**URLs work differently:** downloads and imports run on the library selected when you submit them. album grouping, merges, and metadata review use that same library, whether it is this device's Charnel library or another remote. changing the selected target does not move an existing review session to another library.
+
 ## sending existing media to a friend
 
 for media that's already in your library, the **share** modal's "send to remote" section pushes it to a friend's remote (or your own charnel-managed local library) directly — no need to re-add it via files/urls. it lists every eligible destination with a live status badge (checking / offline / needs login / ready) and shows how much of the content the destination already has before sending.
