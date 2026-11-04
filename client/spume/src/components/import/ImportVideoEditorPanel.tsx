@@ -6,6 +6,7 @@
 // assignment for music video/karaoke content, plus per-video title +
 // episode number.
 import { Index, Show } from "solid-js";
+import type { CurrentRemoteInfo } from "../../music/data/currentState";
 import { TextArea } from "../forms/TextArea";
 import { VideoSeriesAutocomplete } from "../forms/VideoSeriesAutocomplete";
 import { VideoContentTypePicker } from "../forms/VideoContentTypePicker";
@@ -54,6 +55,7 @@ export interface ImportVideoEdit {
 }
 
 export interface ImportVideoEditorPanelProps {
+  remote?: CurrentRemoteInfo | null;
   value: ImportVideoEdit;
   onChange: (next: ImportVideoEdit) => void;
   /** false for a standalone (non-series) video/clip - hides the series
@@ -190,6 +192,7 @@ export function ImportVideoEditorPanel(props: ImportVideoEditorPanelProps) {
 
       <Show when={isSingleton() && isMusicContentType(props.value.contentType)}>
         <VideoMusicLinkFields
+          remote={props.remote}
           contentType={props.value.contentType}
           value={props.value.musicLink}
           onChange={(musicLink) => props.onChange({ ...props.value, musicLink })}
@@ -199,6 +202,7 @@ export function ImportVideoEditorPanel(props: ImportVideoEditorPanelProps) {
       <Show when={isSeriesContent() && isSingleton()}>
         <div class="flex flex-col gap-1">
           <VideoSeriesAutocomplete
+            remote={props.remote}
             label="series"
             value={seriesDisplayValue()}
             onSelect={handleSeriesSelect}
@@ -291,6 +295,7 @@ export function ImportVideoEditorPanel(props: ImportVideoEditorPanelProps) {
                 <Show when={isSeriesContent() && seriesChosen()}>
                   <div class="pl-16 flex flex-col gap-1">
                     <VideoSeasonAutocomplete
+                      remote={props.remote}
                       seriesId={props.value.seriesId ?? undefined}
                       value={seasonDisplayValue(video())}
                       onSelect={(selection) => handleSeasonSelect(video().id, selection)}

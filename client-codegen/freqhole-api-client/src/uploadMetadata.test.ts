@@ -76,6 +76,34 @@ describe("HttpTransport.upload metadata -> FormData", () => {
 });
 
 describe("domains/upload.ts music()/image() metadata passthrough", () => {
+  it("video() passes the review send target to the upload transport", async () => {
+    const uploadCall = vi.fn<Transport["upload"]>(async () =>
+      okResponse({
+        blob_id: "blob-1",
+        job_id: "job-1",
+        blake3: "a".repeat(64),
+        size: 1,
+        mime: "video/mp4",
+        existing: false,
+        message: "uploaded",
+      }),
+    );
+    const transport: Transport = {
+      request: vi.fn(),
+      upload: uploadCall,
+      fetchBlob: vi.fn(),
+      getBlobUrl: vi.fn(),
+    };
+    const result = await createUploadMethods(transport).video(new Blob(["x"]), undefined, {
+      targetRemoteId: "remote-1",
+      targetRemoteName: "my library",
+    });
+    expect(result.success).toBe(true);
+    expect(uploadCall).toHaveBeenCalledWith("/api/upload/video", expect.any(FormData), undefined, {
+      target_remote_id: "remote-1",
+      target_remote_name: "my library",
+    });
+  });
   it("music() passes targetRemoteId/targetRemoteName as typed metadata, not FormData fields", async () => {
     let receivedFormData: FormData | undefined;
     let receivedMetadata: UploadMetadata | undefined;

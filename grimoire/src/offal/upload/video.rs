@@ -61,6 +61,16 @@ pub async fn upload_video(caller: &Caller, body: JsonValue) -> GrimoireResponse<
             )
         }
     };
+    if req.target_remote_id.is_some() != req.target_remote_name.is_some() {
+        return GrimoireResponse::failure(
+            "bad request",
+            vec![ErrorDetail::new(
+                "bad_request",
+                "invalid review destination",
+                "provide both target_remote_id and target_remote_name",
+            )],
+        );
+    }
 
     // get data from either base64 or file_path
     let (data, filename) = match (&req.data, &req.file_path) {
@@ -240,6 +250,33 @@ pub async fn upload_video(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         );
     }
 
+    let session_response = create_job_session(CreateJobSessionRequest {
+        job_type: JobType::ImportVideo,
+        batch_size: Some(1),
+        created_by: Some(caller.user_id.clone()),
+    })
+    .await;
+    let session_id = match session_response.data {
+        Some(session) => session.id,
+        None => {
+            return GrimoireResponse::failure(
+                "failed to create video import review session",
+                session_response.errors,
+            );
+        }
+    };
+    if let (Some(remote_id), Some(remote_name)) = (&req.target_remote_id, &req.target_remote_name) {
+        if let Err(error) =
+            import_review_repository::set_session_send_target(&session_id, remote_id, remote_name)
+                .await
+        {
+            return GrimoireResponse::failure(
+                "failed to record video import destination",
+                vec![error.into()],
+            );
+        }
+    }
+
     // create import job
     let job_payload = json!({
         "blob_id": blob.id,
@@ -251,7 +288,7 @@ pub async fn upload_video(caller: &Caller, body: JsonValue) -> GrimoireResponse<
 
     let job_response = create_job(CreateJobRequest {
         job_type: JobType::ImportVideo,
-        session_id: None,
+        session_id: Some(session_id),
         parameters: job_payload,
         max_retries: Some(3),
         scheduled_at: None,
@@ -808,4 +845,43 @@ async fn resolve_existing_video_for_blob(pool: &sqlx::SqlitePool, blob_id: &str)
     .await
     .ok()
     .flatten()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn video_upload_preserves_review_destination() {
+        let request: UploadVideoRequest = serde_json::from_value(json!({
+            "file_path": "/tmp/video.mp4",
+            "target_remote_id": "destination",
+            "target_remote_name": "library"
+        }))
+        .unwrap();
+        assert_eq!(request.target_remote_id.as_deref(), Some("destination"));
+        assert_eq!(request.target_remote_name.as_deref(), Some("library"));
+
+        let local: UploadVideoRequest = serde_json::from_value(json!({})).unwrap();
+        assert!(local.target_remote_id.is_none());
+        assert!(local.target_remote_name.is_none());
+    }
+
+    #[tokio::test]
+    async fn video_upload_rejects_incomplete_review_destination_before_import() {
+        let caller = Caller::new("user", "uploader", UserRole::Member);
+        for body in [
+            json!({ "target_remote_id": "destination" }),
+            json!({ "target_remote_name": "library" }),
+        ] {
+            let response = upload_video(&caller, body).await;
+            assert!(!response.success);
+            assert!(response.data.is_none());
+            assert_eq!(response.errors[0].error_type, "bad_request");
+            assert_eq!(
+                response.errors[0].detail,
+                "provide both target_remote_id and target_remote_name"
+            );
+        }
+    }
 }

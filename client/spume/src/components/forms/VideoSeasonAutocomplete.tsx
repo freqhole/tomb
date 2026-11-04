@@ -13,6 +13,7 @@
 // BulkEditVideosModal create it as part of their save flow).
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { useVideoSeasonsQuery } from "../../video/queries/series";
+import type { CurrentRemoteInfo } from "../../music/data/currentState";
 
 export interface VideoSeasonSelection {
   id?: string;
@@ -40,6 +41,7 @@ export interface VideoSeasonAutocompleteProps {
    *  would be nonsensical. doesn't affect the "create new" path. */
   excludeSeasonId?: string;
   hint?: string;
+  remote?: CurrentRemoteInfo | null;
 }
 
 interface SeasonOption {
@@ -105,7 +107,10 @@ export function VideoSeasonAutocomplete(props: VideoSeasonAutocompleteProps) {
     )
   );
 
-  const seasonsQuery = useVideoSeasonsQuery(() => props.seriesId);
+  const seasonsQuery = useVideoSeasonsQuery(
+    () => props.seriesId,
+    () => props.remote
+  );
 
   const allSeasons = createMemo<SeasonOption[]>(() =>
     (seasonsQuery.data ?? [])

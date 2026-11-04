@@ -26,15 +26,14 @@ export type { ReviewBackend, ReviewSendTarget };
  * the one place that decides "which remote (if any) is this review session
  * against" - in charnel mode, path-based imports always redirect through
  * the local grimoire instance (see App.tsx's handlePathsSelected), so
- * "review" always means the tauri-managed remote regardless of whichever
- * remote is currently being browsed. outside charnel, review sessions live
- * entirely in the browser's own IndexedDB library - there's no `Remote` at
- * all, signalled with `null`.
+ * file review means the tauri-managed remote regardless of whichever
+ * remote is currently being browsed. browser file imports use IndexedDB,
+ * signalled with `null`. URL-fetch reviews instead use their fetch remote.
  */
 export async function resolveActiveReviewRemote(): Promise<CurrentRemoteInfo | null> {
   if (!isCharnelMode()) return null;
   const remote = await getTauriManagedRemote();
-  return (remote as unknown as CurrentRemoteInfo) ?? null;
+  return remote ?? null;
 }
 
 /**
@@ -42,7 +41,8 @@ export async function resolveActiveReviewRemote(): Promise<CurrentRemoteInfo | n
  * `resolveActiveReviewRemote()`, or whatever remote a session was opened
  * against). `null` selects the local-idb backend.
  */
-export function getReviewBackend(remote: CurrentRemoteInfo | null): ReviewBackend {
+export function getReviewBackend(remote: CurrentRemoteInfo | null | undefined): ReviewBackend {
+  if (remote === undefined) throw new Error("review library is still loading");
   if (!remote) return createLocalIdbReviewBackend();
   return createGrimoireReviewBackend(remote);
 }
@@ -51,18 +51,17 @@ export function getReviewBackend(remote: CurrentRemoteInfo | null): ReviewBacken
  * remotes whose pending-session list is relevant to the current add-media
  * view: always the local/resolved review remote (path-based imports and
  * uploads always redirect there - see `resolveActiveReviewRemote`), plus
- * `targetRemote` itself when charnel mode is actively targeting a
+ * `targetRemote` itself when actively targeting a
  * *different* remote - url-fetches run wherever targeted (see
  * `fetchUrlsOnRemote`), so their review sessions live on that remote
  * instead of local. callers that merge multiple backends' session lists
- * should track which remote each session came from (see
- * `AddMediaModal.tsx`'s `sessionOriginRemote`) rather than assuming local.
+ * should retain each session's origin alongside its data rather than assuming local.
  */
 export async function resolveReviewSourceRemotes(
   targetRemote: CurrentRemoteInfo | null | undefined
 ): Promise<Array<CurrentRemoteInfo | null>> {
   const local = await resolveActiveReviewRemote();
-  if (!isCharnelMode() || !targetRemote || targetRemote.remote_id === local?.remote_id) {
+  if (!targetRemote || targetRemote.remote_id === local?.remote_id) {
     return [local];
   }
   return [local, targetRemote];

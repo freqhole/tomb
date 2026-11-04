@@ -6,13 +6,22 @@
 // what you pass as `source_node_id` - so both callers share this one
 // request-building logic instead of each re-deriving series/season/artist context
 // and image inlining independently.
-import { getClientForRemote } from "../../../app/api/client";
+import { getClientForRemote, getMiddenNode } from "../../../app/api/client";
+import { isLocalBrowserSourceRemote } from "../../../music/services/send/localBrowserSource";
+import { getArtistById, getAlbumById } from "../../../music/services/storage/db";
+import { getBlob } from "../../../music/services/storage/blobs";
+import type { ImageMetadata } from "../../../music/services/storage/types";
+import { getLocalVideoById } from "../storage/db/videos";
+import { getLocalVideoSeriesById } from "../storage/db/series";
+import { getLocalVideoSeasons } from "../storage/db/seasons";
+import { readVideoPosterFromOPFS } from "../opfs/helpers";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
 import type { QueuedVideo } from "../../../app/services/storage/mediaItem";
 import {
   inlineImagesForSync,
   type InlinableImage,
   type InlineImageCache,
+  type SyncImageRefBody,
 } from "../../../music/services/sync/syncImages";
 import type { SyncVideoByBlake3Request, Transport } from "@freqhole/api-client";
 import { warn } from "../../../utils/logger";
@@ -27,6 +36,8 @@ interface SeriesContext {
   seasonTitle?: string;
   seriesImages: InlinableImage[];
   seasonImages: InlinableImage[];
+  localSeriesImages?: ImageMetadata[];
+  localSeasonImages?: ImageMetadata[];
 }
 
 const EMPTY_SERIES_CONTEXT: SeriesContext = { seriesImages: [], seasonImages: [] };
@@ -39,6 +50,24 @@ async function resolveSeriesContext(
   metadataRemote: Remote
 ): Promise<SeriesContext> {
   if (!video.series_id) return EMPTY_SERIES_CONTEXT;
+  if (isLocalBrowserSourceRemote(metadataRemote)) {
+    const series = await getLocalVideoSeriesById(video.series_id);
+    if (!series) throw new Error("reviewed series no longer exists locally");
+    const season = video.season_id
+      ? (await getLocalVideoSeasons(series.id)).find((s) => s.id === video.season_id)
+      : undefined;
+    if (video.season_id && !season) throw new Error("reviewed season no longer exists locally");
+    return {
+      seriesTitle: series.title,
+      seriesDescription: series.description ?? undefined,
+      seasonNumber: season?.season_number,
+      seasonTitle: season?.title ?? undefined,
+      seriesImages: [],
+      seasonImages: [],
+      localSeriesImages: series.images,
+      localSeasonImages: season?.images,
+    };
+  }
   try {
     const client = await getClientForRemote(metadataRemote);
     const result = await client.video.getVideoSeriesDetail({ id: video.series_id });
@@ -75,6 +104,15 @@ async function resolveMusicContext(
   metadataRemote: Remote
 ): Promise<{ artistName?: string; albumTitle?: string }> {
   if (!video.artist_id) return {};
+  if (isLocalBrowserSourceRemote(metadataRemote)) {
+    const [artist, album] = await Promise.all([
+      getArtistById(video.artist_id),
+      video.album_id ? getAlbumById(video.album_id) : null,
+    ]);
+    if (!artist || (video.album_id && !album))
+      throw new Error("reviewed music link no longer exists locally");
+    return { artistName: artist.name, albumTitle: album?.title };
+  }
   try {
     const client = await getClientForRemote(metadataRemote);
     const [artist, album] = await Promise.all([
@@ -116,6 +154,11 @@ async function resolveParentBlake3(
   metadataRemote: Remote
 ): Promise<string | null> {
   if (!video.parent_video_id) return null;
+  if (isLocalBrowserSourceRemote(metadataRemote)) {
+    const parent = await getLocalVideoById(video.parent_video_id);
+    if (!parent?.blake3) throw new Error("parent video has no local content hash");
+    return parent.blake3;
+  }
   try {
     const client = await getClientForRemote(metadataRemote);
     const result = await client.video.getVideo({ id: video.parent_video_id });
@@ -125,6 +168,36 @@ async function resolveParentBlake3(
     warn("buildSyncVideoRequest", `parent lookup failed for ${video.parent_video_id}:`, e);
     return null;
   }
+}
+
+async function stageLocalImages(
+  images: ImageMetadata[] = [],
+  fallbackPoster?: () => Promise<Blob>
+): Promise<SyncImageRefBody[]> {
+  const refs: SyncImageRefBody[] = [];
+  const stage = async (blob: Blob, primary: boolean, type: string) => {
+    const node = await getMiddenNode();
+    if (!node.import_blob) throw new Error("local P2P image storage is unavailable");
+    return {
+      blake3: await node.import_blob(new Uint8Array(await blob.arrayBuffer())),
+      mime_type: blob.type || "image/jpeg",
+      is_primary: primary,
+      blob_type: type,
+    };
+  };
+  for (const image of images) {
+    const blob = image.local_opfs_path
+      ? await readVideoPosterFromOPFS(image.local_opfs_path)
+      : image.local_blob_id
+        ? await getBlob(image.local_blob_id)
+        : null;
+    if (!blob) throw new Error("video artwork no longer exists locally");
+    refs.push(await stage(blob, !!image.is_primary, image.blob_type ?? "original"));
+  }
+  if (!refs.length && fallbackPoster) {
+    refs.push(await stage(await fallbackPoster(), true, "thumbnail"));
+  }
+  return refs;
 }
 
 export interface BuildSyncVideoByBlake3Options {
@@ -158,11 +231,28 @@ export async function buildSyncVideoByBlake3Body(
     resolveMusicContext(video, metadataRemote),
   ]);
 
-  const [videoImagesBody, seriesImagesBody, seasonImagesBody] = await Promise.all([
-    inlineImagesForSync(videoImages(video), sourceTransport, inlineCache, label),
-    inlineImagesForSync(series.seriesImages, sourceTransport, inlineCache, `${label} [series]`),
-    inlineImagesForSync(series.seasonImages, sourceTransport, inlineCache, `${label} [season]`),
-  ]);
+  const localVideo = isLocalBrowserSourceRemote(metadataRemote)
+    ? await getLocalVideoById(video.id)
+    : null;
+  if (isLocalBrowserSourceRemote(metadataRemote) && !localVideo) {
+    throw new Error("video no longer exists locally");
+  }
+  const [videoImagesBody, seriesImagesBody, seasonImagesBody] = localVideo
+    ? await Promise.all([
+        stageLocalImages(
+          localVideo.images,
+          localVideo.poster_opfs_path
+            ? () => readVideoPosterFromOPFS(localVideo.poster_opfs_path!)
+            : undefined
+        ),
+        stageLocalImages(series.localSeriesImages),
+        stageLocalImages(series.localSeasonImages),
+      ])
+    : await Promise.all([
+        inlineImagesForSync(videoImages(video), sourceTransport, inlineCache, label),
+        inlineImagesForSync(series.seriesImages, sourceTransport, inlineCache, `${label} [series]`),
+        inlineImagesForSync(series.seasonImages, sourceTransport, inlineCache, `${label} [season]`),
+      ]);
 
   return {
     blake3: opts.blake3,

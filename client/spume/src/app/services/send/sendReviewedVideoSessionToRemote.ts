@@ -31,6 +31,41 @@ import { getClientForRemote } from "../../api/client";
 import { clearPendingSendTarget } from "./pendingSendTargets";
 import { error as logError } from "../../../utils/logger";
 import { emptyProgress, type SendReviewProgress } from "./sendReviewProgress";
+import { getLocalBrowserSourceRemote } from "../../../music/services/send/localBrowserSource";
+import { getLocalVideoById } from "../../../video/services/storage/db/videos";
+import type { CurrentRemoteInfo } from "../../../music/data/currentState";
+import { getLocalVideoImportSession } from "../../../video/services/storage/db/importReview";
+
+async function videoSendItem(
+  videoId: string,
+  localRemote: CurrentRemoteInfo | null
+): Promise<SendVideoItem> {
+  if (!localRemote) {
+    const video = await getLocalVideoById(videoId);
+    if (!video) throw new Error("video no longer found locally");
+    return {
+      video: { ...video, images: undefined },
+      blobId: video.id,
+      blake3: video.blake3 ?? null,
+      size: video.file_size,
+      mime: video.mime_type,
+    };
+  }
+  const video = await new RemoteVideoDataSource(localRemote).getVideoById(videoId);
+  if (!video) throw new Error("video no longer found locally");
+  const metadata = await (
+    await getClientForRemote(localRemote)
+  ).music.blobMetadata({ id: video.media_blob_id });
+  if (!metadata.success)
+    throw new Error(metadata.error?.issues?.[0]?.message ?? "video metadata unavailable");
+  return {
+    video,
+    blobId: video.media_blob_id,
+    blake3: metadata.data.blake3 ?? null,
+    size: metadata.data.size,
+    mime: metadata.data.mime,
+  };
+}
 
 export type { SendReviewProgress };
 export { emptyProgress };
@@ -47,11 +82,22 @@ export async function sendReviewedVideosToRemote(
   sessionId: string,
   targetRemoteId: string,
   targetRemoteName: string,
-  localRemote: Remote,
+  localRemote: CurrentRemoteInfo | null,
   videoIds: string[],
   onProgress?: (progress: SendReviewProgress) => void,
   keepPendingTarget = false
 ): Promise<void> {
+  if (!localRemote && !keepPendingTarget) {
+    try {
+      videoIds = (await getLocalVideoImportSession(sessionId)).video_ids;
+    } catch (error) {
+      const progress = emptyProgress(targetRemoteName, videoIds.length, "videos");
+      progress.errors.push(String(error));
+      progress.done = true;
+      onProgress?.(progress);
+      return;
+    }
+  }
   const progress = emptyProgress(targetRemoteName, videoIds.length, "videos");
   const emit = () => onProgress?.({ ...progress });
 
@@ -72,17 +118,25 @@ export async function sendReviewedVideosToRemote(
   }
   emit();
 
-  const localSource = new RemoteVideoDataSource(localRemote);
+  let source: Remote;
+  try {
+    const resolved = localRemote
+      ? await getRemoteById(localRemote.remote_id)
+      : await getLocalBrowserSourceRemote();
+    if (!resolved) throw new Error("review library no longer exists");
+    source = resolved;
+  } catch (error) {
+    progress.errors.push(String(error));
+    progress.done = true;
+    emit();
+    return;
+  }
 
   for (const videoId of videoIds) {
     let trackId: string | null = null;
     try {
-      const video = await localSource.getVideoById(videoId);
-      if (!video) {
-        progress.completedAlbums += 1;
-        emit();
-        continue;
-      }
+      const item = await videoSendItem(videoId, localRemote);
+      const video = item.video;
       progress.currentAlbumTitle = video.title;
       progress.currentSongsDone = 0;
       progress.currentSongsTotal = 1;
@@ -92,22 +146,8 @@ export async function sendReviewedVideosToRemote(
       updateJobStatus(trackId, "uploading");
       updateJobEntities(trackId, { videoId, sessionId, isRemoteSend: true });
 
-      // blake3/size live on the media blob, not denormalized onto
-      // the video row - same lookup syncVideoToLocal.ts's fetchBlobMetadata
-      // does for the pull direction.
-      const client = await getClientForRemote(localRemote);
-      const metaResp = await client.music.blobMetadata({ id: video.media_blob_id });
-      const meta = metaResp.success ? metaResp.data : undefined;
-
-      const item: SendVideoItem = {
-        video,
-        blobId: video.media_blob_id,
-        blake3: meta?.blake3 ?? null,
-        size: meta?.size ?? null,
-        mime: meta?.mime ?? null,
-      };
-
-      const result = await sendVideosToRemote([item], localRemote, dest, {
+      if (!item.blake3) throw new Error("video has no content hash; re-import it before sending");
+      const result = await sendVideosToRemote([item], source, dest, {
         onProgress: (p) => {
           const done = p.syncedVideos + p.skippedVideos + p.failedVideos;
           progress.currentSongsDone = done > 0 ? 1 : 0;
@@ -156,7 +196,7 @@ export async function retryFailedVideoSend(
   videoId: string,
   targetRemoteId: string,
   targetRemoteName: string,
-  localRemote: Remote
+  localRemote: CurrentRemoteInfo | null
 ): Promise<void> {
   const dest = await getRemoteById(targetRemoteId);
   if (!dest) {
@@ -166,25 +206,14 @@ export async function retryFailedVideoSend(
 
   updateJobStatus(trackId, "uploading");
   try {
-    const localSource = new RemoteVideoDataSource(localRemote);
-    const video = await localSource.getVideoById(videoId);
-    if (!video) {
-      updateJobStatus(trackId, "failed", { error: "video no longer found locally" });
-      return;
-    }
+    const source = localRemote
+      ? await getRemoteById(localRemote.remote_id)
+      : await getLocalBrowserSourceRemote();
+    if (!source) throw new Error("review library no longer exists");
+    const item = await videoSendItem(videoId, localRemote);
+    if (!item.blake3) throw new Error("video has no content hash; re-import it before sending");
 
-    const client = await getClientForRemote(localRemote);
-    const metaResp = await client.music.blobMetadata({ id: video.media_blob_id });
-    const meta = metaResp.success ? metaResp.data : undefined;
-    const item: SendVideoItem = {
-      video,
-      blobId: video.media_blob_id,
-      blake3: meta?.blake3 ?? null,
-      size: meta?.size ?? null,
-      mime: meta?.mime ?? null,
-    };
-
-    const result = await sendVideosToRemote([item], localRemote, dest, {
+    const result = await sendVideosToRemote([item], source, dest, {
       onProgress: (p) => {
         const done = p.syncedVideos + p.skippedVideos + p.failedVideos;
         updateJobProgress(trackId, done > 0 ? 1 : 0);

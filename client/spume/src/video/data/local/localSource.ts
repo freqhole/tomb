@@ -122,7 +122,8 @@ export class LocalVideoDataSource implements VideoDataSource {
   }
 
   async getVideoById(id: string): Promise<VideoSummary | null> {
-    return getLocalVideoById(id);
+    const video = await getLocalVideoById(id);
+    return video ? { ...video, images: undefined } : null;
   }
 
   // local rows have no server-extracted file metadata (codec/container/

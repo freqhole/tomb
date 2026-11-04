@@ -12,8 +12,9 @@
 import { createQuery } from "@tanstack/solid-query";
 import type { Accessor } from "solid-js";
 import { getDataSource } from "../data";
+import { localDataSource } from "../data/local/localSource";
 import { getClientForRemote } from "../../app/api/client";
-import type { Remote } from "../../app/services/storage/schemas/remote";
+import type { CurrentRemoteInfo } from "../data/currentState";
 import { queryKeys } from "./queryKeys";
 
 const AUTOCOMPLETE_LIMIT = 15;
@@ -22,12 +23,12 @@ const AUTOCOMPLETE_STALE_TIME = 2 * 60 * 1000; // 2 minutes
 // artist autocomplete query hook
 export function useArtistAutocompleteQuery(
   searchTerm: Accessor<string | undefined>,
-  remote?: Accessor<Remote | undefined>
+  remote?: Accessor<CurrentRemoteInfo | null | undefined>
 ) {
   return createQuery(() => ({
     queryKey: [
       ...queryKeys.artists.autocomplete(searchTerm()),
-      remote?.()?.remote_id ?? null,
+      remote?.() === null ? "local" : (remote?.()?.remote_id ?? null),
     ] as const,
     queryFn: async () => {
       const term = searchTerm();
@@ -90,7 +91,7 @@ export function useArtistAutocompleteQuery(
         };
       }
 
-      const dataSource = getDataSource();
+      const dataSource = r === null ? localDataSource : getDataSource();
       if (!dataSource.getArtists) {
         return { items: [], total: 0, offset: 0, limit: 0, has_more: false };
       }
@@ -115,12 +116,12 @@ export function useArtistAutocompleteQuery(
 export function useAlbumAutocompleteQuery(
   searchTerm: Accessor<string | undefined>,
   artistId?: Accessor<string | undefined>,
-  remote?: Accessor<Remote | undefined>
+  remote?: Accessor<CurrentRemoteInfo | null | undefined>
 ) {
   return createQuery(() => ({
     queryKey: [
       ...queryKeys.albums.autocomplete(searchTerm(), artistId?.()),
-      remote?.()?.remote_id ?? null,
+      remote?.() === null ? "local" : (remote?.()?.remote_id ?? null),
     ] as const,
     queryFn: async () => {
       const term = searchTerm();
@@ -186,7 +187,7 @@ export function useAlbumAutocompleteQuery(
         };
       }
 
-      const dataSource = getDataSource();
+      const dataSource = r === null ? localDataSource : getDataSource();
       if (!dataSource.getAlbums) {
         return { items: [], total: 0, offset: 0, limit: 0, has_more: false };
       }

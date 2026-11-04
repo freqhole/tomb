@@ -14,6 +14,7 @@ import { ArtistAutocomplete } from "./ArtistAutocomplete";
 import { AlbumAutocomplete } from "./AlbumAutocomplete";
 import { defaultAlbumTitle, isMusicContentType } from "../../video/utils/contentType";
 import { guessVideoTitle } from "../../video/services/guessVideoTitle";
+import type { CurrentRemoteInfo } from "../../music/data/currentState";
 
 export interface VideoMusicLink {
   /** existing artist picked from the dropdown. */
@@ -80,6 +81,7 @@ export interface VideoMusicLinkFieldsProps {
   value: VideoMusicLink;
   onChange: (next: VideoMusicLink) => void;
   disabled?: boolean;
+  remote?: CurrentRemoteInfo | null;
 }
 
 // an id no artist can have: filters the album dropdown down to nothing but
@@ -136,6 +138,7 @@ export function VideoMusicLinkFields(props: VideoMusicLinkFieldsProps) {
     <div class="space-y-4">
       <div>
         <ArtistAutocomplete
+          remote={props.remote}
           label="artist"
           value={props.value.artistName}
           onSelect={handleArtistSelect}
@@ -158,6 +161,7 @@ export function VideoMusicLinkFields(props: VideoMusicLinkFieldsProps) {
       <Show when={hasArtist()}>
         <div>
           <AlbumAutocomplete
+            remote={props.remote}
             label="album"
             value={props.value.albumTitle}
             onSelect={handleAlbumSelect}

@@ -9,6 +9,7 @@
 // as part of its save flow).
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js";
 import { useVideoSeriesListQuery } from "../../video/queries/series";
+import type { CurrentRemoteInfo } from "../../music/data/currentState";
 
 export interface VideoSeriesAutocompleteProps {
   /** current series title value */
@@ -22,6 +23,7 @@ export interface VideoSeriesAutocompleteProps {
   hint?: string;
   /** custom label for the "create new" option (default: "create new: {input}") */
   newLabel?: (input: string) => string;
+  remote?: CurrentRemoteInfo | null;
 }
 
 interface SeriesOption {
@@ -59,6 +61,7 @@ export function VideoSeriesAutocomplete(props: VideoSeriesAutocompleteProps) {
     search: () => (debounced().length > 0 ? debounced() : undefined),
     pageSize: 15,
     keyScope: "autocomplete",
+    remote: () => props.remote,
   });
 
   const options = createMemo<SeriesOption[]>(() => {

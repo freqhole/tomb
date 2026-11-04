@@ -15,6 +15,7 @@ import type {
   ImportReviewVideoGroup,
 } from "../../video/hooks/useVideoImportReview";
 import { Icon } from "../icons/registry";
+import type { CurrentRemoteInfo } from "../../music/data/currentState";
 
 function groupToEdit(group: ImportReviewVideoGroup): ImportVideoEdit {
   const isSeries = !!group.seriesId;
@@ -38,6 +39,7 @@ function groupToEdit(group: ImportReviewVideoGroup): ImportVideoEdit {
 }
 
 export interface ImportVideoReviewEditorProps extends VideoGroupEditorRenderProps {
+  remote: CurrentRemoteInfo | null;
   reviewHandle: VideoImportReviewHandle;
   onRegisterSave: (groupKey: string, save: () => Promise<void>) => void;
   onUnregisterSave: (groupKey: string) => void;
@@ -93,7 +95,7 @@ export function ImportVideoReviewEditor(props: ImportVideoReviewEditorProps) {
               }
             : null
         );
-        await props.reviewHandle.patchGroup(groupKey, {
+        await props.reviewHandle.patchGroup(props.remote === null ? video.id : groupKey, {
           videos: [
             {
               video_id: video.id,
@@ -129,7 +131,12 @@ export function ImportVideoReviewEditor(props: ImportVideoReviewEditorProps) {
           <span>{props.reviewHandle.error()}</span>
         </div>
       </Show>
-      <ImportVideoEditorPanel value={edit()} onChange={setEdit} isSeries={!!props.group.seriesId} />
+      <ImportVideoEditorPanel
+        remote={props.remote}
+        value={edit()}
+        onChange={setEdit}
+        isSeries={!!props.group.seriesId}
+      />
     </div>
   );
 }

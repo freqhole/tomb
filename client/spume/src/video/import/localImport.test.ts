@@ -22,6 +22,12 @@ const addLocalVideo = vi.fn(async (input: Record<string, unknown>) => ({ ...inpu
 const getVideoByBlake3 = vi.fn(async (_blake3: string): Promise<unknown> => undefined);
 const isCharnelMode = vi.fn(() => false);
 const hashBlake3Streaming = vi.fn(async (file: File) => `hash-${file.name}`);
+const createSession = vi.fn(async (_target?: unknown) => "local-session");
+const recordImport = vi.fn(async (_session: string, _id: string) => {});
+vi.mock("../services/storage/db/importReview", () => ({
+  createLocalVideoImportSession: (target: unknown) => createSession(target),
+  recordLocalVideoImport: (session: string, id: string) => recordImport(session, id),
+}));
 
 vi.mock("../services/opfs/helpers", () => ({
   isOPFSSupported: (...a: unknown[]) => isOPFSSupported(...(a as [])),
@@ -101,6 +107,18 @@ describe("importVideoFiles dedup", () => {
     expect(addLocalVideo).toHaveBeenCalledWith(
       expect.objectContaining({ blake3: "hash-new.mp4", file_name: "new.mp4" })
     );
+    expect(result.sessionId).toBe("local-session");
+    expect(recordImport).toHaveBeenCalledWith("local-session", addLocalVideo.mock.calls[0][0].id);
+  });
+
+  it("keeps a duplicate in the review session when it still needs sending", async () => {
+    getVideoByBlake3.mockResolvedValue({ id: "existing-id" });
+    const target = { remoteId: "destination", remoteName: "library" };
+    const result = await importVideoFiles([fakeFile("dup.mp4")], target);
+    expect(result).toMatchObject({ imported: 0, skipped: 1, sessionId: "local-session" });
+    expect(createSession).toHaveBeenCalledWith(target);
+    expect(recordImport).toHaveBeenCalledWith("local-session", "existing-id");
+    expect(writeVideoToOPFS).not.toHaveBeenCalled();
   });
 
   it("imports two different files in the same batch instead of treating the second as a duplicate", async () => {

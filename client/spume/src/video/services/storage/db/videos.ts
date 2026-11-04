@@ -266,9 +266,9 @@ export async function getLocalVideos(params?: VideoQueryParams): Promise<Paginat
   };
 }
 
-export async function getLocalVideoById(id: string): Promise<VideoSummary | null> {
+export async function getLocalVideoById(id: string): Promise<LocalVideoRow | null> {
   const db = await getVideoDB();
-  const row = (await db.get(STORE_VIDEOS, id)) as VideoSummary | undefined;
+  const row = (await db.get(STORE_VIDEOS, id)) as LocalVideoRow | undefined;
   return row ? { ...row, is_offline: false } : null;
 }
 
@@ -292,6 +292,9 @@ export async function updateLocalVideo(
   const db = await getVideoDB();
   const row = (await db.get(STORE_VIDEOS, id)) as LocalVideoRow | undefined;
   if (!row) return;
-  const updated: LocalVideoRow = { ...row, ...updates, updated_at: Date.now() };
+  const definedUpdates = Object.fromEntries(
+    Object.entries(updates).filter(([, value]) => value !== undefined)
+  );
+  const updated: LocalVideoRow = { ...row, ...definedUpdates, updated_at: Date.now() };
   await db.put(STORE_VIDEOS, updated);
 }

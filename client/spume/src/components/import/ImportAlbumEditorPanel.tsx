@@ -16,6 +16,7 @@ import { MusicBrainzPanel } from "../musicbrainz/MusicBrainzPanel";
 import { AlbumTaxonsEditor } from "../modals/AlbumTaxonsEditor";
 import type { MbSearchReleasesResponse, MbReleaseDetail } from "../../music/data/types";
 import type { CurrentRemoteInfo } from "../../music/data/currentState";
+import type { TaxonomyClient } from "../../music/data";
 
 // -------------------------------------------------------------------------
 // types
@@ -98,8 +99,7 @@ export interface ImportAlbumEditorPanelProps {
    *  falling back to getTaxonomyClient() / getCurrentRemote().
    *  pass this when the review is for a remote that may not be the current
    *  active one (e.g. opened via deep-link while on a different route). */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  apiClient?: any;
+  apiClient?: TaxonomyClient;
   /** which remote MusicBrainzPanel's writes (artist/album/taxon updates,
    *  image import) should target - forwarded straight through, see that
    *  component's own reviewRemote doc comment for the full reasoning.

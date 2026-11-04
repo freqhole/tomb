@@ -13,7 +13,7 @@ export interface LocalVideoSeriesRow extends VideoSeries {
   images?: ImageMetadata[];
 }
 
-export async function getLocalVideoSeriesById(id: string): Promise<VideoSeries | null> {
+export async function getLocalVideoSeriesById(id: string): Promise<LocalVideoSeriesRow | null> {
   const db = await getVideoDB();
   const series = await db.get(STORE_VIDEO_SERIES, id);
   return series ? { ...series, is_offline: false } : null;

@@ -15,8 +15,13 @@ import { hashBlake3Streaming } from "@freqhole/reliquary/worker";
 import { debug, warn } from "../../utils/logger";
 import { errorMessageFrom } from "../../utils/humanizeJobError";
 import type { LocalImportProgress } from "../../music/import";
+import {
+  createLocalVideoImportSession,
+  recordLocalVideoImport,
+} from "../services/storage/db/importReview";
 
 export interface VideoImportResult {
+  sessionId?: string;
   imported: number;
   /** skipped because a video with the same blake3 already exists locally
    * (see importVideoFiles's dedup pre-check) - not counted as an error. */
@@ -126,7 +131,10 @@ async function extractVideoMetadata(file: File): Promise<ExtractedVideoMetadata>
 }
 
 // import video files from a file picker (or dropped files) into the local library
-export async function importVideoFiles(files: File[]): Promise<VideoImportResult> {
+export async function importVideoFiles(
+  files: File[],
+  target?: { remoteId: string; remoteName: string }
+): Promise<VideoImportResult> {
   if (!isOPFSSupported()) {
     setLocalVideoImportProgress({
       phase: "error",
@@ -140,15 +148,9 @@ export async function importVideoFiles(files: File[]): Promise<VideoImportResult
     return { imported: 0, skipped: 0, errors: ["opfs not supported in this browser"] };
   }
 
-  // tauri's webview (WKWebView on macOS) supports OPFS getFileHandle/
-  // getDirectoryHandle but not the async createWritable() writable-stream
-  // api that writeVideoToOPFS needs — a webkit gap, not video-specific.
-  // there's no native local-path-based video import route yet (unlike
-  // music's charnel-mode sync path), so fail up front with a clear message
-  // instead of throwing fileHandle.createWritable-is-not-a-function per file.
+  // Charnel imports through its local grimoire, not the webview's OPFS.
   if (isCharnelMode()) {
-    const msg =
-      "local video import isn't supported in the desktop app yet — use a remote server to add videos";
+    const msg = "video files in this app must be imported through its local library";
     setLocalVideoImportProgress({
       phase: "error",
       current: 0,
@@ -164,6 +166,7 @@ export async function importVideoFiles(files: File[]): Promise<VideoImportResult
   let imported = 0;
   let skipped = 0;
   const errors: string[] = [];
+  const sessionId = await createLocalVideoImportSession(target);
 
   setLocalVideoImportProgress({
     phase: "saving",
@@ -207,8 +210,10 @@ export async function importVideoFiles(files: File[]): Promise<VideoImportResult
       // null blake3 (hash failed, or a pre-blake3-era existing video)
       // can never match here - there's nothing to dedup against without
       // a real hash, same tradeoff music's import accepts.
-      if (blake3 && (await getVideoByBlake3(blake3))) {
+      const existing = blake3 ? await getVideoByBlake3(blake3) : undefined;
+      if (existing) {
         debug("video/localImport", `skipping duplicate (blake3 match): ${file.name}`);
+        if (target) await recordLocalVideoImport(sessionId, existing.id);
         skipped++;
         continue;
       }
@@ -235,6 +240,7 @@ export async function importVideoFiles(files: File[]): Promise<VideoImportResult
         duration_seconds: durationSeconds > 0 ? durationSeconds : null,
         blake3,
       });
+      await recordLocalVideoImport(sessionId, id);
       imported++;
       debug("video/localImport", `added: ${file.name}`);
     } catch (error) {
@@ -261,5 +267,5 @@ export async function importVideoFiles(files: File[]): Promise<VideoImportResult
     skippedCount: skipped,
   });
 
-  return { imported, skipped, errors };
+  return { imported, skipped, errors, sessionId };
 }
