@@ -115,7 +115,7 @@ export class VideoWindowBackend implements PlayerBackend {
       kind: "load",
       path,
       title: item.video.title,
-      start_seconds: options?.initialPosition ? options.initialPosition / 1000 : null,
+      start_seconds: options?.initialPosition ?? null,
     });
 
     // `load` itself always starts playback on the rust side (mpv starts

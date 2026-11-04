@@ -32,6 +32,8 @@ pub struct UpsertPlaybackProgressRequest {
     pub duration_seconds: Option<f64>,
     pub position_locator: Option<String>,
     pub completed_at: Option<i64>,
+    /// optional queue session; verified against the caller and video before grouping feed events
+    pub session_id: Option<String>,
 }
 
 /// request for getting playback progress for a single entity
@@ -127,6 +129,7 @@ pub async fn upsert(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
         req.duration_seconds,
         req.position_locator,
         req.completed_at,
+        req.session_id,
     )
     .await;
 

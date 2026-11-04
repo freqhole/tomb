@@ -545,7 +545,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
         target?.index ?? 0,
         {
           type: "season",
-          label: seasonLabel(season),
+          label: `${detailQuery.data?.series.title ?? "series"} · ${seasonLabel(season)}`,
           entity_id: season.id,
         },
         target?.positionSeconds
@@ -561,7 +561,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     try {
       await addVideosToQueue(season.videos, {
         type: "season",
-        label: seasonLabel(season),
+        label: `${detailQuery.data?.series.title ?? "series"} · ${seasonLabel(season)}`,
         entity_id: season.id,
       });
     } finally {
@@ -575,7 +575,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
     try {
       await playVideoQueue(shuffleVideos(season.videos), 0, {
         type: "season",
-        label: seasonLabel(season),
+        label: `${detailQuery.data?.series.title ?? "series"} · ${seasonLabel(season)}`,
         entity_id: season.id,
       });
     } finally {
@@ -712,10 +712,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                         </Show>
                       </div>
 
-                      <TaxonChips
-                        taxons={aggregateTaxonsQuery.data}
-                        class="mt-2 justify-center"
-                      />
+                      <TaxonChips taxons={aggregateTaxonsQuery.data} class="mt-2 justify-center" />
 
                       <TagChips tags={aggregateTagsQuery.data} class="mt-2 justify-center" />
 
@@ -799,10 +796,7 @@ export function VideoSeriesDetailPanel(props: VideoSeriesDetailPanelProps) {
                         </Show>
                       </div>
 
-                      <TaxonChips
-                        taxons={aggregateTaxonsQuery.data}
-                        class="mt-2"
-                      />
+                      <TaxonChips taxons={aggregateTaxonsQuery.data} class="mt-2" />
 
                       <TagChips tags={aggregateTagsQuery.data} class="mt-2" />
 

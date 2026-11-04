@@ -556,8 +556,7 @@ pub(in crate::admin_dispatch) async fn update_spume() -> GrimoireResponse<JsonVa
     }
 }
 
-/// permanently delete media blobs that are soft-deleted and have no
-/// remaining references, and whose `deleted_at` is older than
+/// permanently delete unreferenced media blobs whose creation time is older than
 /// `min_age_days`. args: `{ min_age_days?: f64 (default 30.0), dry_run?: bool (default false) }`.
 pub(in crate::admin_dispatch) async fn cleanup_orphaned_blobs(
     args: JsonValue,
@@ -1024,45 +1023,20 @@ pub(in crate::admin_dispatch) async fn regenerate_library_video_thumbnails(
     let scan_directory = opt_str(&args, "scan_directory");
     let created_by = Some((caller.user_id.clone(), caller.username.clone()));
 
-    let mut totals = crate::maintenance::RepairLibraryImagesResult::default();
-    let mut offset = 0i64;
-    loop {
-        let resp = crate::maintenance::regenerate_video_thumbnails_batch(
-            dry_run,
-            crate::maintenance::VIDEO_THUMBNAIL_BATCH_SIZE,
-            offset,
-            scan_directory.as_deref(),
-            created_by.clone(),
-        )
-        .await;
-        let Some(outcome) = resp.data else {
-            return GrimoireResponse::failure(resp.message, resp.errors);
-        };
-        let more_remaining = outcome.more_remaining;
-        let regenerated_this_batch = outcome.result.videos_posters_regenerated;
-        totals.merge(outcome.result);
-        if !more_remaining {
-            break;
-        }
-        offset = crate::maintenance::repair_library_images::next_batch_offset(
-            dry_run,
-            regenerated_this_batch,
-            offset,
-            crate::maintenance::VIDEO_THUMBNAIL_BATCH_SIZE,
-        );
+    let response = crate::maintenance::regenerate_video_thumbnails_sync(
+        dry_run,
+        scan_directory.as_deref(),
+        created_by,
+    )
+    .await;
+    if !response.success {
+        return to_value(response);
     }
-
-    let verb = if dry_run {
-        "would regenerate"
-    } else {
-        "regenerated"
+    let Some(totals) = response.data else {
+        return internal("video poster regeneration returned no result");
     };
     GrimoireResponse::success(
-        format!(
-            "{verb} {} video poster(s) ({} error(s))",
-            totals.videos_posters_regenerated,
-            totals.errors.len(),
-        ),
+        response.message,
         json!({
             "dry_run": dry_run,
             "scan_directory": scan_directory,

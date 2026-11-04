@@ -15,6 +15,10 @@ which tools you need depends on where freqhole is running. browser and mobile
 clients do not run these command-line tools themselves; features that use them
 run on the freqhole node.
 
+:::note[headsup]
+these prerequisites (ffmpeg and yt-dlp) are optional!
+:::
+
 ---
 
 ## ffmpeg
@@ -23,7 +27,7 @@ run on the freqhole node.
 media-processing features. basic browsing and playback do not require a separate
 install on every client.
 
-**macOS and Windows**: the official Charnel desktop app bundles `ffmpeg` and
+**macOS and Windows**: the official charnel desktop app bundles `ffmpeg` and
 `ffprobe`; no separate install is normally needed.
 
 **Linux**: the Debian and RPM packages declare `ffmpeg` as a dependency, and
@@ -36,7 +40,7 @@ sudo dnf install ffmpeg   # fedora
 ```
 
 **rathole or development builds**: they may use tools installed on the system
-instead of the Charnel app's bundled binaries. make sure `ffmpeg` and `ffprobe`
+instead of the charnel app's bundled binaries. make sure `ffmpeg` and `ffprobe`
 are on `PATH` when using features that need them.
 
 ---

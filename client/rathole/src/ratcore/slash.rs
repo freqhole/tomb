@@ -534,6 +534,10 @@ pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
             ),
             ("backfill-thumbs", "backfill thumbnails [limit] [dry-run]"),
             (
+                "retranscode-video",
+                "queue replacement video renditions [video_id]",
+            ),
+            (
                 "hard-delete",
                 "hard-delete old soft-deleted [retention_days] [dry-run]",
             ),
@@ -1735,7 +1739,7 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
     };
     match sub.as_str() {
         "" | "help" | "list" => bad(
-            "usage: /maintenance <audit-references [repair]|cleanup-tags|cleanup-genres|cleanup-artists|cleanup-albums|cleanup-video-series|cleanup-taxons|cleanup-contentless-blobs|cleanup-blobs|cleanup-all|backfill-blake3|backfill-fsstore|backfill-thumbs|hard-delete|run-full|repair-library|repair-waveforms|repair-thumbnails|repair-video-thumbnails|regenerate-video-thumbnails|reorganize-library|reorganize-library-plan|update-image|update-spume> [args]",
+            "usage: /maintenance <audit-references [repair]|cleanup-tags|cleanup-genres|cleanup-artists|cleanup-albums|cleanup-video-series|cleanup-taxons|cleanup-contentless-blobs|cleanup-blobs|cleanup-all|backfill-blake3|backfill-fsstore|backfill-thumbs|hard-delete|hard-delete-videos|run-full|repair-library|repair-waveforms|repair-thumbnails|repair-video-thumbnails|regenerate-video-thumbnails|retranscode-video [video_id]|reorganize-library|reorganize-library-plan|update-image|update-spume> [args]",
         ),
         "cleanup-tags" | "cleanup_tags" => SlashAction::AdminDispatch {
             name: "maintenance_cleanup_orphaned_tags",
@@ -1915,6 +1919,10 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
                 "scan_directory": scan_dir,
             }),
         },
+        "retranscode-video" | "retranscode_video" => SlashAction::AdminDispatch {
+            name: "maintenance_retranscode_video_renditions",
+            body: serde_json::json!({ "video_id": first_positional }),
+        },
         "reorganize-library" | "reorganize_library" | "reorganize" => {
             let Some(target_directory) = first_positional else {
                 return bad(
@@ -1983,7 +1991,7 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
             }
         }
         _ => bad(
-            "usage: /maintenance <audit-references [repair]|cleanup-tags|cleanup-genres|cleanup-artists|cleanup-albums|cleanup-video-series|cleanup-taxons|cleanup-contentless-blobs|cleanup-blobs|cleanup-all|backfill-blake3|backfill-fsstore|backfill-thumbs|hard-delete|hard-delete-videos|run-full|repair-library [no-embedded-art] [no-directory-art] [remove-overapplied] [no-video-thumbnails]|repair-waveforms|repair-thumbnails [no-embedded-art] [no-directory-art] [remove-overapplied]|repair-video-thumbnails|regenerate-video-thumbnails|reorganize-library <target_directory> [domain=music|video|both] [dry-run] [no-embed-tags]|reorganize-library-plan <target_directory> [domain=music|video|both]|update-image|update-spume> [args]",
+            "usage: /maintenance <audit-references [repair]|cleanup-tags|cleanup-genres|cleanup-artists|cleanup-albums|cleanup-video-series|cleanup-taxons|cleanup-contentless-blobs|cleanup-blobs|cleanup-all|backfill-blake3|backfill-fsstore|backfill-thumbs|hard-delete|hard-delete-videos|run-full|repair-library [no-embedded-art] [no-directory-art] [remove-overapplied] [no-video-thumbnails]|repair-waveforms|repair-thumbnails [no-embedded-art] [no-directory-art] [remove-overapplied]|repair-video-thumbnails|regenerate-video-thumbnails|retranscode-video [video_id]|reorganize-library <target_directory> [domain=music|video|both] [dry-run] [no-embed-tags]|reorganize-library-plan <target_directory> [domain=music|video|both]|update-image|update-spume> [args]",
         ),
     }
 }
@@ -1991,6 +1999,22 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn maintenance_retranscode_uses_shared_admin_action() {
+        for (command, video_id) in [
+            ("/maintenance retranscode-video", None),
+            ("/maintenance retranscode-video video-1", Some("video-1")),
+        ] {
+            assert_eq!(
+                parse(command),
+                SlashAction::AdminDispatch {
+                    name: "maintenance_retranscode_video_renditions",
+                    body: serde_json::json!({ "video_id": video_id }),
+                }
+            );
+        }
+    }
 
     #[test]
     fn reference_audit_requires_explicit_repair_flag() {

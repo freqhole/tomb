@@ -144,6 +144,7 @@ fn rich_commands() -> Vec<AdminCommand> {
         builders::maintenance::repair_library_thumbnails(),
         builders::maintenance::repair_library_video_thumbnails(),
         builders::maintenance::regenerate_library_video_thumbnails(),
+        builders::maintenance::retranscode_video_renditions(),
         builders::maintenance::reorganize_library_plan(),
         builders::maintenance::reorganize_library_enqueue(),
         // -- dir_tags (rich) --
@@ -437,4 +438,55 @@ pub fn row_album_and_artist(row: &serde_json::Value) -> (Option<String>, Option<
         }
     }
     (album_id, artist_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ratcore::app::{ArgKind, CommandKind};
+
+    #[test]
+    fn core_maintenance_actions_are_available_once() {
+        let commands = commands();
+        for name in [
+            "maintenance_audit_blob_references",
+            "maintenance_cleanup_orphaned_tags",
+            "maintenance_cleanup_orphaned_genres",
+            "maintenance_cleanup_orphaned_artists",
+            "maintenance_cleanup_orphaned_albums",
+            "maintenance_cleanup_orphaned_video_series",
+            "maintenance_cleanup_orphaned_taxons",
+            "maintenance_cleanup_contentless_blobs",
+            "maintenance_cleanup_orphaned_blobs",
+            "maintenance_hard_delete_old_records",
+            "maintenance_hard_delete_old_videos",
+            "maintenance_backfill_blake3",
+            "maintenance_backfill_fsstore",
+            "maintenance_backfill_thumbnails",
+            "maintenance_repair_library",
+            "maintenance_repair_library_waveforms",
+            "maintenance_repair_library_thumbnails",
+            "maintenance_repair_library_video_thumbnails",
+            "maintenance_regenerate_library_video_thumbnails",
+            "maintenance_retranscode_video_renditions",
+            "maintenance_reorganize_library_plan",
+            "maintenance_reorganize_library_enqueue",
+        ] {
+            let matches: Vec<_> = commands
+                .iter()
+                .filter(|command| command.name == name)
+                .collect();
+            assert_eq!(matches.len(), 1, "{name}");
+            assert_eq!(matches[0].kind, CommandKind::Admin);
+        }
+    }
+
+    #[test]
+    fn video_retranscode_form_allows_whole_library_or_one_video() {
+        let command = builders::maintenance::retranscode_video_renditions();
+        assert_eq!(command.args.len(), 1);
+        assert_eq!(command.args[0].name, "video_id");
+        assert!(!command.args[0].required);
+        assert!(matches!(command.args[0].kind, ArgKind::Text { .. }));
+    }
 }

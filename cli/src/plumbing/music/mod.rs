@@ -118,23 +118,23 @@ pub enum MusicAction {
     },
     /// Cleanup orphaned blobs
     CleanupOrphanedBlobs {
-        #[arg(long, default_value = "7")]
+        #[arg(long, default_value_t = grimoire::maintenance::DEFAULT_RETENTION_DAYS as i64)]
         min_age_days: i64,
         #[arg(long)]
         dry_run: bool,
     },
     /// Hard delete old records
     HardDeleteOldRecords {
-        #[arg(long, default_value = "90")]
+        #[arg(long, default_value_t = grimoire::maintenance::DEFAULT_RETENTION_DAYS as i64)]
         retention_days: i64,
         #[arg(long)]
         keep_blob_data: bool,
         #[arg(long)]
         dry_run: bool,
     },
-    /// Run all maintenance operations
+    /// clean up orphaned blobs and hard-delete old music records
     RunMaintenance {
-        #[arg(long, default_value = "90")]
+        #[arg(long, default_value_t = grimoire::maintenance::DEFAULT_RETENTION_DAYS as i64)]
         retention_days: i64,
         #[arg(long)]
         dry_run: bool,

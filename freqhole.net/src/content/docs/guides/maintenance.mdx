@@ -2,7 +2,7 @@
 title: maintenance
 description: keeping your freqhole server healthy
 created: 2026-03-25T09:44:27-04:00
-updated: 2026-06-08T14:54:58-04:00
+updated: 2026-11-04T10:00:00-05:00
 author: "edward sharp"
 createdBy: "edwardsharp"
 createdSha: "2588f07"
@@ -12,220 +12,158 @@ updatedSha: "3f1c9aa"
 
 ## updating
 
-### desktop app
-
-1. download new release for your platform
-
-_in-app/over-the-wire updates coming soon(ish)!_
-
-:::note[headsup]
-some app updates need an extra app restart after updating
-:::
-
-### CLI
-
-1. download new binary from releases
-2. replace old binary
-3. restart server
+- **desktop app:** choose **freqhole → check for updates**, then follow the release link to download and install your platform's update. some updates need an extra restart.
+- **CLI:** download the new binary, replace the old one, and restart the server.
 
 database migrations run automatically on startup.
 
----
+## maintenance reference
 
-## database health
+the core operations below are available in **charnel, rathole, and the CLI**.
+they call shared grimoire logic; controls and execution differ:
 
-### check status
+- **charnel:** open **Library → maintenance**, recheck counts, select tasks, and run them. reference audit, asset repair, and file reorganization have separate panels.
+- **rathole:** choose an action from the **admin command palette**. `/maintenance help` lists slash-command shortcuts.
+- **CLI:** prefix the command below with `freqhole`. use `<group> <command> --help` for options.
+
+| operation                   | what it does                                                                                                | CLI command                                        |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| orphaned tags               | removes tags with no references.                                                                            | `maintenance cleanup-orphaned-tags`                |
+| orphaned genres             | removes genres with no references.                                                                          | `maintenance cleanup-orphaned-genres`              |
+| orphaned artists            | removes artists with no music or video references.                                                          | `maintenance cleanup-orphaned-artists`             |
+| orphaned albums             | removes albums with no music or video references.                                                           | `maintenance cleanup-orphaned-albums`              |
+| orphaned video series       | removes series with no videos.                                                                              | `maintenance cleanup-orphaned-video-series`        |
+| orphaned taxons             | removes unreferenced non-genre taxons.                                                                      | `maintenance cleanup-orphaned-taxons`              |
+| orphaned blobs              | reclaims unreferenced blob storage; scanned files outside `data_dir` are left untouched.                    | `music cleanup-orphaned-blobs`                     |
+| contentless blob records    | removes records with no retrievable content.                                                                | `maintenance cleanup-contentless-blobs`            |
+| old music records           | permanently removes old soft-deleted music records.                                                         | `music hard-delete-old-records`                    |
+| old video records           | permanently removes old soft-deleted video records.                                                         | `video hard-delete-old-records`                    |
+| missing content hashes      | calculates missing BLAKE3 hashes.                                                                           | `blobz backfill-blake3`                            |
+| P2P-store backfill          | registers already-hashed media in transport storage.                                                        | `maintenance backfill-fsstore`                     |
+| missing image thumbnails    | generates missing image-thumbnail sizes.                                                                    | `maintenance backfill-thumbnails`                  |
+| library asset repair        | fills missing waveforms, album art, and video posters.                                                      | `maintenance repair-library`                       |
+| waveform repair             | fills missing song and video waveforms only.                                                                | `maintenance repair-library-waveforms`             |
+| album-art repair            | fills missing album art; optional `--remove-overapplied` removes over-applied directory art.                | `maintenance repair-library-thumbnails`            |
+| missing video posters       | extracts posters only for videos that lack them.                                                            | `maintenance repair-library-video-thumbnails`      |
+| regenerate video posters    | replaces existing video posters.                                                                            | `maintenance regenerate-video-thumbnails`          |
+| re-transcode videos         | queues replacement renditions for videos that already have them; optional `--video-id ID` limits the scope. | `maintenance retranscode-video-renditions`         |
+| blob-reference audit/repair | checks known P2P file references; `--repair` registers verified paths without moving or deleting media.     | `config storage audit-references`                  |
+| reorganize fetched files    | previews or moves fetched music/video into a chosen layout.                                                 | `maintenance reorganize-library --target-dir PATH` |
+
+### previews, defaults, and variations
+
+- **preview first:** cleanup, asset-repair, poster-regeneration, P2P-store-backfill, and reorganization commands support `--dry-run`. in charnel, use counts/previews before running destructive work.
+- **30-day defaults:** orphan-blob cleanup measures age from **blob creation**; record retention measures age from **soft deletion**. CLI overrides are `--min-age-days N` and `--retention-days N`. explicit values in scripts still take precedence.
+- **charnel groups metadata cleanup:** one checkbox runs the six metadata-cleanup operations. metadata cleanup and missing image thumbnails start checked; other maintenance tasks start unchecked.
+- **asset repair:** charnel rescans tracked directories before the selected repairs. CLI/rathole asset-repair actions do not add that rescan. use the repair options to choose waveforms, embedded/directory album art, video posters, and optional removal of over-applied art.
+- **execution:** most cleanup/backfill actions return a summary. video transcodes use queued jobs. charnel/rathole also queue reference audits and reorganization batches; CLI audit/reorganization run directly. worker-dispatched library-image repairs use queued batches.
+
+:::caution[rescanning and retention]
+rescanning can import, relocate, restore, or soft-delete song records as files appear or disappear. hard deletion is permanent. review the selected scope and back up first.
+:::
+
+### additional tools
+
+these are diagnostics, shortcuts, or installation-specific actions rather than separate core maintenance operations:
+
+- `freqhole database info` and `freqhole database test` check the main database.
+- `freqhole music check-blob-references --blob-id ID` shows a blob's library references.
+- `freqhole blobz blake3-status` reports hash-backfill status; charnel shows the count in maintenance previews.
+- `freqhole maintenance cleanup-all` combines **tags and genres only**. charnel's metadata checkbox covers more entities.
+- `freqhole music run-maintenance` combines music-record retention and orphaned-blob cleanup; rathole calls this **full maintenance**. charnel offers those tasks separately.
+- `freqhole maintenance update-server-image` refreshes the configured server image. charnel has server-image controls in settings; rathole offers `/maintenance update-image`.
+- `freqhole maintenance update-spume` refreshes embedded web-client files for an HTTP-server installation with static files configured; rathole offers `/maintenance update-spume`. charnel doesn't serve this HTTP web client.
+
+## storage references and cleanup
+
+reference repair restores P2P availability; it does **not** reclaim disk space.
+it verifies recorded files against their expected hashes, then registers valid paths:
 
 ```bash
-freqhole database info
+freqhole --config /path/freqhole-config.toml config storage audit-references
+# stop other freqhole apps before repairing the transport index:
+freqhole --config /path/freqhole-config.toml config storage audit-references --repair
 ```
 
-shows:
+in charnel, use **Library → audit and repair blob references**. in rathole:
 
-- database size
-- table counts (songs, albums, etc.)
-- blob storage usage
-
-### vacuum
-
-SQLite databases grow fragmented over time. vacuum reclaims space:
-
-```bash
-freqhole maintenance vacuum
+```text
+/maintenance audit-references
+/maintenance audit-references repair
 ```
 
-run occasionally (monthly or after large deletions).
+reconnect missing disks or correct known paths first. repair cannot find files moved to an unknown location.
 
-### integrity check
+the P2P node runs periodic iroh-blobs garbage collection, reclaiming entire hashes once blob metadata no longer protects them. it does not prune one stale external path while its hash remains protected. do not edit or delete `freqhole-blobz/blobs.db`.
 
-verify database isn't corrupted:
+## out of disk space
 
-```bash
-freqhole maintenance integrity-check
-```
+1. pause imports, scans, and other writers. first free space **outside** the active data set — for example, move known old backups to another disk. don't manually delete blob-store files or SQLite databases!
+2. with some free space available, preview orphan-blob cleanup:
 
-run if you experience crashes or suspect disk issues.
+   ```bash
+   freqhole music cleanup-orphaned-blobs --dry-run
+   ```
 
----
+3. review the summary, then run without `--dry-run`. the default minimum age is **30 days**. to include newer orphaned blobs, preview the broader scope first:
 
-## cleaning up orphans
+   ```bash
+   freqhole music cleanup-orphaned-blobs
+   freqhole music cleanup-orphaned-blobs --min-age-days 0 --dry-run
+   # only after reviewing the preview:
+   freqhole music cleanup-orphaned-blobs --min-age-days 0
+   ```
 
-### what are orphans?
+4. if old soft-deleted records also need purging, preview then apply:
 
-- **missing files**: database entries for files that no longer exist
-- **orphan blobs**: blob data not referenced by any entity
-- **orphan images**: album art with no album
+   ```bash
+   freqhole music hard-delete-old-records --dry-run
+   freqhole video hard-delete-old-records --dry-run
+   # only after reviewing the previews:
+   freqhole music hard-delete-old-records
+   freqhole video hard-delete-old-records
+   ```
 
-### finding orphans
+   run orphan-blob cleanup again afterward: record deletion can create new orphans.
 
-```bash
-freqhole maintenance find-orphans
-```
+5. check free space with your operating system and database size with `freqhole database info`. if capacity is still insufficient, add space or follow the [storage-folder change guide](/concepts/storage/#changing-storage-folders).
 
-shows summary without modifying anything.
-
-### cleaning orphans
-
-```bash
-freqhole maintenance cleanup-orphans
-```
-
-removes unreferenced data. run `find-orphans` first to see what will be deleted.
-
----
+reference audit/repair isn't a disk-cleanup tool. see [where media lives](/concepts/storage/) for storage ownership and backup details.
 
 ## backup
 
-### database backup
+stop all freqhole apps before copying database and storage files so SQLite WAL
+and blob stores remain consistent. replace `data/` with your configured path.
 
-the SQLite database contains all your metadata, accounts, and settings:
-
-```bash
-cd /path/to/your/freqhole-install/
-cp data/grimoire.db data/grimoire-backup.db
-```
-
-or use SQLite's backup command:
+### database
 
 ```bash
 cd /path/to/your/freqhole-install/
 sqlite3 data/grimoire.db ".backup data/grimoire-backup.db"
 ```
 
-### blob backup
-
-cover art and other blobs are in `data/blobs/`. copy this directory to back up artwork.
-
-### data backup
+### complete data backup
 
 ```bash
 cd /path/to/your/freqhole-install/
 tar -czf freqhole-backup.tar.gz data/
 ```
 
-### restore
+include the entire configured data directory, including SQLite databases,
+`blob-files/`, and `freqhole-blobz/`. separately configured database/fetch
+folders and original scanned media need backing up too. see [storage and backups](/concepts/storage/#backing-up).
 
-stop server, replace data directory, start server.
+to restore, stop all apps, restore the data to its expected paths, then restart.
 
----
+## logs and troubleshooting
 
-## clearing caches
-
-### search index
-
-if search results seem stale:
-
-```bash
-freqhole maintenance rebuild-search-index
-```
-
-### cover art cache
-
-thumbnail regeneration (rarely needed):
+logs go to stderr for the CLI and the application logs directory for charnel.
+set verbosity with `RUST_LOG`:
 
 ```bash
-freqhole maintenance regenerate-thumbnails
+RUST_LOG=debug freqhole serve
 ```
 
----
-
-## logs
-
-### log location
-
-depends on how you run freqhole:
-
-- CLI: stderr (redirect to file if needed)
-- desktop app: application logs directory
-
-### log levels
-
-set in environment:
-
-```bash
-RUST_LOG=info freqhole serve
-RUST_LOG=debug freqhole serve  # verbose
-RUST_LOG=warn freqhole serve   # quiet
-```
-
----
-
-## performance tuning
-
-### for large libraries (10k+ songs)
-
-- use NVMe or SSD for data directory
-- increase OS file descriptor limits
-- consider dedicated machine (not shared server)
-
-### for many concurrent users
-
-- NVMe or SSD essential
-- sqlite WAL mode (default) handles contention mostly ok, but postgres would be better (node: there's no pg adaptor right now)
-
-### settings
-
-most tuning is automatic. SQLite is configured with:
-
-- WAL mode (write-ahead logging)
-- 100MB cache by default
-- proper locking for concurrency
-
----
-
-## troubleshooting
-
-### server won't start
-
-1. check config file exists and is valid TOML
-2. check data directory writable
-3. check port not in use
-4. run `freqhole serve --verbose` for details
-
-### database locked
-
-SQLite can't handle too many concurrent writes. freqhole handles this automatically, but external tools accessing the database can cause issues.
-
-### out of disk space
-
-1. vacuum database: `freqhole maintenance vacuum`
-2. clean orphan blobs: `freqhole maintenance cleanup-orphans`
-3. delete old backups
-4. add disk space
-
-### can't connect via p2p
-
-1. make sure your router has UPnP [universal plug and play](https://en.wikipedia.org/wiki/Universal_Plug_and_Play) enabled
-
-### audio stutters / xruns (linux)
-
-if playback in the desktop app crackles, stutters, or drops samples on linux — especially under load, in a vm, or on a low-power board (raspberry pi, etc.) — bump the cpal output buffer:
-
-```toml
-[audio]
-linux_buffer_frames = 4096   # or 8192 if 4096 still glitches
-```
-
-default is `2048` (~43ms latency @ 48kHz). doubling roughly doubles latency but adds proportional headroom against pipewire/pulseaudio scheduler jitter. restart the app for the change to take effect.
-
-see the [audio config section](/concepts/configuration/#audio-rodiocpal-buffer) for details.
+- **server won't start:** check the config, writable data directory, and any configured HTTP port. use debug logs for details.
+- **database locked:** stop other apps or external tools using the same database before retrying.
+- **P2P connection fails:** check connectivity and relay configuration, then see [HTTP vs P2P](/concepts/transports/). port forwarding is not normally required.

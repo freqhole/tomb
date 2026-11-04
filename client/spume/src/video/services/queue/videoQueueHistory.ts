@@ -196,11 +196,12 @@ export async function updateVideoHistoryProgress(
     const entry = await db.get(STORE_VIDEO_QUEUE_HISTORY, id);
     if (!entry) return;
 
-    const updated = { ...entry, ...updates };
+    const progress = { ...updates, progress_updated_at: Date.now() };
+    const updated = { ...entry, ...progress };
     await db.put(STORE_VIDEO_QUEUE_HISTORY, updated);
 
     // update signal in-place (avoid full reload for frequent updates)
-    setVideoQueueHistory((prev) => prev.map((e) => (e.id === id ? { ...e, ...updates } : e)));
+    setVideoQueueHistory((prev) => prev.map((e) => (e.id === id ? { ...e, ...progress } : e)));
   } catch (error) {
     errorLog("video/queueHistory", "update progress failed:", error);
   }

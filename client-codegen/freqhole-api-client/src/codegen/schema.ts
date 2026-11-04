@@ -8272,7 +8272,8 @@ export const UpsertPlaybackProgressRequestSchema = z.object({
   position_seconds: z.number().nullish(),
   duration_seconds: z.number().nullish(),
   position_locator: z.string().nullish(),
-  completed_at: z.number().nullish()
+  completed_at: z.number().nullish(),
+  session_id: z.string().nullish()
 });
 export type UpsertPlaybackProgressRequest = z.infer<typeof UpsertPlaybackProgressRequestSchema>;
 

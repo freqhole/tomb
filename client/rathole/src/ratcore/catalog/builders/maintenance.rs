@@ -20,6 +20,25 @@ pub(in crate::ratcore::catalog) fn audit_blob_references() -> AdminCommand {
     }
 }
 
+pub(in crate::ratcore::catalog) fn retranscode_video_renditions() -> AdminCommand {
+    use crate::ratcore::app::{ArgKind, ArgSpec};
+    AdminCommand {
+        name: "maintenance_retranscode_video_renditions".into(),
+        request_type: "RetranscodeVideoRenditionsRequest".into(),
+        response_type: "RetranscodeVideoRenditionsSummary".into(),
+        auth: "Admin".into(),
+        kind: CommandKind::Admin,
+        args: vec![ArgSpec {
+            name: "video_id".into(),
+            kind: ArgKind::Text {
+                placeholder: "(blank = all videos) video id".into(),
+            },
+            required: false,
+            help: Some("queues replacement renditions; leave blank for the whole library".into()),
+        }],
+    }
+}
+
 pub(in crate::ratcore::catalog) fn cleanup_orphaned_tags() -> AdminCommand {
     AdminCommand {
         name: "maintenance_cleanup_orphaned_tags".to_string(),
@@ -190,14 +209,15 @@ pub(in crate::ratcore::catalog) fn cleanup_orphaned_blobs() -> AdminCommand {
             ArgSpec {
                 name: "min_age_days".to_string(),
                 kind: ArgKind::Number {
-                    placeholder: "(blank = 30) min days since soft-delete".to_string(),
+                    placeholder: "(blank = 30) min days since blob creation".to_string(),
                     signed: false,
                     min: Some(0),
                     max: None,
                 },
                 required: false,
                 help: Some(
-                    "only purge blobs soft-deleted more than this many days ago".to_string(),
+                    "only reclaim unreferenced blobs created more than this many days ago"
+                        .to_string(),
                 ),
             },
             dry_run_arg(),

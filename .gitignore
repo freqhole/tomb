@@ -28,3 +28,6 @@ playlistz/
 flatpak/freqhole.deb
 /client/charnel/src-tauri/plugins/tauri-plugin-android-media-session/android/build
 /scripts/raspberry-pi/__pycache__
+freqhole.net/public/demo/freqhole-coach-demo.css
+/freqhole.net/public/demo/assets
+/scripts/__pycache__

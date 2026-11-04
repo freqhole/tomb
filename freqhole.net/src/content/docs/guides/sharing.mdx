@@ -1,6 +1,6 @@
 ---
 title: sharing with friends
-description: setting up P2P sharing and managing access
+description: invite friends to your library or pair a player
 created: 2026-03-25T09:44:27-04:00
 updated: 2026-06-08T14:54:58-04:00
 author: "edward sharp"
@@ -10,171 +10,87 @@ updatedBy: "edwardsharp"
 updatedSha: "3f1c9aa"
 ---
 
-freqhole lets you share your music + video library with friends via peer-to-peer connections — no port forwarding or public IP needed.
+share your music + video library over P2P without port forwarding. first, choose what you want to do:
 
-## enabling federation
+- **let a friend browse your library:** invite them or approve their access request.
+- **control another device's playback:** [pair a player](#pair-a-player) using its QR code and PIN.
+- **send an album, video, or playlist:** use that item's **share** button. the recipient still needs access to its source library.
 
-### in config file
+:::note[address vs permission]
+a node ID, library link, or library QR code tells someone **where to connect**. an invite code or approved knock grants **library access**. a player PIN grants **player control** — these are different permissions.
+:::
 
-```toml
-[federation]
-enabled = true
-```
+## share from charnel
 
-### in desktop app
+use the local wizard's admin views:
 
-settings → network → enable P2P
+1. open **federation**, enable it if needed, and copy your **node ID**.
+2. send your friend this link, replacing `NODE_ID` with your own:
 
-after enabling, your server gets a unique **node ID** — your P2P identity.
-
----
-
-## finding your node ID
-
-### CLI
-
-```bash
-freqhole federation status
-```
-
-### desktop app
-
-settings → network → your node ID
-
-### node ID format
-
-looks like:
-
-```
-2bfzgvv4jqzhxqq5izn4k4u3whx7xh7c4qmdknhfhdyqbhnxlmaa
-```
-
-this never changes for your server. share it to let friends connect.
-
----
-
-## inviting a friend
-
-1. **create invite code**
-
-   ```bash
-   freqhole auth create-invite --role viewer
+   ```text
+   https://spume.freqhole.net/?r=NODE_ID
    ```
 
-2. **share with friend**
+3. choose one way to grant access:
+   - **invite:** open **users → invitez → generate invite**, check the invite's role, and send the code privately.
+   - **knock:** with knocking enabled, your friend requests access when connecting. review it under **federation → access requests**, then approve or deny it.
 
-   send them:
-   - your node ID
-   - the invite code
+choose **viewer** for someone who should only browse and play media. use a higher role only when you want them to edit or administer your library.
 
-3. **friend connects**
+already know your friend's device node ID? **federation → allowed peers** lets you associate it with a user directly, instead of exchanging an invite.
 
-   they add your node ID as a remote and enter the code.
+## share from rathole
 
----
+use these commands inside the terminal app:
 
-## connecting to a friend's server
+| task                           | command                            |
+| ------------------------------ | ---------------------------------- |
+| find your node ID              | `/info`                            |
+| copy a browser connection link | `/copy-invite`                     |
+| generate an invite code        | `/invite create`                   |
+| review pending access requests | `/knock list`                      |
+| approve or deny a request      | `/knock accept` or `/knock reject` |
+| revoke an unused invite        | `/invite revoke`                   |
 
-1. **get their info**
+the invite and knock actions open forms where you choose the details. `/copy-invite` copies a connection link, **not** an access code.
 
-   you need:
-   - their node ID
-   - an invite code
-
-2. **add as remote**
-
-   in web app: remotes → add → enter node ID
-
-3. **register**
-
-   enter invite code and create username.
-
-4. **done**
-
-   their library appears in your remotes.
-
----
-
-## knock requests
-
-an alternative to sharing invite codes ahead of time.
-
-### what is a knock?
-
-when someone tries to connect without an invite code, it creates a "knock request" — they're asking for access.
-
-### enabling knocks
-
-```toml
-[federation]
-knocking_enabled = true
-```
-
-### responding to knocks
-
-in desktop app:
-
-notifications → pending knocks → approve/deny
-
-in CLI:
+for command-line peer approval outside the TUI:
 
 ```bash
-freqhole federation list-knocks
-freqhole federation accept-knock <knock-id>
-freqhole federation reject-knock <knock-id>
+freqhole federation allow-peer FRIEND_NODE_ID --username friend --role viewer
 ```
 
-approved users get **viewer** role by default (you can set a different role in freqhole-config.toml).
+## connect from charnel or the web app
 
----
+the library interface uses the same flow on desktop, mobile, and in a browser:
 
-## managing peers
+1. open **add remote**.
+2. paste the library's node ID or connection link, or scan its QR code when a camera is available.
+3. redeem the invite code and follow the account prompts. without a code, submit a knock if the library allows requests.
+4. once access is granted, select the remote to browse and play its media.
 
-### allowing a peer by node ID
+your friend can send the address through any trusted side channel — a message, email, or printed QR code. scanning saves typing; it doesn't bypass approval.
 
-if you know a friend's node ID, you can grant them access directly:
+already have an account and want to add another device? use an **account-link code**, rather than creating another user. see [invite codes](/concepts/invite-codes/).
 
-```bash
-freqhole federation allow-peer <node-id> --username alice --role viewer
-```
+## pair a player
 
----
+this is for playing **on another device**, not browsing its library:
 
-## what gets shared
+1. open the destination device's **player** screen. in rathole, use `/player`.
+2. on your controller, open **add remote** and scan the player's QR code, or paste its node ID.
+3. enter the PIN shown on the player when prompted.
+4. select the paired player as your playback target, then queue media.
 
-### visible to viewers
+if charnel offers **allow this player to access your library**, leave it enabled when the player needs to fetch media from you. pairing alone doesn't grant that library access.
 
-- song metadata (title, artist, album, duration)
-- video metadata (title, series, season, duration)
-- album artwork + video posters
-- stream access (can play music + video)
-- search functionality
-- feed of server activity: new media, playback sessions, favorites & ratings
+see [cenotaph](/guides/cenotaph/) for player modes, trusted controllers, and admin pairing.
 
-### not shared
+## access and privacy
 
-- file paths on your disk
-- your playback history
-- server configuration
+- **viewer** access lets friends browse and play media, not edit your library.
+- activity feeds can show playback sessions, favorites, and ratings; don't assume playback history is private.
+- share invite/account-link codes and player PINs only with the intended person. check the role before approving.
+- revoke unused invites or remove a device's allowed-peer access in the admin views when needed. revoking an unused invite doesn't remove an account that already redeemed it.
 
----
-
-## bandwidth considerations
-
-### relay fallback
-
-if direct connection fails, data routes through relay server:
-
-- same bandwidth used
-- added latency
-- relay sees traffic volume, not content
-
----
-
-## security notes
-
-- all P2P connections are encrypted
-- node ID is cryptographic identity
-- authentication still required (invite/knock)
-- viewers can only read, not modify
-- can revoke access anytime
+P2P connections are encrypted; a relay carries traffic when a direct connection isn't available. see [HTTP vs P2P](/concepts/transports/) for transport details.

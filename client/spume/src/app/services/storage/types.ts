@@ -192,6 +192,7 @@ export interface VideoQueueHistoryEntry {
   videos_completed: number; // videos where >90% was watched
   current_video_index: number; // which video we're on (for resume)
   current_video_position: number; // position in current video (for resume)
+  progress_updated_at?: number; // milliseconds; absent on older history entries
   // server session tracking (for reconnection after page reload) — mirrors
   // QueueHistoryEntry's fields above
   server_session_id?: string; // active server-side playback session id

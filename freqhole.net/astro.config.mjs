@@ -62,18 +62,6 @@ export default defineConfig({
 					],
 				},
 				{
-					label: 'concepts',
-					items: [
-						{ label: 'configuration', slug: 'concepts/configuration' },
-						{ label: 'the database', slug: 'concepts/database' },
-						{ label: 'HTTP vs P2P', slug: 'concepts/transports' },
-						{ label: 'web app architecture', slug: 'concepts/web-app' },
-						{ label: 'where media lives', slug: 'concepts/storage' },
-						{ label: 'user roles', slug: 'concepts/user-roles' },
-						{ label: 'invite codes', slug: 'concepts/invite-codes' },
-					],
-				},
-				{
 					label: 'guides',
 					items: [
 						{ label: 'adding media', slug: 'guides/scanning' },
@@ -82,6 +70,17 @@ export default defineConfig({
 						{ label: 'maintenance', slug: 'guides/maintenance' },
 						{ label: 'freqhole on a pi', slug: 'guides/freqhole-on-a-pi' },
 						{ label: 'cenotaph', slug: 'guides/cenotaph' },
+					],
+				},
+				{
+					label: 'concepts',
+					items: [
+						{ label: 'configuration', slug: 'concepts/configuration' },
+						{ label: 'the database', slug: 'concepts/database' },
+						{ label: 'HTTP vs P2P', slug: 'concepts/transports' },
+						{ label: 'where media lives', slug: 'concepts/storage' },
+						{ label: 'user roles', slug: 'concepts/user-roles' },
+						{ label: 'invite codes', slug: 'concepts/invite-codes' },
 					],
 				},
 

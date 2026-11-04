@@ -5,7 +5,10 @@ import { createEffect, createMemo, createSignal, on, onCleanup, Show } from "sol
 import { confirm } from "../../app/services/confirmState";
 import { clearPageInfo, setPageInfo, type FeedTypeFilter } from "../../app/services/pageInfo";
 import { appState } from "../../app/services/storage/db";
-import { toQueueHistorySourceType } from "../../app/services/storage/types";
+import {
+  toQueueHistorySourceType,
+  type VideoQueueSourceContext,
+} from "../../app/services/storage/types";
 import { isRadioPlayerBarActive } from "../../app/services/radio/radioService";
 import { isNarrowViewport, getPlayerBarHeightPx } from "../../config/breakpoints";
 import { Button } from "../../components/buttons/Button";
@@ -45,12 +48,36 @@ import {
 } from "../services/storage/blobResolver";
 import { setHighlightedSongId } from "../state/highlightedSong";
 import { routes } from "../utils/routing";
-import { videoToMediaItem, type MediaItem } from "../../app/services/storage/mediaItem";
+import {
+  videoToMediaItem,
+  songToMediaItem,
+  videosOnly,
+  type MediaItem,
+} from "../../app/services/storage/mediaItem";
 import { getVideoDataSource } from "../../video/data";
 import type { VideoSummary } from "../../video/data/types";
-import { videoQueueHistory } from "../../video/services/queue/videoQueueHistory";
-import { resumeVideoHistoryEntry } from "../../video/services/queue/playVideoQueue";
+import {
+  videoQueueHistory,
+  updateVideoHistoryServerSession,
+} from "../../video/services/queue/videoQueueHistory";
+import { playVideoQueue, resumeVideoHistoryEntry } from "../../video/services/queue/playVideoQueue";
+import { activeVideoHistoryEntryId } from "../../video/services/queue/videoListenProgress";
+import { addVideosToQueue } from "../../video/services/videoQueueActions";
+import { fetchVideoProgressForVideos, resumePositionFor } from "../../video/queries/progress";
 import type { Song } from "../services/storage/types";
+
+function videoSessionSource(session: PlaybackSession): VideoQueueSourceContext {
+  return {
+    type:
+      session.session_type === "video_series"
+        ? "series"
+        : session.session_type === "video_season"
+          ? "season"
+          : "video",
+    label: session.label,
+    entity_id: session.entity_id ?? undefined,
+  };
+}
 
 export function FeedView() {
   const navigate = useNavigate();
@@ -224,9 +251,7 @@ export function FeedView() {
 
   // helper: resolve a playback session's item list (song ∪ video, any mix)
   // back into playable objects, preserving the session's original item order.
-  const fetchMediaItemsForSession = async (
-    session: PlaybackSession
-  ): Promise<Array<Song | MediaItem>> => {
+  const fetchMediaItemsForSession = async (session: PlaybackSession): Promise<MediaItem[]> => {
     const songIds = session.items.filter((i) => i.entity_type === "song").map((i) => i.entity_id);
     const videoIds = session.items.filter((i) => i.entity_type === "video").map((i) => i.entity_id);
 
@@ -244,11 +269,11 @@ export function FeedView() {
     }
     const videoById = new Map(videos.map((v) => [v.id, v] as const));
 
-    const items: Array<Song | MediaItem> = [];
+    const items: MediaItem[] = [];
     for (const sessionItem of session.items) {
       if (sessionItem.entity_type === "song") {
         const song = songById.get(sessionItem.entity_id);
-        if (song) items.push(song);
+        if (song) items.push(songToMediaItem(song));
       } else if (sessionItem.entity_type === "video") {
         const video = videoById.get(sessionItem.entity_id);
         if (video) items.push(videoToMediaItem(video));
@@ -310,11 +335,9 @@ export function FeedView() {
         toast.error("no playable items in session");
         return;
       }
-      // exact resume-position (seconds within the current item) tracking
-      // only exists for song sessions today (listenProgress.ts) — video/mixed
-      // sessions still resume at the right queue position, just not the
-      // exact playback position within that item.
       const isSongOnlySession = session.items.every((i) => i.entity_type === "song");
+      const sessionVideos = videosOnly(mediaItems);
+      const isVideoOnlySession = sessionVideos.length === mediaItems.length;
 
       // a session is effectively done if its status is "completed" or all items were played
       const isEffectivelyComplete =
@@ -333,29 +356,49 @@ export function FeedView() {
             }
           : undefined;
 
-        await playQueue(mediaItems, {
-          startIndex: session.current_item_index,
-          skipServerSession: true,
-          resumeProgress,
-          source: {
-            type: toQueueHistorySourceType(session.session_type),
-            label: session.label,
-            entity_id: session.entity_id ?? undefined,
-          },
-        });
+        if (isVideoOnlySession) {
+          const progress = await fetchVideoProgressForVideos(sessionVideos);
+          await playVideoQueue(
+            sessionVideos,
+            session.current_item_index,
+            videoSessionSource(session),
+            resumePositionFor(sessionVideos[session.current_item_index].id, progress),
+            { skipServerSession: true }
+          );
+        } else {
+          await playQueue(mediaItems, {
+            startIndex: session.current_item_index,
+            skipServerSession: true,
+            resumeProgress,
+            source: {
+              type: toQueueHistorySourceType(session.session_type),
+              label: session.label,
+              entity_id: session.entity_id ?? undefined,
+            },
+          });
+        }
 
         // resume the server session tracking
         const remote = getCurrentRemote();
         if (remote) {
-          await resumeServerSession(session.id, { progress: session.items_completed }, remote, {
-            label: session.label,
-            sessionType: session.session_type,
-            entityId: session.entity_id ?? undefined,
-          });
+          await resumeServerSession(
+            session.id,
+            { progress: session.items_completed },
+            remote,
+            {
+              label: session.label,
+              sessionType: session.session_type,
+              entityId: session.entity_id ?? undefined,
+            },
+            undefined,
+            mediaItems
+          );
 
           // link the new history entry to the resumed server session
-          const entryId = activeHistoryEntryId();
-          if (entryId) {
+          const entryId = isVideoOnlySession ? activeVideoHistoryEntryId() : activeHistoryEntryId();
+          if (entryId && isVideoOnlySession) {
+            void updateVideoHistoryServerSession(entryId, session.id, remote.remote_id);
+          } else if (entryId) {
             void updateHistoryServerSession(entryId, session.id, remote.remote_id);
           }
         }
@@ -363,13 +406,17 @@ export function FeedView() {
         toast.info("resumed session");
       } else {
         // completed — start fresh as a new session
-        await playQueue(mediaItems, {
-          source: {
-            type: toQueueHistorySourceType(session.session_type),
-            label: session.label,
-            entity_id: session.entity_id ?? undefined,
-          },
-        });
+        if (isVideoOnlySession) {
+          await playVideoQueue(sessionVideos, 0, videoSessionSource(session));
+        } else {
+          await playQueue(mediaItems, {
+            source: {
+              type: toQueueHistorySourceType(session.session_type),
+              label: session.label,
+              entity_id: session.entity_id ?? undefined,
+            },
+          });
+        }
         toast.info("started new session");
       }
     } catch (error) {
@@ -401,13 +448,17 @@ export function FeedView() {
         return;
       }
 
-      await playQueue(mediaItems, {
-        source: {
-          type: toQueueHistorySourceType(session.session_type),
-          label: session.label,
-          entity_id: session.entity_id ?? undefined,
-        },
-      });
+      if (mediaItems.every((item) => item.kind === "video")) {
+        await playVideoQueue(videosOnly(mediaItems), 0, videoSessionSource(session));
+      } else {
+        await playQueue(mediaItems, {
+          source: {
+            type: toQueueHistorySourceType(session.session_type),
+            label: session.label,
+            entity_id: session.entity_id ?? undefined,
+          },
+        });
+      }
     } catch (error) {
       console.error("failed to start session over:", error);
       toast.error("failed to start session");
@@ -699,12 +750,16 @@ export function FeedView() {
               if (session) {
                 const mediaItems = await fetchMediaItemsForSession(session);
                 if (mediaItems.length > 0) {
-                  await addToQueue(mediaItems, {
-                    source: {
-                      type: toQueueHistorySourceType(session.session_type),
-                      label: item.title,
-                    },
-                  });
+                  if (mediaItems.every((item) => item.kind === "video")) {
+                    await addVideosToQueue(videosOnly(mediaItems), videoSessionSource(session));
+                  } else {
+                    await addToQueue(mediaItems, {
+                      source: {
+                        type: toQueueHistorySourceType(session.session_type),
+                        label: item.title,
+                      },
+                    });
+                  }
                 }
               }
             }

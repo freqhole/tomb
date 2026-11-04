@@ -768,7 +768,47 @@ async fn radio_session_subtitle(
 
 #[cfg(test)]
 mod radio_session_tests {
-    use super::radio_session_subtitle;
+    use super::{radio_session_subtitle, video_watch_session_matches};
+
+    #[tokio::test]
+    async fn video_watch_grouping_requires_own_named_session_and_matching_video() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::raw_sql(
+            r#"CREATE TABLE playback_sessionz (
+                id TEXT, user_id TEXT, session_type TEXT, items TEXT
+            );
+            INSERT INTO playback_sessionz VALUES
+                ('season', 'viewer', 'video_season', '[{"entity_type":"video","entity_id":"episode"}]'),
+                ('series', 'viewer', 'video_series', '[{"entity_type":"video","entity_id":"episode"}]'),
+                ('single', 'viewer', 'video', '[{"entity_type":"video","entity_id":"episode"}]'),
+                ('song', 'viewer', 'video_series', '[{"entity_type":"song","entity_id":"episode"}]');"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        for session in ["season", "series"] {
+            assert!(
+                video_watch_session_matches(&pool, session, "viewer", "episode")
+                    .await
+                    .unwrap()
+            );
+        }
+        for (session, viewer, video) in [
+            ("season", "another-user", "episode"),
+            ("season", "viewer", "another-video"),
+            ("single", "viewer", "episode"),
+            ("song", "viewer", "episode"),
+            ("missing", "viewer", "episode"),
+        ] {
+            assert!(!video_watch_session_matches(&pool, session, viewer, video)
+                .await
+                .unwrap());
+        }
+    }
 
     #[tokio::test]
     async fn radio_session_subtitle_resolves_only_heard_media() {
@@ -854,7 +894,7 @@ pub async fn upsert_session_feed_event(session_id: &str) -> GrimoireResponse<Fee
                 WHEN ls.session_type IN ('video', 'video_series', 'video_season') AND ls.entity_id IS NOT NULL THEN
                     (SELECT json_group_array(json_object('blob_id', ei.media_blob_id, 'is_primary', ei.is_primary, 'blob_type', mb.blob_type))
                      FROM entity_imagez ei JOIN media_blobz mb ON ei.media_blob_id = mb.id
-                     WHERE ei.entity_type IN ('video', 'video_series') AND ei.entity_id = ls.entity_id AND mb.blob_type NOT IN ('waveform'))
+                     WHERE ei.entity_type = ls.session_type AND ei.entity_id = ls.entity_id AND mb.blob_type NOT IN ('waveform'))
                 ELSE '[]'
             END as "images!: String",
             CASE
@@ -887,6 +927,10 @@ pub async fn upsert_session_feed_event(session_id: &str) -> GrimoireResponse<Fee
                 WHEN ls.session_type = 'album' THEN (SELECT a.title FROM albumz a WHERE a.id = ls.entity_id)
                 WHEN ls.session_type = 'artist' THEN (SELECT a.name FROM artistz a WHERE a.id = ls.entity_id)
                 WHEN ls.session_type = 'playlist' THEN (SELECT p.title FROM playlistz p WHERE p.id = ls.entity_id)
+                WHEN ls.session_type = 'video_series' THEN (SELECT s.title FROM video_seriez s WHERE s.id = ls.entity_id)
+                WHEN ls.session_type = 'video_season' THEN
+                    (SELECT s.title || ' · ' || COALESCE(NULLIF(se.title, ''), 'season ' || se.season_number)
+                     FROM video_seasonz se JOIN video_seriez s ON s.id = se.series_id WHERE se.id = ls.entity_id)
                 ELSE NULL
             END as "entity_title?: String",
             CASE
@@ -949,7 +993,10 @@ pub async fn upsert_session_feed_event(session_id: &str) -> GrimoireResponse<Fee
 
     let feed_type = FeedEventType::Session.to_string();
     let username = session.username.unwrap_or_else(|| "unknown".to_string());
-    let title = session.label;
+    let title = match session.session_type.as_str() {
+        "video_series" | "video_season" => session.entity_title.clone().unwrap_or(session.label),
+        _ => session.label,
+    };
     let subtitle = if session.session_type == "radio" {
         match radio_session_subtitle(&pool, &session.items).await {
             Ok(subtitle) => subtitle,
@@ -1436,6 +1483,7 @@ pub async fn upsert_video_feed_event(
 pub async fn create_video_watch_feed_event(
     video_id: &str,
     user_id: &str,
+    session_id: Option<&str>,
 ) -> GrimoireResponse<FeedEventResult> {
     if should_skip_feed_event(user_id).await {
         return GrimoireResponse::success(
@@ -1450,6 +1498,19 @@ pub async fn create_video_watch_feed_event(
             return GrimoireResponse::failure("failed to connect to database", vec![e.into()])
         }
     };
+
+    if let Some(session_id) = session_id {
+        match video_watch_session_matches(&pool, session_id, user_id, video_id).await {
+            Ok(true) => return upsert_session_feed_event(session_id).await,
+            Ok(false) => {}
+            Err(error) => {
+                return GrimoireResponse::failure(
+                    "failed to resolve video watch session",
+                    vec![error.into()],
+                );
+            }
+        }
+    }
 
     // should_skip_feed_event above already confirmed this user exists (and
     // isn't the freqroot service account) - only reachable here on a
@@ -1528,6 +1589,28 @@ pub async fn create_video_watch_feed_event(
             GrimoireResponse::failure("failed to upsert video watch feed event", vec![e.into()])
         }
     }
+}
+
+async fn video_watch_session_matches(
+    pool: &sqlx::SqlitePool,
+    session_id: &str,
+    user_id: &str,
+    video_id: &str,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar!(
+        r#"SELECT EXISTS(
+            SELECT 1 FROM playback_sessionz ps, json_each(ps.items) item
+            WHERE ps.id = ? AND ps.user_id = ?
+                AND ps.session_type IN ('video_series', 'video_season')
+                AND json_extract(item.value, '$.entity_type') = 'video'
+                AND json_extract(item.value, '$.entity_id') = ?
+        ) as "matches!: bool""#,
+        session_id,
+        user_id,
+        video_id
+    )
+    .fetch_one(pool)
+    .await
 }
 
 /// create or update a rating feed event

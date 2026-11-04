@@ -2260,10 +2260,11 @@ export default function LibraryView() {
                   </svg>
                 </span>
                 <span class="checkbox-content">
-                  <span class="checkbox-label">purge long-soft-deleted orphaned blobs</span>
+                  <span class="checkbox-label">purge old orphaned blobs</span>
                   <span class="checkbox-hint">
-                    destructive: permanently removes files/rows soft-deleted 30+ days ago. off by
-                    default.
+                    destructive: soft-deletes unreferenced blob records created 30+ days ago and
+                    reclaims their app-managed data. scanned files outside the data directory are
+                    left alone. off by default.
                   </span>
                   <Show when={maintenancePreviewText("orphaned_blobs")}>
                     <span class="checkbox-count">{maintenancePreviewText("orphaned_blobs")}</span>

@@ -35,8 +35,8 @@ pub use repair_library_images::{
     RepairLibraryImagesResult, WaveformBatchOutcome, DIRECTORY_BATCH_SIZE, WAVEFORM_BATCH_SIZE,
 };
 pub use repair_video_images::{
-    regenerate_video_thumbnails_batch, repair_video_thumbnails_batch, repair_video_waveforms_batch,
-    VIDEO_THUMBNAIL_BATCH_SIZE,
+    regenerate_video_thumbnails_batch, regenerate_video_thumbnails_sync,
+    repair_video_thumbnails_batch, repair_video_waveforms_batch, VIDEO_THUMBNAIL_BATCH_SIZE,
 };
 pub use retranscode_video_renditions::{
     enqueue_retranscode_video_renditions, RetranscodeVideoRenditionsSummary,
@@ -71,7 +71,9 @@ pub async fn run_full_maintenance_with_options(
 
     // Step 1: Clean up orphaned media blobs
     println!("Cleaning up orphaned media blobs...");
-    let blobs_response = cleanup_orphaned_media_blobs_older_than(7.0, options.dry_run).await;
+    let blobs_response =
+        cleanup_orphaned_media_blobs_older_than(DEFAULT_RETENTION_DAYS as f64, options.dry_run)
+            .await;
     let orphaned_blobs_cleaned = match blobs_response.data {
         Some(data) => data,
         None => {

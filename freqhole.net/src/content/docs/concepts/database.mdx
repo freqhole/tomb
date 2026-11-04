@@ -19,6 +19,9 @@ regenerate them with `npm --prefix freqhole.net run gen:schema`.
 
 drag to pan, use the + / - buttons to zoom, or use the mouse wheel over a focused
 diagram. click a node to center and zoom to it (or focus it and press enter).
+the selected node and its connected edges turn magenta. click the same node again
+to fit it and its directly connected neighbors; further clicks alternate between
+the node alone and that neighborhood.
 click the background or press Escape to back out three zoom steps for surrounding
 context; this happens once per focused node, not on every background click.
 **fit** resets the view. the graph remains interactive on touchscreens.

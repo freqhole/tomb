@@ -127,7 +127,7 @@ the app also has a local web view (similar to the web app), but because it talks
 
 ### changing storage folders
 
-in Charnel's local wizard **settings**, these are separate operations:
+in charnel's local wizard **settings**, these are separate operations:
 
 - **select a new folder without moving** updates the data-directory setting,
   closes the app, and opens first-time setup for a fresh library/node next time.
@@ -159,7 +159,7 @@ cutover. the original config remains at its existing path so launchers still
 find it; host preferences, webview state, locks and empty folders can remain
 there too. do not remove that original folder wholesale.
 
-CLI equivalents (also available through Charnel's terminal passthrough):
+CLI equivalents (also available through charnel's terminal passthrough):
 
 ```sh
 freqhole --config /path/freqhole-config.toml config storage preview move-data /new/folder
@@ -187,6 +187,17 @@ are reported explicitly; reconnect a missing disk or correct its library
 path rather than forcing repair. repair is repeatable and retains successful
 registrations if interrupted. it does not scan arbitrary folders for moved
 files or prune old redb references.
+
+reference repair and blob cleanup solve different problems. `audit-references
+--repair` re-registers known files only after verifying their hashes; it does
+not remove stale external paths. the maintenance orphan-blob purge removes
+unreferenced media-blob entries from active use and reclaims app-managed files
+or stored blob data, while leaving scanned files outside the data directory alone. the
+running P2P storage node also has automatic periodic iroh-blobs GC: once a
+hash is no longer protected by blob metadata, GC can reclaim that whole hash.
+it does not prune one stale path from a still-protected hash, and there is no
+supported manual path-prune operation. do not edit or delete `freqhole-blobz/blobs.db`;
+see the [maintenance guide](/guides/maintenance/) for safe cleanup steps.
 
 for GUI app, use **library → audit and repair blob
 references** in charnel's wizard. **audit only** hashes known source files;

@@ -10,7 +10,7 @@ const { source, label } = Astro.props;
     <button type="button" data-zoom="out" aria-label={`zoom out ${label}`}>-</button>
     <button type="button" data-zoom="fit">fit</button>
   </div>
-  <div class="viewport" tabindex="0" role="region" aria-label={`${label}: click a node to zoom, click background or press Escape for context, drag to pan, + or - to zoom, 0 to fit`}>
+  <div class="viewport" tabindex="0" role="region" aria-label={`${label}: click a node to zoom, repeat to toggle connected nodes, click background or press Escape for context, drag to pan, + or - to zoom, 0 to fit`}>
     <p class="status" role="status">loading diagram...</p>
     <svg class="canvas" width="100%" height="600" aria-label={label}></svg>
   </div>
@@ -33,6 +33,7 @@ const { source, label } = Astro.props;
 <script>
   import mermaid from "mermaid";
   import { select, zoom, zoomIdentity, zoomTransform, type ZoomBehavior } from "d3";
+  import { graphNodeId, selectGraphNode } from "./schema-selection.mjs";
 
   let nextId = 0;
   class SchemaDiagram extends HTMLElement {
@@ -63,13 +64,27 @@ const { source, label } = Astro.props;
           theme: document.documentElement.dataset.theme === "light" ? "default" : "dark",
           er: { useMaxWidth: false }, flowchart: { useMaxWidth: false },
         });
-        const { svg } = await mermaid.render(`schema-${++nextId}`, source);
+        const diagram = await mermaid.mermaidAPI.getDiagramFromText(source);
+        const { edges } = (diagram.db as typeof diagram.db & {
+          getData(): { edges: { id: string; start: string; end: string }[] };
+        }).getData();
+        const diagramId = `schema-${++nextId}`;
+        const { svg } = await mermaid.render(diagramId, source);
         if (!this.isConnected || generation !== this.generation) return;
         // mermaid's HTML labels can contain <br>, which isn't XML-safe.
         const template = document.createElement("template");
         template.innerHTML = svg;
         const content = template.content.firstElementChild;
         if (!(content instanceof SVGSVGElement)) throw new Error("invalid SVG element");
+        // match mermaid's diagram-ID specificity, including custom view node colors.
+        const selectionStyle = document.createElementNS("http://www.w3.org/2000/svg", "style");
+        selectionStyle.textContent = `
+          #${diagramId} g.node[aria-pressed="true"] .nodeLabel,
+          #${diagramId} g.node[aria-pressed="true"] .nodeLabel * { color: #fff !important; }
+          #${diagramId} g.node[aria-pressed="true"] text { fill: #fff !important; }
+          #${diagramId} path[data-selected-edge] { stroke: #e879f9 !important; stroke-width: 3px !important; }
+        `;
+        content.append(selectionStyle);
         const box = content.viewBox.baseVal;
         const width = box.width;
         const height = box.height;
@@ -81,9 +96,21 @@ const { source, label } = Astro.props;
         canvas.replaceChildren(group);
         const svgSelection = select(canvas);
         let focusedNode: SVGGElement | undefined;
+        let selection: ReturnType<typeof selectGraphNode> | undefined;
+        const nodeStyles = new Map<SVGElement, string | null>();
+        const nodes = [...content.querySelectorAll<SVGGElement>("g.node")];
+        const nodeId = (node: SVGGElement) => node.getAttribute("data-id") || graphNodeId(node.id, diagramId);
+        const edgePaths = [...content.querySelectorAll<SVGPathElement>("path[data-edge]")];
         const clearNodeFocus = () => {
           focusedNode?.setAttribute("aria-pressed", "false");
+          nodeStyles.forEach((style, shape) => {
+            if (style === null) shape.removeAttribute("style");
+            else shape.setAttribute("style", style);
+          });
+          nodeStyles.clear();
           focusedNode = undefined;
+          selection = undefined;
+          edgePaths.forEach((edge) => edge.removeAttribute("data-selected-edge"));
         };
         const zoomToContext = () => {
           if (!focusedNode) return;
@@ -104,27 +131,44 @@ const { source, label } = Astro.props;
             zoomToContext();
           }
         };
-        content.querySelectorAll<SVGGElement>("g.node").forEach((node) => {
+        nodes.forEach((node) => {
           node.style.cursor = "pointer";
           node.setAttribute("tabindex", "0");
           node.setAttribute("role", "button");
           node.setAttribute("aria-pressed", "false");
           node.setAttribute("aria-label", `zoom to ${node.querySelector(".nodeLabel")?.textContent || "node"}`);
           const focusNode = () => {
-            const rect = node.getBoundingClientRect();
+            const next = selectGraphNode(selection, nodeId(node), edges);
+            const rects = nodes.filter((candidate) =>
+              next.nodeIds.has(nodeId(candidate)),
+            ).map((candidate) => candidate.getBoundingClientRect());
+            const left = Math.min(...rects.map((rect) => rect.left));
+            const top = Math.min(...rects.map((rect) => rect.top));
+            const width = Math.max(...rects.map((rect) => rect.right)) - left;
+            const height = Math.max(...rects.map((rect) => rect.bottom)) - top;
             const canvasRect = canvas.getBoundingClientRect();
             const current = zoomTransform(canvas);
             const [x, y] = current.invert([
-              rect.x + rect.width / 2 - canvasRect.x,
-              rect.y + rect.height / 2 - canvasRect.y,
+              left + width / 2 - canvasRect.x,
+              top + height / 2 - canvasRect.y,
             ]);
-            if (!rect.width || !rect.height) return;
+            if (!width || !height) return;
             clearNodeFocus();
             focusedNode = node;
+            selection = next;
             node.setAttribute("aria-pressed", "true");
+            // view colors use inline !important styles, so preserve and override them here.
+            node.querySelectorAll<SVGElement>("rect, polygon, path").forEach((shape) => {
+              nodeStyles.set(shape, shape.getAttribute("style"));
+              shape.style.setProperty("fill", "#a21caf", "important");
+              shape.style.setProperty("stroke", "#f0abfc", "important");
+            });
+            edgePaths.forEach((edge) => {
+              if (next.edgeIds.has(edge.getAttribute("data-id")!)) edge.setAttribute("data-selected-edge", "");
+            });
             const scale = Math.max(0.001, Math.min(
-              (canvas.clientWidth - 48) * current.k / rect.width,
-              552 * current.k / rect.height, 2,
+              (canvas.clientWidth - 48) * current.k / width,
+              552 * current.k / height, 2,
             ));
             svgSelection.interrupt().transition()
               .duration(matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 250)

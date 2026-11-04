@@ -157,6 +157,7 @@ pub async fn upsert_playback_progress(
     duration_seconds: Option<f64>,
     position_locator: Option<String>,
     completed_at: Option<i64>,
+    session_id: Option<String>,
 ) -> GrimoireResponse<PlaybackProgress> {
     let pool = match database::connect().await {
         Ok(p) => p,
@@ -224,7 +225,11 @@ pub async fn upsert_playback_progress(
         let user_id = user_id.to_string();
         let video_id = entity_id.to_string();
         tokio::spawn(async move {
-            let _ = create_video_watch_feed_event(&video_id, &user_id).await;
+            let response =
+                create_video_watch_feed_event(&video_id, &user_id, session_id.as_deref()).await;
+            if !response.success {
+                tracing::warn!(message = %response.message, errors = ?response.errors, "failed to record video watch feed event");
+            }
         });
     }
 

@@ -103,7 +103,7 @@ export function shuffleVideos(videos: VideoSummary[]): VideoSummary[] {
 // bulk version — appends a whole list (e.g. an entire series/season) to
 // the end of the current queue without interrupting playback.
 export async function addVideosToQueue(
-  videos: VideoSummary[],
+  videos: (VideoSummary | QueuedVideo)[],
   source?: VideoQueueSourceContext
 ): Promise<void> {
   if (videos.length === 0) return;
