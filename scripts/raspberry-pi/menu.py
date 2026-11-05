@@ -14,9 +14,10 @@ after 30 seconds idle, a sleeping cat animates for 10 seconds; the neopixel
 fades out during the final three seconds. both lights then turn off (the pi
 stays awake). by default, two net encoder clicks within 0.75 seconds, or a
 button press, cancel the animation or wake the ui without activating or
-changing a selection. "wake sensitivity" cycles 1/2/3 clicks or "button only"
-(ignores the encoder for waking, e.g. to avoid a bumped/vibrating knob
-accidentally waking it) and saves immediately, same as "reverse wheel".
+changing a selection. "wake sensitivity" opens a list of 1/2/3 clicks or
+"button only" (ignores the encoder for waking, e.g. to avoid a bumped/vibrating
+knob accidentally waking it) plus "exit"; "*" marks the current setting, turn to
+pick and press to save.
 the menu appears immediately; the neopixel fades in on startup and wake.
 a sleeping shutdown confirmation is canceled. confirmed shutdown and normal
 exit fade the led out before clearing and powering off the display.
@@ -121,12 +122,14 @@ COMMANDS = (
     ("wake sensitivity", WAKE_SENSITIVITY, (160, 160, 255)),
 )
 if PLAYER == "charnel":
+    PLAYER_RESTART = ("systemctl", "--user", "restart", "charnel.service")
     COMMANDS += (
         ("start charnel", ("systemctl", "--user", "start", "charnel.service"), (80, 180, 80)),
         ("stop charnel", ("systemctl", "--user", "stop", "charnel.service"), (190, 60, 0)),
         ("restart charnel", ("systemctl", "--user", "restart", "charnel.service"), (150, 0, 0)),
     )
 else:
+    PLAYER_RESTART = ("sudo", "-n", PI_CONTROL, "restart")
     COMMANDS += (
         ("start rathole", ("sudo", "-n", PI_CONTROL, "start"), (80, 180, 80)),
         ("stop rathole", ("sudo", "-n", PI_CONTROL, "stop"), (190, 60, 0)),
@@ -169,6 +172,13 @@ SLEEP_ANIMATE_DURING_FADE = False  # avoid blocking led updates with full oled t
 # a button press and ignore encoder movement entirely (avoids accidental
 # wakes from a bumped/vibrating knob). persisted like DIRECTION below.
 WAKE_CLICK_OPTIONS = (1, 2, 3, "button")
+# the player applies a queued data dir move while it starts back up.
+DATA_MOVE_LABEL = "move data dir"
+
+
+def wake_label(clicks):
+    return "button only" if clicks == "button" else f"{clicks} click" + ("s" if clicks != 1 else "")
+
 WAKE_ENCODER_CLICKS = SETTINGS.get("wake_clicks", 3)
 if WAKE_ENCODER_CLICKS not in WAKE_CLICK_OPTIONS:
     raise ValueError("menu wake_clicks must be 1, 2, 3, or \"button\"")
@@ -545,6 +555,7 @@ class Menu:
         self.confirm_selected = 0
         self.confirm_update = False
         self.confirm_reboot = False
+        self.wake_selected = 0
         self.screen = "menu"
         self.message = ()
         self.asleep = False
@@ -637,6 +648,18 @@ class Menu:
                 REBOOT_COLOR if self.selected == REBOOT_INDEX else
                 COMMANDS[self.selected][2]
             )
+        elif self.screen == "wake":
+            labels = [
+                ("*" if option == WAKE_ENCODER_CLICKS else " ") + wake_label(option)
+                for option in WAKE_CLICK_OPTIONS
+            ] + [" exit"]
+            items = [
+                ("> " if index == self.wake_selected else "  ") + label
+                for index, label in enumerate(labels)
+            ]
+            start = max(0, min(self.wake_selected - 1, len(items) - 3))
+            lines = ["wake sensitivity", *items[start:start + 3]]
+            color = COMMANDS[self.selected][2]
         elif self.screen == "storage":
             lines = self.storage.lines()
             color = (255, 0, 0) if self.storage.error else (80, 160, 255)
@@ -939,6 +962,8 @@ class Menu:
                 "enter in Charnel",
             )
             self.message_until = time.monotonic() + ADMIN_PIN_DISPLAY_SECONDS
+        elif self.running_label == DATA_MOVE_LABEL and result == 0:
+            self.message = ("data move started", "keep disk plugged in", "player restarting")
         elif self.running_socket and result == 0:
             message = PLAY_STATE_MESSAGES.get(self.running_state)
             self.message = (message,) if message else (self.running_label, "sent")
@@ -1130,21 +1155,8 @@ class Menu:
                         self.screen = "success"
                         self.message = ("wheel reversed", "saved")
                 elif command is WAKE_SENSITIVITY:
-                    next_clicks = WAKE_CLICK_OPTIONS[
-                        (WAKE_CLICK_OPTIONS.index(WAKE_ENCODER_CLICKS) + 1) % len(WAKE_CLICK_OPTIONS)
-                    ]
-                    try:
-                        configure.update_menu_settings(SETTINGS_PATH, {"wake_clicks": next_clicks})
-                    except (OSError, ValueError) as error:
-                        print(f"could not save wake sensitivity: {error}", file=sys.stderr, flush=True)
-                        self.screen = "error"
-                        self.message = ("could not save", "wake sensitivity")
-                    else:
-                        WAKE_ENCODER_CLICKS = next_clicks
-                        self.screen = "success"
-                        label = ("button only" if next_clicks == "button" else
-                                 f"{next_clicks} click" + ("s" if next_clicks != 1 else ""))
-                        self.message = (f"wake: {label}", "saved")
+                    self.screen = "wake"
+                    self.wake_selected = WAKE_CLICK_OPTIONS.index(WAKE_ENCODER_CLICKS)
                 elif command is None:
                     self.screen = "volume"
                     self.volume = None
@@ -1169,6 +1181,21 @@ class Menu:
                     self.screen = "update-check"
                 else:
                     self.start_command(label, command)
+        elif self.screen == "wake":
+            if self.wake_selected >= len(WAKE_CLICK_OPTIONS):
+                self.screen = "menu"
+            else:
+                clicks = WAKE_CLICK_OPTIONS[self.wake_selected]
+                try:
+                    configure.update_menu_settings(SETTINGS_PATH, {"wake_clicks": clicks})
+                except (OSError, ValueError) as error:
+                    print(f"could not save wake sensitivity: {error}", file=sys.stderr, flush=True)
+                    self.screen = "error"
+                    self.message = ("could not save", "wake sensitivity")
+                else:
+                    WAKE_ENCODER_CLICKS = clicks
+                    self.screen = "success"
+                    self.message = (f"wake: {wake_label(clicks)}", "saved")
         elif self.screen == "storage":
             self.storage.press()
             if not self.storage.active:
@@ -1224,6 +1251,10 @@ class Menu:
                 self.last_activity = now
                 self.ignore_press = raw_pressed or self.button.pressed
                 self.screen = "storage"
+            if self.storage.restart_player and self.process is None:
+                self.storage.restart_player = False
+                self.storage.active = False
+                self.start_command(DATA_MOVE_LABEL, PLAYER_RESTART)
             if self.screen == "storage":
                 if not self.storage.active:
                     self.screen = "menu"
@@ -1286,6 +1317,8 @@ class Menu:
                 self.network_offset = max(0, min(max(0, len(self.network_rows) - 2), self.network_offset + delta))
             elif self.screen == "menu":
                 self.selected = max(0, min(SHUTDOWN_INDEX, self.selected + delta))
+            elif self.screen == "wake":
+                self.wake_selected = max(0, min(len(WAKE_CLICK_OPTIONS), self.wake_selected + delta))
             elif self.screen in ("confirm", "wifi-confirm", "wifi-ended"):
                 self.confirm_selected = max(0, min(1, self.confirm_selected + delta))
             elif self.screen in ("success", "error"):

@@ -76,7 +76,7 @@ class StorageTests(unittest.TestCase):
         self.assertFalse(self.mounted(can_notify=False))
         self.assertFalse(self.picker.active)
         self.assertTrue(self.picker.tick(3, True))
-        self.picker.turn(2)
+        self.picker.turn(3)
         self.picker.press()
         self.assertFalse(self.picker.active)
         self.assertFalse(self.picker.tick(4, True))
@@ -199,7 +199,7 @@ class StorageTests(unittest.TestCase):
 
     def test_readonly_requires_confirmation_then_runs_local_helper(self):
         self.mounted()
-        self.picker.turn(3)
+        self.picker.turn(4)
         self.picker.press()
         self.assertEqual(self.picker.mode, "readonly-confirm")
         self.assertIsNone(self.picker.future)
@@ -215,11 +215,81 @@ class StorageTests(unittest.TestCase):
 
     def test_readonly_cancel_does_not_call_helper(self):
         self.mounted()
-        self.picker.turn(3)
+        self.picker.turn(4)
         self.picker.press()
         self.picker.press()
         self.assertEqual(self.picker.mode, "disks")
         self.assertFalse(any(fn is storage.make_read_only for fn, _, _ in self.worker.calls))
+
+    def open_data_dir(self):
+        self.mounted()
+        self.picker.turn(2)
+        self.picker.press()
+        self.assertEqual(self.worker.calls[-1][1][1], "library_browse_volume")
+        self.picker.future.set_result([{"name": "albums", "relative_path": "albums"}])
+        self.picker.tick(3, False)
+        self.assertEqual(self.picker.mode, "datadir")
+
+    def test_data_dir_defaults_to_a_new_folder_and_offers_root_last(self):
+        self.open_data_dir()
+        self.assertEqual(self.picker.entries(), ["new folder: freqhole", "back", "albums", "use disk root"])
+        self.assertEqual(self.picker.lines()[1], "> new folder: freqhole")
+        self.picker.press()
+        _, args, _ = self.worker.calls[-1]
+        self.assertEqual(args[1:], ("storage_data_dir_preview", {
+            "selection": {"device_path": "/dev/sda1", "mount_path": "/media/music",
+                          "relative_path": "", "domain": "both"},
+            "create_folder": "freqhole",
+        }))
+
+    def test_data_dir_subfolder_preview_confirm_schedules_and_requests_restart(self):
+        self.open_data_dir()
+        self.picker.turn(2)
+        self.picker.press()
+        self.picker.future.set_result([])
+        self.picker.tick(4, False)
+        self.assertEqual(self.picker.entries(), ["new folder: freqhole", "use this folder", "parent folder"])
+        self.picker.turn(1)
+        self.picker.press()
+        args = self.worker.calls[-1][1][2]
+        self.assertEqual(args["selection"]["relative_path"], "albums")
+        self.assertIsNone(args["create_folder"])
+        self.picker.future.set_result({"files": 12, "bytes": 3 * 1024 * 1024,
+                                       "blockers": [], "collisions": [], "blocked_reason": None})
+        self.picker.tick(5, False)
+        self.assertEqual(self.picker.mode, "datadir-confirm")
+        self.assertEqual(self.picker.lines(), ["move data here?", "12 files 3.0MB", "> cancel", "  move + restart"])
+        self.picker.turn(1)
+        self.picker.press()
+        self.assertEqual(self.worker.calls[-1][1][1:], ("storage_data_dir_schedule", args))
+        self.assertFalse(self.picker.restart_player)
+        self.picker.future.set_result({"files": 12})
+        self.picker.tick(6, False)
+        self.assertEqual(self.picker.mode, "datadir-done")
+        self.assertTrue(self.picker.restart_player)
+
+    def test_data_dir_cancel_and_blocked_preview_do_not_schedule(self):
+        self.open_data_dir()
+        self.picker.press()
+        self.picker.future.set_result({"files": 1, "bytes": 1, "blockers": [], "collisions": [],
+                                       "blocked_reason": None})
+        self.picker.tick(4, False)
+        self.picker.press()
+        self.assertEqual(self.picker.mode, "datadir")
+        self.picker.press()
+        self.picker.future.set_result({"files": 1, "bytes": 1, "blockers": [], "collisions": [],
+                                       "blocked_reason": "destination is not writable: denied"})
+        self.picker.tick(5, False)
+        self.assertIn("not writable", self.picker.error)
+        self.assertFalse(any("storage_data_dir_schedule" in args for _, args, _ in self.worker.calls))
+        self.assertFalse(self.picker.restart_player)
+
+    def test_data_dir_back_returns_to_notice(self):
+        self.open_data_dir()
+        self.picker.turn(1)
+        self.picker.press()
+        self.assertEqual(self.picker.mode, "notice")
+        self.assertEqual(self.picker.entries()[self.picker.selected], "use as data dir")
 
 
 class WireTests(unittest.TestCase):
@@ -354,6 +424,33 @@ class MenuIntegrationTests(unittest.TestCase):
         self.screen.screen = "menu"
         self.screen.tick(12, 0, False)
         self.assertEqual(self.screen.screen, "storage")
+
+    def rendered(self):
+        self.screen.oled.text.reset_mock()
+        self.screen.dirty = True
+        self.screen.render()
+        return [call.args[0] for call in self.screen.oled.text.call_args_list]
+
+    def test_wake_sensitivity_screen_marks_current_option_and_wheel_stops_at_exit(self):
+        with patch.object(menu, "WAKE_ENCODER_CLICKS", 2):
+            self.screen.screen = "wake"
+            self.screen.wake_selected = 1
+            self.assertEqual(self.rendered(), ["wake sensitivity", "   1 click", "> *2 clicks", "   3 clicks"])
+            self.screen.tick(1, 10, False)
+            self.assertEqual(self.screen.wake_selected, len(menu.WAKE_CLICK_OPTIONS))
+            self.assertEqual(self.rendered(), ["wake sensitivity", "   3 clicks", "   button only", ">  exit"])
+            self.screen.tick(2, -10, False)
+            self.assertEqual(self.screen.wake_selected, 0)
+
+    def test_queued_data_move_restarts_the_player(self):
+        self.screen.screen = "storage"
+        self.screen.storage.active = True
+        self.screen.storage.restart_player = True
+        with patch.object(self.screen, "start_command") as start:
+            self.screen.tick(5, 0, False)
+        start.assert_called_once_with(menu.DATA_MOVE_LABEL, menu.PLAYER_RESTART)
+        self.assertFalse(self.screen.storage.restart_player)
+        self.assertFalse(self.screen.storage.active)
 
 
 if __name__ == "__main__":

@@ -34,6 +34,12 @@ async fn dispatch(payload: &str) -> GrimoireResponse<Value> {
             Err(error) => failure("storage_watch_failed", error.to_string()),
         };
     }
+    if matches!(
+        request.command.as_str(),
+        "storage_data_dir_preview" | "storage_data_dir_schedule"
+    ) {
+        return data_dir_change(request.command == "storage_data_dir_schedule", request.args).await;
+    }
     if !matches!(
         request.command.as_str(),
         "library_list_removable_volumes"
@@ -47,9 +53,75 @@ async fn dispatch(payload: &str) -> GrimoireResponse<Value> {
         );
     }
     // the listener checks OS peer identity; the allowlist never exposes general
-    // admin dispatch or destructive operations. registration wakes the job runner.
+    // admin dispatch or destructive operations (a data dir move keeps its source
+    // files until the verified cutover). registration wakes the job runner.
     let caller = Caller::new("control-socket", "OLED", UserRole::Admin);
     crate::admin_dispatch::handle(&request.command, request.args, &caller).await
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DataDirRequest {
+    selection: crate::external_storage::sources::SourceSelection,
+    #[serde(default)]
+    create_folder: Option<String>,
+}
+
+/// moves this player's data directory onto a removable volume folder. only
+/// queues the move (same as `config storage schedule move-data`); it runs at
+/// the player's next startup, so the caller restarts the player afterwards.
+async fn data_dir_change(queue: bool, args: Value) -> GrimoireResponse<Value> {
+    let request: DataDirRequest = match serde_json::from_value(args) {
+        Ok(request) => request,
+        Err(error) => return failure("invalid_storage_request", error.to_string()),
+    };
+    let Some(config_path) = crate::config::get_config_path() else {
+        return failure(
+            "storage_config_unavailable",
+            "player config path is unknown".into(),
+        );
+    };
+    let destination = match crate::external_storage::sources::data_dir_destination(
+        &request.selection,
+        request.create_folder.as_deref(),
+    )
+    .await
+    {
+        Ok(destination) => destination,
+        Err(error) => {
+            return GrimoireResponse::failure(
+                "storage request failed",
+                vec![ErrorDetail::from(&error)],
+            )
+        }
+    };
+    let result = tokio::task::spawn_blocking(move || {
+        use crate::storage_migration::{preview, schedule, Operation};
+        if queue {
+            schedule(
+                &config_path,
+                Operation::MoveData,
+                &destination,
+                false,
+                "move my storage",
+            )
+        } else {
+            preview(&config_path, Operation::MoveData, &destination)
+        }
+    })
+    .await;
+    match result {
+        Ok(Ok(report)) => GrimoireResponse::success(
+            if queue {
+                "data directory move queued; restart the player to apply"
+            } else {
+                "data directory move preview"
+            },
+            serde_json::to_value(report).expect("preview serializes"),
+        ),
+        Ok(Err(error)) => failure("storage_data_dir_failed", format!("{error:#}")),
+        Err(error) => failure("storage_data_dir_failed", error.to_string()),
+    }
 }
 
 async fn watch(previous: Option<&str>) -> std::io::Result<String> {
@@ -96,6 +168,8 @@ mod tests {
             r#"{"command":"users_delete","args":{"id":"someone"}}"#,
             r#"{"command":"library_scan_source","args":{"id":"source"}}"#,
             r#"{"command":"library_register_source","extra":true}"#,
+            r#"{"command":"storage_data_dir_schedule","args":{}}"#,
+            r#"{"command":"storage_data_dir_preview","args":{"selection":{"device_path":"/dev/x","mount_path":"/","relative_path":"","domain":"both"},"create_folder":"../escape"}}"#,
         ] {
             let response = dispatch(payload).await;
             assert!(!response.success);

@@ -1,5 +1,7 @@
 //! freqhole tauri app
 
+#[cfg(test)]
+mod acl_tests;
 mod admin_commands;
 mod app_config;
 mod commands;

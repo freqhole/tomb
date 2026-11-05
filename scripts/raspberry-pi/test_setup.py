@@ -1192,7 +1192,7 @@ class MenuTests(unittest.TestCase):
                     self.assertEqual(screen.screen, "error")
                     self.assertEqual(menu.DIRECTION, 1)
 
-    def test_wake_sensitivity_cycles_through_clicks_and_button_and_persists(self):
+    def test_wake_sensitivity_submenu_marks_current_saves_choice_and_exits(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "menu.json"
             path.write_text(json.dumps({"player": "charnel"}))
@@ -1200,14 +1200,29 @@ class MenuTests(unittest.TestCase):
             screen.selected = 0
             with patch.object(menu, "COMMANDS", (("wake sensitivity", menu.WAKE_SENSITIVITY, (0, 0, 0)),)), \
                  patch.object(menu, "SETTINGS_PATH", path), patch.object(menu, "WAKE_ENCODER_CLICKS", 3):
-                for expected in ("button", 1, 2, 3, "button"):
-                    screen.screen = "menu"
-                    screen.activate()
-                    self.assertEqual(menu.WAKE_ENCODER_CLICKS, expected)
-                    self.assertEqual(screen.screen, "success")
-                    self.assertEqual(json.loads(path.read_text())["wake_clicks"], expected)
+                screen.screen = "menu"
+                screen.activate()
+                # opening the submenu never changes the saved setting.
+                self.assertEqual(screen.screen, "wake")
+                self.assertEqual(screen.wake_selected, 2)
+                self.assertEqual(menu.WAKE_ENCODER_CLICKS, 3)
+                self.assertNotIn("wake_clicks", json.loads(path.read_text()))
+                screen.wake_selected = 3
+                screen.activate()
+                self.assertEqual(screen.screen, "success")
+                self.assertEqual(screen.message, ("wake: button only", "saved"))
+                self.assertEqual(menu.WAKE_ENCODER_CLICKS, "button")
+                self.assertEqual(json.loads(path.read_text())["wake_clicks"], "button")
+                screen.screen = "menu"
+                screen.activate()
+                self.assertEqual(screen.wake_selected, 3)
+                screen.wake_selected = len(menu.WAKE_CLICK_OPTIONS)
+                screen.activate()
+                self.assertEqual(screen.screen, "menu")
+                self.assertEqual(menu.WAKE_ENCODER_CLICKS, "button")
                 with patch.object(menu.configure, "update_menu_settings", side_effect=OSError("disk full")):
-                    screen.screen = "menu"
+                    screen.screen = "wake"
+                    screen.wake_selected = 0
                     screen.activate()
                     self.assertEqual(screen.screen, "error")
                     self.assertEqual(menu.WAKE_ENCODER_CLICKS, "button")
@@ -1215,6 +1230,7 @@ class MenuTests(unittest.TestCase):
     def test_wake_sensitivity_button_only_ignores_encoder_but_not_button(self):
         with patch.object(menu, "StorageMenu") as storage:
             storage.return_value.tick.return_value = False
+            storage.return_value.restart_player = False
             screen = menu.Menu(Mock(width=128), Mock(), 0)
         self.addCleanup(screen.close)
         screen.poll_state = Mock()
@@ -1437,6 +1453,7 @@ class MenuTests(unittest.TestCase):
     def wifi_screen(self):
         with patch.object(menu, "StorageMenu") as storage:
             storage.return_value.tick.return_value = False
+            storage.return_value.restart_player = False
             screen = menu.Menu(Mock(width=128), Mock(), 0)
         self.addCleanup(screen.close)
         screen.poll_state = Mock()
@@ -2375,6 +2392,7 @@ class MenuFeedbackTests(unittest.TestCase):
     def live_menu(self):
         with patch.object(menu, "StorageMenu") as storage:
             storage.return_value.tick.return_value = False
+            storage.return_value.restart_player = False
             screen = menu.Menu(Mock(width=128), Mock(), 0)
         self.addCleanup(screen.close)
         screen.poll_state = Mock()
