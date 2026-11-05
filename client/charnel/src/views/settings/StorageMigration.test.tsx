@@ -30,8 +30,13 @@ async function mount(overrides = {}, select = false) {
   host = document.createElement("div");
   document.body.appendChild(host);
   dispose = render(() => <StorageMigration kind="data" />, host);
-  click(select ? "select a new folder without moving" : "move existing files");
+  pick(select ? "select_data" : "move_data");
   await settle();
+}
+function pick(value: string) {
+  const select = host.querySelector<HTMLSelectElement>("select")!;
+  select.value = value;
+  select.dispatchEvent(new Event("change", { bubbles: true }));
 }
 function button(text: string) {
   return [...host.querySelectorAll("button")].find((b) => b.textContent?.trim() === text)!;
@@ -97,4 +102,34 @@ it("does not close when backend preflight rejects the queued change", async () =
   await settle();
   expect(host.querySelector('[role="alert"]')!.textContent).toContain("destination changed");
   expect(mocks.invoke).not.toHaveBeenCalledWith("close_for_storage_change");
+});
+
+it("offers storage changes as one action menu that resets after each pick", async () => {
+  await mount();
+  const select = host.querySelector<HTMLSelectElement>('[aria-label="change data directory"]')!;
+  expect([...select.options].map((o) => o.textContent)).toEqual([
+    "change folder...", "move existing data directory", "select a new folder",
+  ]);
+  expect(select.value).toBe("");
+  expect(mocks.invoke).toHaveBeenCalledWith("preview_storage_change", { operation: "move_data", destination: "/new" });
+});
+
+it("fetch menu moves files or only points future fetches at a folder", async () => {
+  const onSelectFetchFolder = vi.fn();
+  mocks.open.mockResolvedValue("/new");
+  mocks.invoke.mockResolvedValue({ ...report, operation: "move_fetch" });
+  host = document.createElement("div");
+  document.body.appendChild(host);
+  dispose = render(() => <StorageMigration kind="fetch" onSelectFetchFolder={onSelectFetchFolder} />, host);
+  const select = host.querySelector<HTMLSelectElement>('[aria-label="change fetched music folder"]')!;
+  expect([...select.options].map((o) => o.textContent)).toEqual([
+    "change folder...", "move existing files", "select new folder for future fetches",
+  ]);
+  pick("select_fetch");
+  await settle();
+  expect(onSelectFetchFolder).toHaveBeenCalledOnce();
+  expect(mocks.invoke).not.toHaveBeenCalled();
+  pick("move_fetch");
+  await settle();
+  expect(mocks.invoke).toHaveBeenCalledWith("preview_storage_change", { operation: "move_fetch", destination: "/new" });
 });

@@ -90,6 +90,17 @@ def make_read_only(volume, *, cancelled=None):
     return data
 
 
+NOTICE_ENTRIES = ("add entire disk", "choose folder", "use as data dir", "not now", "keep disk read-only")
+DATA_DIR_FOLDER = "freqhole"
+
+
+def format_bytes(size):
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return f"{size}{unit}" if unit == "B" else f"{size:.1f}{unit}"
+        size /= 1024
+
+
 class StorageMenu:
     def __init__(self, socket_path):
         self.socket_path = socket_path
@@ -118,6 +129,11 @@ class StorageMenu:
         self.target_path = socket_path()
         self.operation_path = None
         self.watch_failed = False
+        # "source" registers a library folder; "datadir" moves the player's data there.
+        self.purpose = "source"
+        self.datadir_args = None
+        self.datadir_preview = None
+        self.restart_player = False
 
     def submit(self, operation, function, *args):
         if self.future is not None:
@@ -149,7 +165,19 @@ class StorageMenu:
 
     def entries(self):
         if self.mode == "notice":
-            return ["add entire disk", "choose folder", "not now", "keep disk read-only"]
+            return list(NOTICE_ENTRIES)
+        if self.mode == "datadir":
+            relative = self.selection["relative_path"]
+            return [
+                f"new folder: {DATA_DIR_FOLDER}",
+                *(["use this folder"] if relative else []),
+                "parent folder" if relative else "back",
+                *[folder["name"] for folder in self.folders],
+                # the disk root is offered last so it's never the default choice.
+                *([] if relative else ["use disk root"]),
+            ]
+        if self.mode == "datadir-confirm":
+            return ["cancel", "move + restart"]
         if self.mode == "readonly-confirm":
             return ["cancel", "yes, read-only"]
         if self.mode == "folders":
@@ -173,6 +201,8 @@ class StorageMenu:
             return ["source registered", "player auto-scans", "music + video", "press: back"]
         if self.mode == "readonly-done":
             return ["disk is read-only", "also after reboot", "or unplug/replug", "press: back"]
+        if self.mode == "datadir-done":
+            return ["data move queued", "restarting player", "keep disk plugged in", "press: back"]
         if self.error:
             return ["storage unavailable", self.error[:21], self.error[21:42], "press: back"]
         title = "library disks"
@@ -182,6 +212,14 @@ class StorageMenu:
             title = self.selection["relative_path"].rsplit("/", 1)[-1] or "whole disk"
         elif self.mode == "readonly-confirm":
             title = "read-only at boot?"
+        elif self.mode == "datadir":
+            title = "data: " + (self.selection["relative_path"].rsplit("/", 1)[-1] or "disk root")
+        elif self.mode == "datadir-confirm":
+            preview = self.datadir_preview
+            return ["move data here?", f"{preview['files']} files {format_bytes(preview['bytes'])}", *[
+                ("> " if index == self.selected else "  ") + label
+                for index, label in enumerate(self.entries())
+            ]]
         entries = self.entries()
         start = max(0, self.selected - 1)
         header = [title]
@@ -206,15 +244,17 @@ class StorageMenu:
             "device_path": volume["device_path"], "mount_path": mount,
             "relative_path": "", "domain": "both",
         }
-        self.browse("")
+        self.browse("", "source")
 
-    def browse(self, relative):
+    def browse(self, relative, purpose=None):
+        if purpose is not None:
+            self.purpose = purpose
         selection = dict(self.selection, relative_path=relative)
         self.selection = selection
         self.submit("folders", request, self.socket_path(), "library_browse_volume", selection)
 
     def press(self):
-        if self.future is not None or self.error or self.mode in ("known", "done", "readonly-done"):
+        if self.future is not None or self.error or self.mode in ("known", "done", "readonly-done", "datadir-done"):
             self.active = False
         elif self.mode == "disks":
             if self.selected == 0:
@@ -228,15 +268,40 @@ class StorageMenu:
                 else:
                     self.choose_volume(volume, volume["mount_points"][0])
         elif self.mode == "notice":
-            if self.selected == 3:
+            choice = NOTICE_ENTRIES[self.selected]
+            if choice == "keep disk read-only":
                 self.mode = "readonly-confirm"
                 self.selected = 0
-            elif self.selected == 2:
+            elif choice == "not now":
                 self.active = False
-            elif self.selected == 1:
-                self.browse("")
+            elif choice == "choose folder":
+                self.browse("", "source")
+            elif choice == "use as data dir":
+                self.browse("", "datadir")
             else:
                 self.submit("register", request, self.socket_path(), "library_register_source", self.selection)
+        elif self.mode == "datadir":
+            entries = self.entries()
+            choice = entries[self.selected]
+            relative = self.selection["relative_path"]
+            first_folder = entries.index("parent folder" if relative else "back") + 1
+            if choice.startswith("new folder: "):
+                self.preview_data_dir(DATA_DIR_FOLDER)
+            elif choice in ("use this folder", "use disk root"):
+                self.preview_data_dir(None)
+            elif choice == "parent folder":
+                self.browse(relative.rpartition("/")[0])
+            elif choice == "back":
+                self.mode = "notice"
+                self.selected = NOTICE_ENTRIES.index("use as data dir")
+            else:
+                self.browse(self.folders[self.selected - first_folder]["relative_path"])
+        elif self.mode == "datadir-confirm":
+            if self.selected == 0:
+                self.mode = "datadir"
+                self.selected = 0
+            else:
+                self.submit("datadir-schedule", request, self.socket_path(), "storage_data_dir_schedule", self.datadir_args)
         elif self.mode == "folders":
             if self.selected == len(self.entries()) - 1:
                 self.mode = "readonly-confirm"
@@ -258,6 +323,10 @@ class StorageMenu:
             else:
                 self.submit("read-only", make_read_only, dict(self.current))
         self.dirty = True
+
+    def preview_data_dir(self, create_folder):
+        self.datadir_args = {"selection": dict(self.selection), "create_folder": create_folder}
+        self.submit("datadir-preview", request, self.socket_path(), "storage_data_dir_preview", self.datadir_args)
 
     def fail(self, error):
         print(f"storage menu failed: {error}", file=sys.stderr, flush=True)
@@ -332,8 +401,26 @@ class StorageMenu:
                         raise ValueError("invalid folder list")
                     self.folders = data
                     self.error = None
-                    self.mode = "folders"
+                    self.mode = "datadir" if self.purpose == "datadir" else "folders"
                     self.selected = 0
+                elif operation == "datadir-preview":
+                    if not isinstance(data, dict) or not isinstance(data.get("files"), int) \
+                            or not isinstance(data.get("bytes"), int):
+                        raise ValueError("invalid data dir preview")
+                    problem = data.get("blocked_reason") or (
+                        "folder has other files" if data.get("blockers") else
+                        "folder has same-named files" if data.get("collisions") else None
+                    )
+                    if problem:
+                        raise ValueError(problem)
+                    self.datadir_preview = data
+                    self.error = None
+                    self.mode = "datadir-confirm"
+                    self.selected = 0
+                elif operation == "datadir-schedule":
+                    self.error = None
+                    self.mode = "datadir-done"
+                    self.restart_player = True
                 elif operation == "register":
                     if not isinstance(data, dict) or not isinstance(data.get("id"), str):
                         raise ValueError("invalid registration reply")

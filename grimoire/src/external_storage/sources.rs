@@ -300,6 +300,40 @@ pub async fn browse_folders(selection: &SourceSelection) -> GrimoireResult<Vec<S
     browse_root(&mount_path, &root, &mounts::read_mounts()?)
 }
 
+/// resolves a removable-volume folder (validated exactly like a source
+/// selection) as a data directory destination, optionally creating one new
+/// child folder inside it (e.g. "freqhole") so the disk root isn't the default.
+pub async fn data_dir_destination(
+    selection: &SourceSelection,
+    create_folder: Option<&str>,
+) -> GrimoireResult<PathBuf> {
+    let (_, mount_path, root) = probe_selection(selection).await?;
+    let Some(name) = create_folder else {
+        return Ok(root);
+    };
+    let mut components = Path::new(name).components();
+    if !matches!(
+        (components.next(), components.next()),
+        (Some(Component::Normal(_)), None)
+    ) {
+        return Err(invalid("create_folder", "must be a single folder name"));
+    }
+    let folder = root.join(name);
+    match std::fs::create_dir(&folder) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.into()),
+    }
+    let folder = std::fs::canonicalize(folder)?;
+    if !folder.starts_with(&mount_path) || !folder.is_dir() {
+        return Err(invalid(
+            "create_folder",
+            "folder must be a directory inside the mounted volume",
+        ));
+    }
+    Ok(folder)
+}
+
 fn browse_root(
     mount_path: &Path,
     root: &Path,

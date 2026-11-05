@@ -1,5 +1,7 @@
 //! freqhole tauri app
 
+#[cfg(test)]
+mod acl_tests;
 mod admin_commands;
 mod app_config;
 mod commands;
@@ -638,6 +640,21 @@ async fn ensure_mobile_db_ready_once(
     // these two checks tripped it, made that impossible to diagnose
     // remotely. see docs/ios.md known gap for the investigation this
     // feeds into.
+    // repair a stale container `data_dir` BEFORE anything calls
+    // `init_config` (including `mobile_auto_init`'s `run_setup`): grimoire's
+    // storage lease (`storage_migration::prepare_startup`) creates and locks
+    // `data_dir` up front, and ios denies access to an old container path
+    // ("operation not permitted (os error 1)").
+    let early_config_path = app_handle
+        .path()
+        .app_data_dir()
+        .ok()
+        .map(|dir| dir.join("freqhole-config.toml"));
+    let early_repair = early_config_path
+        .as_deref()
+        .filter(|path| path.exists())
+        .is_some_and(|path| repair_stale_mobile_data_dir(app_handle, path));
+
     let setup_complete = is_setup_complete(app_handle);
     let db_exists = mobile_grimoire_db_exists(app_handle);
     tracing::info!(
@@ -682,7 +699,7 @@ async fn ensure_mobile_db_ready_once(
     // read + a string compare) - safe and worthwhile to run on every
     // single boot, unlike the heavier `media_blobz.local_path` sweep this
     // feeds into below.
-    let data_dir_was_stale = repair_stale_mobile_data_dir(app_handle, &config_path);
+    let data_dir_was_stale = repair_stale_mobile_data_dir(app_handle, &config_path) || early_repair;
 
     grimoire::config::init_config(Some(config_path.clone()))
         .map_err(|e| format!("failed to load config: {}", e))?;

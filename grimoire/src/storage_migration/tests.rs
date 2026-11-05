@@ -352,6 +352,36 @@ fn assign_fetch_changes_only_future_storage() {
 
 #[cfg(unix)]
 #[test]
+fn blocks_read_only_destinations_before_scheduling() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = Fixture::new();
+    fs::write(f.source.join("a.flac"), b"music").unwrap();
+    fs::set_permissions(&f.target, fs::Permissions::from_mode(0o555)).unwrap();
+    // root ignores directory permissions; nothing to assert there.
+    if NamedTempFile::new_in(&f.target).is_ok() {
+        return;
+    }
+    for operation in [Operation::MoveData, Operation::SelectData] {
+        let report = preview(&f.config, operation, &f.target).unwrap();
+        assert!(report
+            .blocked_reason
+            .unwrap()
+            .starts_with("destination is not writable"));
+    }
+    assert!(schedule(&f.config, Operation::MoveData, &f.target, false, CONFIRM).is_err());
+    assert!(!pending(&f.config).unwrap());
+    fs::set_permissions(&f.target, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn reports_available_space_for_writable_destinations() {
+    let f = Fixture::new();
+    assert!(available_bytes(&f.target).is_some_and(|bytes| bytes > 0));
+}
+
+#[cfg(unix)]
+#[test]
 fn refuses_symlinks_even_when_their_contents_match() {
     let f = Fixture::new();
     fs::write(f.source.join("a.flac"), b"music").unwrap();

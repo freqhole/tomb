@@ -1040,7 +1040,8 @@ button.small {
 }
 
 .item-actions select,
-.role-item-actions select {
+.role-item-actions select,
+select.option-select {
   -webkit-appearance: none;
   -moz-appearance: none;
   appearance: none;

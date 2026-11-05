@@ -72,75 +72,68 @@ export default function StorageSettingsSection() {
 
   return (
     <>
-    <div class="settings-section" style={{ "margin-top": "2rem" }}>
-      <h2>data directory</h2>
-      <p>library databases, node identity, and local data. storage changes take effect after closing and reopening the app.</p>
-      <p style={{ "overflow-wrap": "anywhere" }}>{dataDir()}</p>
-      <StorageMigration kind="data" disabled={busy()} />
-    </div>
-    <div class="settings-section" style={{ "margin-top": "2rem" }}>
-      <h2>
-        fetched musi<span class="pinky">c</span> storage
-      </h2>
-      <p
-        style={{
-          "font-size": "0.875rem",
-          color: "var(--color-text-secondary, #888)",
-          "margin-top": "1rem",
-          "margin-bottom": "0.75rem",
-        }}
-      >
-        where media fetched from remotes is saved. selecting a new folder only
-        affects future fetches; files already saved stay in their current location.
-      </p>
-
-      <Show when={checked() && fetchMusicDir()}>
-        <div style={{ display: "flex", "flex-direction": "column", gap: "0.5rem" }}>
-          <span
-            style={{
-              "font-size": "0.8125rem",
-              color: "var(--color-text-muted, #666)",
-              "word-break": "break-all",
-            }}
-          >
-            {fetchMusicDir()}
-          </span>
-
-          <Show when={!isWritable()}>
-            <div
-              style={{
-                "font-size": "0.8125rem",
-                color: "var(--color-error-500, #ff4d6d)",
-              }}
-            >
-              this directory isn't writable right now
-              {isFlatpak()
-                ? " - the flatpak portal grant for it may have gone stale (permission revoked, folder moved/deleted). reselect it below."
-                : " - it may have been moved, deleted, or you no longer have permission to write to it."}
-            </div>
-          </Show>
-
-          <button class="button" onClick={handleReselect} disabled={busy()}>
-            {busy() ? "working..." : "select folder for future fetches"}
-          </button>
-          <StorageMigration kind="fetch" disabled={busy()} />
-        </div>
-      </Show>
-
-      <Show when={message()}>
-        <div
+      <div class="settings-section" style={{ "margin-top": "2rem" }}>
+        <h2>data directory</h2>
+        <i>storage changes take effect after restarting the app.</i>
+        <p
           style={{
             "font-size": "0.8125rem",
-            color: isError()
-              ? "var(--color-error-500, #ff4d6d)"
-              : "var(--color-text-secondary, #888)",
-            "margin-top": "0.5rem",
+            color: "var(--color-text-muted, #666)",
+            "margin-top": "1rem",
+            "margin-bottom": "0.75rem",
+            "overflow-wrap": "anywhere",
           }}
         >
-          {message()}
-        </div>
-      </Show>
-    </div>
+          {dataDir()}
+        </p>
+        <StorageMigration kind="data" disabled={busy()} />
+      </div>
+      <div class="settings-section" style={{ "margin-top": "2rem" }}>
+        <h2 title="where media fetched from remotes is saved.">fetched music storage</h2>
+        <Show when={checked() && fetchMusicDir()}>
+          <div style={{ display: "flex", "flex-direction": "column", gap: "0.5rem" }}>
+            <span
+              style={{
+                "font-size": "0.8125rem",
+                color: "var(--color-text-muted, #666)",
+                "word-break": "break-all",
+              }}
+            >
+              {fetchMusicDir()}
+            </span>
+
+            <Show when={!isWritable()}>
+              <div
+                style={{
+                  "font-size": "0.8125rem",
+                  color: "var(--color-error-500, #ff4d6d)",
+                }}
+              >
+                this directory isn't writable right now
+                {isFlatpak()
+                  ? " - the flatpak portal grant for it may have gone stale (permission revoked, folder moved/deleted). reselect it below."
+                  : " - it may have been moved, deleted, or you no longer have permission to write to it."}
+              </div>
+            </Show>
+
+            <StorageMigration kind="fetch" disabled={busy()} onSelectFetchFolder={handleReselect} />
+          </div>
+        </Show>
+
+        <Show when={message()}>
+          <div
+            style={{
+              "font-size": "0.8125rem",
+              color: isError()
+                ? "var(--color-error-500, #ff4d6d)"
+                : "var(--color-text-secondary, #888)",
+              "margin-top": "0.5rem",
+            }}
+          >
+            {message()}
+          </div>
+        </Show>
+      </div>
     </>
   );
 }

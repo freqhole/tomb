@@ -1,5 +1,6 @@
 import { createSignal, createEffect, For, Show } from "solid-js";
 import { useAdminTransport } from "../admin/context";
+import OptionSelect, { ROLE_OPTIONS } from "../components/OptionSelect";
 
 interface User {
   id: string;
@@ -532,14 +533,12 @@ export default function UsersView() {
 
                         <Show when={user.role !== "root" && !user.deleted_at}>
                           <span class="role-item-actions">
-                            <select
+                            <OptionSelect
+                              aria-label="user role"
+                              options={ROLE_OPTIONS}
                               value={user.role}
-                              onChange={(e) => updateRole(user.id, e.currentTarget.value)}
-                            >
-                              <option value="admin">admin</option>
-                              <option value="member">member</option>
-                              <option value="viewer">viewer</option>
-                            </select>
+                              onChange={(role) => updateRole(user.id, role)}
+                            />
                           </span>
                         </Show>
                         <span
@@ -966,14 +965,12 @@ export default function UsersView() {
                 </div>
                 <div class="item-actions">
                   <Show when={invite.is_active && !invite.used_by && invite.code_type === "invite"}>
-                    <select
+                    <OptionSelect
+                      aria-label="invite role"
+                      options={ROLE_OPTIONS}
                       value={invite.grants_role}
-                      onChange={(e) => updateInviteRole(invite.code, e.currentTarget.value)}
-                    >
-                      <option value="admin">admin</option>
-                      <option value="member">member</option>
-                      <option value="viewer">viewer</option>
-                    </select>
+                      onChange={(role) => updateInviteRole(invite.code, role)}
+                    />
                   </Show>
                   <Show when={invite.is_active && !invite.used_by}>
                     <button class="danger small" onClick={() => deactivateInvite(invite.code)}>

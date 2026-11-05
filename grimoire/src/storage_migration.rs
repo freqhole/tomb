@@ -269,6 +269,7 @@ pub fn preview(config_path: &Path, operation: Operation, destination: &Path) -> 
         }
     }
     if operation == Operation::SelectData {
+        result.blocked_reason = destination_problem(&result);
         return Ok(result);
     }
     for path in tree(
@@ -301,7 +302,51 @@ pub fn preview(config_path: &Path, operation: Operation, destination: &Path) -> 
     }
     result.blockers.sort();
     result.blockers.dedup();
+    result.blocked_reason = destination_problem(&result);
     Ok(result)
+}
+
+// headroom for sqlite WAL/journal growth during the copy.
+const FREE_SPACE_MARGIN: u64 = 64 * 1024 * 1024;
+
+/// catches read-only or too-small disks before scheduling - a move that only
+/// fails at the next startup leaves the app unable to boot until it's fixed.
+fn destination_problem(report: &Preview) -> Option<String> {
+    if let Err(error) = NamedTempFile::new_in(&report.destination) {
+        return Some(format!("destination is not writable: {error}"));
+    }
+    if report.operation == Operation::SelectData {
+        return None;
+    }
+    let available = available_bytes(&report.destination)?;
+    let needed = report.bytes.saturating_add(FREE_SPACE_MARGIN);
+    (available < needed).then(|| {
+        format!(
+            "not enough free space: needs {} MB, {} MB available",
+            needed.div_ceil(1024 * 1024),
+            available / (1024 * 1024)
+        )
+    })
+}
+
+#[cfg(unix)]
+fn available_bytes(path: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+    let mut stat = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+    // SAFETY: path is NUL-terminated and stat is a valid out pointer.
+    if unsafe { libc::statvfs(path.as_ptr(), stat.as_mut_ptr()) } != 0 {
+        return None;
+    }
+    // SAFETY: statvfs returned success, so it initialized stat.
+    let stat = unsafe { stat.assume_init() };
+    #[allow(clippy::unnecessary_cast)]
+    Some((stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64))
+}
+
+#[cfg(not(unix))]
+fn available_bytes(_path: &Path) -> Option<u64> {
+    None
 }
 
 /// queue only; no running config, database or media file is changed.
