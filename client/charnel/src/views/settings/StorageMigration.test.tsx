@@ -108,7 +108,7 @@ it("offers storage changes as one action menu that resets after each pick", asyn
   await mount();
   const select = host.querySelector<HTMLSelectElement>('[aria-label="change data directory"]')!;
   expect([...select.options].map((o) => o.textContent)).toEqual([
-    "change folder...", "move existing files", "select a new folder without moving",
+    "change folder...", "move existing data directory", "select a new folder",
   ]);
   expect(select.value).toBe("");
   expect(mocks.invoke).toHaveBeenCalledWith("preview_storage_change", { operation: "move_data", destination: "/new" });
@@ -123,7 +123,7 @@ it("fetch menu moves files or only points future fetches at a folder", async () 
   dispose = render(() => <StorageMigration kind="fetch" onSelectFetchFolder={onSelectFetchFolder} />, host);
   const select = host.querySelector<HTMLSelectElement>('[aria-label="change fetched music folder"]')!;
   expect([...select.options].map((o) => o.textContent)).toEqual([
-    "change folder...", "move existing files", "select folder for future fetches",
+    "change folder...", "move existing files", "select new folder for future fetches",
   ]);
   pick("select_fetch");
   await settle();
