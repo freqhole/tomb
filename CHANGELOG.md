@@ -1,5 +1,12 @@
 # freqhole-release
 
+## 0.3.25
+
+### Patch Changes
+
+- 4e980a1: fix some migration bugz on ios
+- 9683156: fix some bugs with moving data dir ui and add a "use as data dir" option to raspi menu; try to improve wake sensitivity menu & fetch + data dir ux;
+
 ## 0.3.24
 
 ### Patch Changes
