@@ -70,6 +70,7 @@ commands.allow = [
     "get_libmpv_playback",
     "set_libmpv_playback",
     "get_background_images_enabled",
+    "get_wizard_jobz_enabled",
     "set_background_images_enabled",
     "get_edge_swipe_navigation_enabled",
     "set_edge_swipe_navigation_enabled",

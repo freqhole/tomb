@@ -66,6 +66,8 @@ pub async fn process_file_job(job: &Job) -> Result<Option<Value>, JobError> {
     let metadata = match fs::metadata(file_path) {
         Ok(m) => m,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let pool = database::connect().await?;
+            crate::external_storage::sources::validate_scan_path(&pool, &params.file_path).await?;
             return Err(JobError::ProcessingFailed {
                 reason: format!("file does not exist: {}", basename),
             });

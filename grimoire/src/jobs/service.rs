@@ -98,6 +98,12 @@ async fn create_job_with_pool(
     });
     let priority = request.priority.unwrap_or(0);
     let parent_job = super::runner::CURRENT_JOB_ID.try_with(Clone::clone).ok();
+    let mut transaction = match pool.begin().await {
+        Ok(transaction) => transaction,
+        Err(error) => {
+            return GrimoireResponse::failure("failed to begin job enqueue", vec![error.into()])
+        }
+    };
 
     let job = match sqlx::query_as!(
         Job,
@@ -122,7 +128,7 @@ async fn create_job_with_pool(
         request.session_id,
         parent_job
     )
-    .fetch_optional(&pool)
+    .fetch_optional(&mut *transaction)
     .await
     {
         Ok(Some(j)) => j,
@@ -135,6 +141,17 @@ async fn create_job_with_pool(
         }
     };
 
+    if let Some(session) = &job.session_id {
+        if let Err(error) = sqlx::query!(
+            "UPDATE job_sessionz SET status='Active' WHERE id=? AND status NOT IN ('Cancelled','Paused')",
+            session
+        ).execute(&mut *transaction).await {
+            return GrimoireResponse::failure("could not reopen job session", vec![error.into()]);
+        }
+    }
+    if let Err(error) = transaction.commit().await {
+        return GrimoireResponse::failure("could not commit job enqueue", vec![error.into()]);
+    }
     GrimoireResponse::success("Job created successfully", job)
 }
 
@@ -474,6 +491,14 @@ async fn mark_job_completed_with_pool(
         }
     };
 
+    if let Some(session) = &job.session_id {
+        if let Err(error) = super::lifecycle::settle_session(&pool, session).await {
+            return GrimoireResponse::failure(
+                "job completed but session state could not be updated",
+                vec![error.into()],
+            );
+        }
+    }
     GrimoireResponse::success("Job marked as completed", job)
 }
 
@@ -611,6 +636,14 @@ async fn mark_job_failed_with_pool(
         Err(e) => return GrimoireResponse::failure("failed to mark job as failed", vec![e.into()]),
     };
 
+    if let Some(session) = &job.session_id {
+        if let Err(error) = super::lifecycle::settle_session(&pool, session).await {
+            return GrimoireResponse::failure(
+                "job failed but session state could not be updated",
+                vec![error.into()],
+            );
+        }
+    }
     GrimoireResponse::success("Job marked as failed", job)
 }
 
@@ -643,6 +676,14 @@ pub async fn cancel_job(job_id: &str) -> GrimoireResponse<Job> {
         Err(e) => return GrimoireResponse::failure("failed to cancel job", vec![e.into()]),
     };
 
+    if let Some(session) = &job.session_id {
+        if let Err(error) = super::lifecycle::settle_session(&pool, session).await {
+            return GrimoireResponse::failure(
+                "job cancelled but session state could not be updated",
+                vec![error.into()],
+            );
+        }
+    }
     GrimoireResponse::success("Job cancelled successfully", job)
 }
 
@@ -938,6 +979,90 @@ pub async fn get_session_job_counts(session_id: &str) -> GrimoireResponse<Sessio
 #[cfg(test)]
 mod lifecycle_tests {
     use super::*;
+    use crate::jobs::JobType;
+
+    #[tokio::test]
+    async fn sessions_settle_and_reopen_for_later_work_without_losing_failures() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::database::run_schema_migrations(&pool).await.unwrap();
+        sqlx::query!("INSERT INTO job_sessionz(id,job_type) VALUES ('settling','ScanDirectory')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let create = || CreateJobRequest {
+            session_id: Some("settling".into()),
+            job_type: JobType::ProcessDirectory,
+            parameters: serde_json::json!({}),
+            max_retries: Some(0),
+            scheduled_at: None,
+            priority: None,
+            created_by: None,
+        };
+        let first = create_job_with_pool(pool.clone(), create())
+            .await
+            .data
+            .unwrap();
+        let second = create_job_with_pool(pool.clone(), create())
+            .await
+            .data
+            .unwrap();
+        let status = async || {
+            sqlx::query_scalar!(
+                r#"SELECT status AS "status!: String" FROM job_sessionz WHERE id='settling'"#
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        };
+        mark_job_completed_with_pool(pool.clone(), &first.id, None)
+            .await
+            .data
+            .unwrap();
+        assert_eq!(status().await, "Active");
+        mark_job_completed_with_pool(pool.clone(), &second.id, None)
+            .await
+            .data
+            .unwrap();
+        assert_eq!(status().await, "Completed");
+        let third = create_job_with_pool(pool.clone(), create())
+            .await
+            .data
+            .unwrap();
+        assert_eq!(status().await, "Active");
+        mark_job_failed_with_pool(
+            pool.clone(),
+            &third.id,
+            vec![ErrorDetail::new("test_failure", "test failure", "failure")],
+            false,
+        )
+        .await
+        .data
+        .unwrap();
+        assert_eq!(status().await, "Failed");
+        let fourth = create_job_with_pool(pool.clone(), create())
+            .await
+            .data
+            .unwrap();
+        assert_eq!(status().await, "Active");
+        mark_job_completed_with_pool(pool.clone(), &fourth.id, None)
+            .await
+            .data
+            .unwrap();
+        assert_eq!(status().await, "Failed");
+        assert!(
+            super::super::dashboard::close_idle_session(&pool, "settling")
+                .await
+                .unwrap()
+        );
+        super::super::lifecycle::settle_session(&pool, "settling")
+            .await
+            .unwrap();
+        assert_eq!(status().await, "Completed");
+    }
 
     #[tokio::test]
     async fn cancellation_prevents_reenqueue_and_late_terminal_writes() {

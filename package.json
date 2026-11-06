@@ -7,7 +7,7 @@
     "scripts": {
         "changeset": "changeset",
         "changeset:status": "changeset status",
-        "version": "changeset version && make bump-version NEW_VERSION=$(node -p \"require('./package.json').version\") && npm --prefix client/spume install",
+        "version": "changeset version && make bump-version NEW_VERSION=$(node -p \"require('./package.json').version\") && npm --prefix client/spume install && npm --prefix freqhole.net run gen:release-assets",
         "release:publish": "node scripts/release-publish.mjs",
         "publish:npm:api-client:local": "cd client-codegen/freqhole-api-client && npm publish --access public",
         "publish:npm:local": "npm run publish:npm:api-client:local",

@@ -1,8 +1,17 @@
-import { createSignal, onMount, Show, ParentProps, createContext, useContext } from "solid-js";
+import {
+  createSignal,
+  onMount,
+  onCleanup,
+  Show,
+  ParentProps,
+  createContext,
+  useContext,
+} from "solid-js";
 import { A, useLocation, useNavigate } from "@solidjs/router";
 import { invoke } from "@tauri-apps/api/core";
 import { VERSION, UI_GIT_SHA } from "./version";
 import { AdminTransportProvider } from "./admin/context";
+import { JobsProvider } from "./jobs";
 import { AdminTargetPicker, AdminScopeBanner } from "./admin/AdminTargetPicker";
 import { TitleBarStrip } from "./components/TitleBarStrip";
 import "./App.css";
@@ -48,6 +57,29 @@ function App(props: ParentProps) {
   const [buildInfo, setBuildInfo] = createSignal<BuildInfo | null>(null);
   const [setupComplete, setSetupComplete] = createSignal(false);
   const [checkingSetup, setCheckingSetup] = createSignal(true);
+  const [wizardJobzEnabled, setWizardJobzEnabled] = createSignal(false);
+  const [wizardPreferencesError, setWizardPreferencesError] = createSignal("");
+  let preferencesRequest = 0;
+
+  async function refreshWizardPreferences() {
+    const request = ++preferencesRequest;
+    try {
+      const enabled = await invoke<boolean>("get_wizard_jobz_enabled");
+      if (request !== preferencesRequest) return;
+      setWizardJobzEnabled(enabled);
+      setWizardPreferencesError("");
+    } catch (e) {
+      if (request !== preferencesRequest) return;
+      setWizardPreferencesError(`could not load wizard preferences: ${e}`);
+      console.error("failed to load wizard jobz visibility:", e);
+    }
+  }
+
+  onMount(() => window.addEventListener("focus", refreshWizardPreferences));
+  onCleanup(() => {
+    preferencesRequest++;
+    window.removeEventListener("focus", refreshWizardPreferences);
+  });
 
   // determine if we're on an admin route (not setup)
   const isAdminRoute = () => {
@@ -55,6 +87,7 @@ function App(props: ParentProps) {
     return (
       path === "/logs" ||
       path === "/library" ||
+      path === "/jobs" ||
       path === "/users" ||
       path === "/settings" ||
       path === "/config" ||
@@ -73,6 +106,8 @@ function App(props: ParentProps) {
       console.log("[App] admin route detected, skipping setup check spinner");
       setCheckingSetup(false);
     }
+
+    await refreshWizardPreferences();
 
     // check setup status
     try {
@@ -164,87 +199,99 @@ function App(props: ParentProps) {
             }
           >
             {/* admin layout with sidebar */}
-            <div class="wizard-layout">
-              <nav class="sidebar">
-                <div class="sidebar-header">
-                  <span class="logo">freqhole</span>
-                  <span class="logo-sub">wizard</span>
-                </div>
+            <JobsProvider>
+              <div class="wizard-layout">
+                <nav class="sidebar">
+                  <div class="sidebar-header">
+                    <span class="logo">freqhole</span>
+                    <span class="logo-sub">wizard</span>
+                  </div>
 
-                <AdminTargetPicker />
+                  <AdminTargetPicker />
 
-                <div class="nav-links">
-                  <A href="/library" class={`nav-link ${isActive("/library") ? "active" : ""}`}>
-                    library
-                  </A>
-                  <A href="/users" class={`nav-link ${isActive("/users") ? "active" : ""}`}>
-                    user<span class="pinky">z</span>
-                  </A>
-                  <A
-                    href="/federation"
-                    class={`nav-link ${isActive("/federation") ? "active" : ""}`}
-                  >
-                    federation
-                  </A>
-                  <A href="/radio" class={`nav-link ${isActive("/radio") ? "active" : ""}`}>
-                    radi<span class="pinky">o</span>
-                  </A>
-                  <A href="/settings" class={`nav-link ${isActive("/settings") ? "active" : ""}`}>
-                    setting<span class="pinky">z</span>
-                  </A>
-                  <A href="/config" class={`nav-link ${isActive("/config") ? "active" : ""}`}>
-                    confi<span class="pinky">g</span>
-                  </A>
-                  <A href="/logs" class={`nav-link ${isActive("/logs") ? "active" : ""}`}>
-                    log<span class="pinky">z</span>
-                  </A>
-                </div>
-
-                <div class="sidebar-footer">
-                  {/* P2P status - only show if federation enabled */}
-                  <Show when={p2pStatus()?.federation_enabled}>
-                    <div class="server-status">
-                      <div class="p2p-status-row">
-                        <span
-                          class={`status-dot ${
-                            p2pStatus()?.status === "online"
-                              ? "running"
-                              : p2pStatus()?.status === "connecting..." ||
-                                  p2pStatus()?.status === "starting..."
-                                ? "connecting"
-                                : "stopped"
-                          }`}
-                        />
-                        <span class="status-text">p2p {p2pStatus()?.status}</span>
-                      </div>
-                    </div>
-                  </Show>
-
-                  <p
-                    class="version"
-                    title={`${
-                      buildInfo()?.git_sha ?? "?"
-                    }${buildInfo() ? ` (${buildInfo()!.target_os}, ${buildInfo()!.debug ? "debug" : "release"})` : ""}`}
-                  >
-                    v{VERSION}{" "}
-                    <Show when={buildInfo()}>
-                      <span
-                        style={{
-                          color: buildInfo()!.git_sha === UI_GIT_SHA ? undefined : "#ff9f1c",
-                        }}
-                      >
-                        {buildInfo()!.git_sha}
-                      </span>
+                  <div class="nav-links">
+                    <A href="/library" class={`nav-link ${isActive("/library") ? "active" : ""}`}>
+                      library
+                    </A>
+                    <Show when={wizardJobzEnabled()}>
+                      <A href="/jobs" class={`nav-link ${isActive("/jobs") ? "active" : ""}`}>
+                        job<span class="pinky">z</span>
+                      </A>
                     </Show>
-                  </p>
-                </div>
-              </nav>
+                    <A href="/users" class={`nav-link ${isActive("/users") ? "active" : ""}`}>
+                      user<span class="pinky">z</span>
+                    </A>
+                    <A
+                      href="/federation"
+                      class={`nav-link ${isActive("/federation") ? "active" : ""}`}
+                    >
+                      federation
+                    </A>
+                    <A href="/radio" class={`nav-link ${isActive("/radio") ? "active" : ""}`}>
+                      radi<span class="pinky">o</span>
+                    </A>
+                    <A href="/settings" class={`nav-link ${isActive("/settings") ? "active" : ""}`}>
+                      setting<span class="pinky">z</span>
+                    </A>
+                    <A href="/config" class={`nav-link ${isActive("/config") ? "active" : ""}`}>
+                      confi<span class="pinky">g</span>
+                    </A>
+                    <A href="/logs" class={`nav-link ${isActive("/logs") ? "active" : ""}`}>
+                      log<span class="pinky">z</span>
+                    </A>
+                  </div>
 
-              <main class="main-content">
-                <AdminScopeBanner />
-                {props.children}
-              </main>
-            </div>
+                  <div class="sidebar-footer">
+                    <Show when={wizardPreferencesError()}>
+                      <p class="error" role="alert">
+                        {wizardPreferencesError()}
+                      </p>
+                    </Show>
+                    {/* P2P status - only show if federation enabled */}
+                    <Show when={p2pStatus()?.federation_enabled}>
+                      <div class="server-status">
+                        <div class="p2p-status-row">
+                          <span
+                            class={`status-dot ${
+                              p2pStatus()?.status === "online"
+                                ? "running"
+                                : p2pStatus()?.status === "connecting..." ||
+                                    p2pStatus()?.status === "starting..."
+                                  ? "connecting"
+                                  : "stopped"
+                            }`}
+                          />
+                          <span class="status-text">p2p {p2pStatus()?.status}</span>
+                        </div>
+                      </div>
+                    </Show>
+
+                    <p
+                      class="version"
+                      title={`${
+                        buildInfo()?.git_sha ?? "?"
+                      }${buildInfo() ? ` (${buildInfo()!.target_os}, ${buildInfo()!.debug ? "debug" : "release"})` : ""}`}
+                    >
+                      v{VERSION}{" "}
+                      <Show when={buildInfo()}>
+                        <span
+                          style={{
+                            color: buildInfo()!.git_sha === UI_GIT_SHA ? undefined : "#ff9f1c",
+                          }}
+                        >
+                          {buildInfo()!.git_sha}
+                        </span>
+                      </Show>
+                    </p>
+                  </div>
+                </nav>
+
+                <main class="main-content">
+                  <AdminScopeBanner />
+                  {props.children}
+                </main>
+              </div>
+            </JobsProvider>
           </Show>
         </Show>
       </AdminTransportProvider>

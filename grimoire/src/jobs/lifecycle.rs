@@ -65,6 +65,20 @@ pub(super) async fn ensure_active(pool: &SqlitePool, job_id: &str) -> Result<(),
     Ok(())
 }
 
+pub(super) async fn settle_session(pool: &SqlitePool, session: &str) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "UPDATE job_sessionz SET status=CASE
+         WHEN EXISTS (SELECT 1 FROM jobz WHERE session_id=? AND status IN ('Pending','Running')) THEN 'Active'
+         WHEN EXISTS (SELECT 1 FROM jobz WHERE session_id=? AND status='Failed') THEN 'Failed'
+         ELSE 'Completed' END
+         WHERE id=? AND status NOT IN ('Cancelled','Paused')
+         AND (status='Active' OR EXISTS
+         (SELECT 1 FROM jobz WHERE session_id=? AND status IN ('Pending','Running')))",
+        session, session, session, session
+    ).execute(pool).await?;
+    Ok(())
+}
+
 pub(crate) async fn cancel_session(
     pool: &SqlitePool,
     session: &str,

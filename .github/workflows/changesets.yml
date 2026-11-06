@@ -1,6 +1,6 @@
 # on every push to main, run the changesets action:
 #   - changesets pending  -> open/update the "Version Packages" PR (which runs
-#     `npm run version` = changeset version + make bump-version) on branch
+#     `npm run version` = changeset version + make bump-version + site assets) on branch
 #     changeset-release/main.
 #   - no changesets pending (that PR was just merged) -> run
 #     `npm run release:publish`, which flips the already-built draft release to
@@ -53,6 +53,8 @@ jobs:
           # opens/updates the version PR. when there are no changesets left
           # (version PR merged) the publish command runs and publishes the
           # draft release that release.yml already built during the PR.
+          # version also syncs the public Pi installer and git-derived page dates;
+          # the action commits these alongside the version bumps on the PR branch.
           version: npm run version
           publish: npm run release:publish
           commit: "chore: version packages"

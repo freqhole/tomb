@@ -19,6 +19,7 @@ ratatui = { version = "0.30", default-features = false }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+time = { workspace = true }
 tracing = { workspace = true }
 # pin generation for the `--player`/`/player` pairing protocol
 # (ratcore/app/pairing.rs) - pure computation, portable to both shells.

@@ -105,7 +105,9 @@ fn unique_volume<'a>(
         .filter(|volume| &volume.uuid == uuid && &volume.partition_uuid == partition_uuid);
     let volume = matching
         .next()
-        .ok_or_else(|| invalid("device_path", "registered volume is absent"))?;
+        .ok_or_else(|| GrimoireError::LibrarySourceUnavailable {
+            reason: "registered volume is absent".into(),
+        })?;
     if matching.next().is_some() {
         return Err(invalid(
             "device_path",
@@ -512,6 +514,11 @@ pub async fn validate_scan_path(pool: &SqlitePool, path: &str) -> GrimoireResult
             }
             let volume = unique_volume(&volumes, &source.volume_uuid, &source.partition_uuid)?;
             sync_priority::reject_sync_volume(&sync_targets, volume)?;
+            if volume.mount_points.is_empty() {
+                return Err(GrimoireError::LibrarySourceUnavailable {
+                    reason: "registered volume is unmounted".into(),
+                });
+            }
             let mut found = false;
             for mount_path in &volume.mount_points {
                 let selection = SourceSelection {
@@ -537,6 +544,20 @@ pub async fn validate_scan_path(pool: &SqlitePool, path: &str) -> GrimoireResult
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn absent_volume_is_distinct_from_ambiguous_volume_identity() {
+        let disk = volume(Path::new("/dev/test"), Path::new("/media/test"));
+        assert!(matches!(
+            unique_volume(&[], &disk.uuid, &disk.partition_uuid),
+            Err(GrimoireError::LibrarySourceUnavailable { .. })
+        ));
+        let duplicates = vec![disk.clone(), disk.clone()];
+        assert!(matches!(
+            unique_volume(&duplicates, &disk.uuid, &disk.partition_uuid),
+            Err(GrimoireError::Validation { .. })
+        ));
+    }
 
     #[test]
     fn domain_schema_matches_wire_literals() {

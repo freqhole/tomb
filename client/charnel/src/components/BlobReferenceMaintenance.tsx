@@ -1,88 +1,32 @@
-import { createEffect, createSignal, on, onCleanup, Show } from "solid-js";
-import { useAdminTransport } from "../admin/context";
-
-interface AuditJob {
-  id: string;
-  status: string;
-  result: string | null;
-  error_message: string | null;
-}
-
-interface AuditResult {
-  checked?: number;
-  total?: number;
-  repair?: boolean;
-  entries?: { error: string | null }[];
-}
+import { createEffect, createSignal, on, Show } from "solid-js";
+import { useJobs } from "../jobs";
 
 export default function BlobReferenceMaintenance() {
-  const admin = useAdminTransport();
-  const [job, setJob] = createSignal<AuditJob | null>(null);
-  const [result, setResult] = createSignal<AuditResult | null>(null);
+  const tracker = useJobs();
   const [error, setError] = createSignal("");
   const [loading, setLoading] = createSignal(false);
-  const running = () => loading() || ["Pending", "Running"].includes(job()?.status ?? "");
-  let generation = 0;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-
-  function update(value: AuditJob | null) {
-    const parsed: AuditResult | null =
-      value?.result && value.status !== "Failed" ? JSON.parse(value.result) : null;
-    setJob(value);
-    setResult(parsed);
-  }
-
-  async function refresh(id: string | undefined, current = generation) {
-    try {
-      const value = await admin.dispatchOrThrow<AuditJob | null>(
-        "maintenance_blob_reference_status",
-        id ? { job_id: id } : {},
+  const running = () =>
+    loading() ||
+    tracker
+      .jobs()
+      .some(
+        (job) =>
+          job.job_type === "AuditBlobReferences" && ["pending", "running"].includes(job.status),
       );
-      if (current !== generation) return;
-      update(value);
-      setError("");
-      if (value && ["Pending", "Running"].includes(value.status)) {
-        timer = setTimeout(() => refresh(value.id, current), 1000);
-      }
-    } catch (e) {
-      if (current === generation) setError(`could not read reference job: ${e}`);
-    }
-  }
-
-  createEffect(
-    on(
-      () => `${admin.current().kind}:${admin.current().peerAddr ?? ""}`,
-      () => {
-        generation++;
-        clearTimeout(timer);
-        update(null);
-        setError("");
-        setLoading(false);
-        void refresh(undefined);
-      },
-    ),
-  );
-  onCleanup(() => {
-    generation++;
-    clearTimeout(timer);
-  });
+  createEffect(on(tracker.connected, () => setError("")));
 
   async function enqueue(repair: boolean) {
-    const current = ++generation;
-    clearTimeout(timer);
     setLoading(true);
     setError("");
     try {
-      const value = await admin.dispatchOrThrow<AuditJob>("maintenance_audit_blob_references", {
+      const response = await tracker.dispatch("maintenance_audit_blob_references", {
         repair,
       });
-      if (current !== generation) return;
-      update(value);
-      await refresh(value.id, current);
+      if (!response.success) throw new Error(response.message);
     } catch (e) {
-      if (current === generation) setError(`could not queue reference job: ${e}`);
+      setError(`could not queue reference job: ${e}`);
     } finally {
-      if (current === generation) setLoading(false);
+      setLoading(false);
     }
   }
 
@@ -103,39 +47,13 @@ export default function BlobReferenceMaintenance() {
             audit and repair
           </button>
         </div>
-        <Show when={job()}>
-          {(value) => (
-            <div class="scan-progress-card">
-              <p>reference job: {value().status.toLowerCase()}</p>
-              <Show when={result()?.checked !== undefined}>
-                <p>
-                  checked {result()?.checked} of {result()?.total} references
-                </p>
-              </Show>
-              <Show when={value().status === "Completed" && result()?.entries}>
-                <p>
-                  {result()?.entries?.length} references{" "}
-                  {result()?.repair ? "verified and repaired" : "verified"}.
-                </p>
-              </Show>
-              <Show when={value().error_message}>
-                <pre class="scan-progress error">{value().error_message}</pre>
-              </Show>
-              <p class="hint">job {value().id}; continues if you leave this view.</p>
-            </div>
-          )}
-        </Show>
+        <p class="hint">
+          progress appears with related library jobs.{" "}
+          <a href="#/jobs">inspect all jobs and results</a>; queued work continues if you leave this
+          view.
+        </p>
         <Show when={error()}>
           <p class="scan-progress error">{error()}</p>
-          <button
-            class="secondary small"
-            onClick={() => {
-              clearTimeout(timer);
-              void refresh(job()?.id);
-            }}
-          >
-            retry status
-          </button>
         </Show>
       </div>
     </details>

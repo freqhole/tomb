@@ -572,6 +572,14 @@ impl CommandForm {
 /// background-task → ui-loop messages.
 #[derive(Debug)]
 pub enum AppAction {
+    JobsSnapshot {
+        generation: u64,
+        response: DispatchResponse,
+    },
+    JobsMutationResult {
+        generation: u64,
+        response: DispatchResponse,
+    },
     /// user asked the shell to start a `freqhole serve` subprocess.
     /// shells (tty) translate to a real spawn; web ignores. carries
     /// the kind selected on the slash command (`/serve`, `/http`,

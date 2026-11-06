@@ -1,5 +1,103 @@
 /* freqhole wizard styles - sidebar layout */
 
+.jobs-toolbar,
+.job-progress-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.jobs-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.jobs-toolbar .jobs-search {
+  background: #18181b;
+  color: #fafafa;
+  border: 1px solid #3f3f46;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  min-width: 10rem;
+  max-width: 100%;
+}
+
+.jobs-toolbar .jobs-icon-button {
+  padding: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.jobs-icon-button svg {
+  width: 1.25rem;
+  height: 1.25rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.jobs-view a {
+  color: #f9a8d4;
+  text-decoration: underline;
+}
+
+.jobs-list {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.job-list-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  text-align: left;
+  width: 100%;
+}
+
+.job-list-message,
+.job-progress-row p {
+  width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.job-progress {
+  max-height: 35vh;
+  overflow-y: auto;
+}
+
+.job-progress-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid #27272a;
+}
+
+.job-progress-row .spinner {
+  width: 1rem;
+  height: 1rem;
+}
+
+.job-progress-row progress {
+  accent-color: #ec4899;
+  max-width: 100%;
+}
+
+.job-details pre {
+  overflow: auto;
+  max-height: 40vh;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 :root {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 16px;

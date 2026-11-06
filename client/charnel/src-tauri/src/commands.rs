@@ -2438,13 +2438,37 @@ async fn run_maintenance_session(
             status.current_step = Some(command.clone());
         }
 
+        let mut events: RepairLibraryEventStream = Box::pin(
+            grimoire::jobs::job_events::subscribe_filtered(Default::default(), caller.clone()),
+        );
         let response =
             grimoire::admin_dispatch::handle(command, serde_json::Value::Null, &caller).await;
-        let step_result = MaintenanceStepResult {
+        let mut step_result = MaintenanceStepResult {
             command: command.clone(),
             success: response.success,
             message: response.message,
         };
+        if response.success {
+            if let Some(id) = response
+                .data
+                .as_ref()
+                .filter(|data| {
+                    data.get("job_type")
+                        .and_then(serde_json::Value::as_str)
+                        .is_some()
+                })
+                .and_then(|data| data.get("id"))
+                .and_then(serde_json::Value::as_str)
+            {
+                match wait_for_queued_job(id, &caller, &mut events).await {
+                    Ok(()) => step_result.message = format!("job complete: {id}"),
+                    Err(message) => {
+                        step_result.success = false;
+                        step_result.message = message;
+                    }
+                }
+            }
+        }
 
         if let Some(status) = maintenance_results().lock().unwrap().get_mut(&session_id) {
             status.completed_steps = (idx + 1) as u32;
@@ -2456,6 +2480,67 @@ async fn run_maintenance_session(
         status.done = true;
         status.current_step = None;
     }
+}
+
+async fn wait_for_queued_job(
+    id: &str,
+    caller: &grimoire::offal::Caller,
+    events: &mut RepairLibraryEventStream,
+) -> Result<(), String> {
+    use futures_util::StreamExt;
+    use grimoire::jobs::job_events::{self, EventFilter, JobEvent, JobStatusWire};
+    let filter = EventFilter {
+        job_ids: Some(vec![id.to_string()]),
+        ..Default::default()
+    };
+    let states = job_events::snapshot(&filter, caller).await;
+    let state = states
+        .first()
+        .ok_or_else(|| format!("queued job {id} is unavailable"))?;
+    match state.status {
+        JobStatusWire::Completed => return Ok(()),
+        JobStatusWire::Failed => {
+            return Err(state
+                .errors
+                .as_ref()
+                .map(|errors| {
+                    errors
+                        .iter()
+                        .map(|error| error.detail.as_str())
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                })
+                .unwrap_or_else(|| format!("job {id} failed")))
+        }
+        JobStatusWire::Cancelled => return Err(format!("job {id} cancelled")),
+        _ => {}
+    }
+    while let Some(event) = events.next().await {
+        match event {
+            Ok(JobEvent::StatusChanged {
+                job_id,
+                to: JobStatusWire::Completed,
+                ..
+            }) if job_id == id => return Ok(()),
+            Ok(JobEvent::StatusChanged {
+                job_id,
+                to: JobStatusWire::Cancelled,
+                ..
+            }) if job_id == id => return Err(format!("job {id} cancelled")),
+            Ok(JobEvent::Failed {
+                job_id, message, ..
+            }) if job_id == id => return Err(message),
+            Err(reason) => {
+                return Err(format!(
+                    "job progress stream closed: {reason:?}; job {id} continues on the server"
+                ))
+            }
+            _ => {}
+        }
+    }
+    Err(format!(
+        "job progress stream ended; job {id} continues on the server"
+    ))
 }
 
 /// poll for scan job completion and notify spume with progress updates
@@ -3215,6 +3300,20 @@ pub fn get_background_images_enabled(app_handle: tauri::AppHandle) -> bool {
     FreqholeAppConfig::load(&app_handle)
         .map(|c| c.background_images_enabled)
         .unwrap_or_else(crate::app_config::default_background_images_enabled)
+}
+
+#[tauri::command]
+pub fn get_wizard_jobz_enabled(app_handle: tauri::AppHandle) -> Result<bool, String> {
+    let path = crate::app_config::get_config_path(&app_handle)
+        .ok_or_else(|| "could not locate Charnel app config".to_string())?;
+    let content = match std::fs::read_to_string(&path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(format!("could not read Charnel app config: {error}")),
+    };
+    let config: FreqholeAppConfig = toml::from_str(&content)
+        .map_err(|error| format!("could not parse Charnel app config: {error}"))?;
+    Ok(config.wizard_jobz_enabled)
 }
 
 /// set the background_images_enabled setting. fires `config_changed` so

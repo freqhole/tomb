@@ -72,6 +72,7 @@ fn job_class(job_type: &JobType) -> JobClass {
         | JobType::ProcessDirectory
         | JobType::FetchMedia
         | JobType::PreCheckFetch => JobClass::Heavy,
+        JobType::RegenerateVideoPosters => JobClass::Heavy,
         _ => JobClass::Other,
     }
 }
@@ -156,6 +157,28 @@ impl Drop for JobClassPermit {
     }
 }
 
+fn normalize_scan_source_outcome(
+    kind: &JobType,
+    result: Result<Option<serde_json::Value>, super::JobError>,
+) -> Result<Option<serde_json::Value>, super::JobError> {
+    match result {
+        Err(super::JobError::Grimoire(crate::GrimoireError::LibrarySourceUnavailable {
+            reason,
+        })) if matches!(
+            kind,
+            JobType::ScanDirectory | JobType::ProcessDirectory | JobType::ProcessFile
+        ) =>
+        {
+            info!(%reason, "skipping scan attempt for disconnected library source");
+            Ok(Some(serde_json::json!({
+                "skipped": true, "reason": reason, "message": "skipped: library source disconnected; scan again on reconnect",
+                "outcome_type": "library_source_unavailable",
+            })))
+        }
+        other => other,
+    }
+}
+
 /// process a single job by dispatching to the appropriate processor
 /// Note: job should already be marked as 'Running' by get_next_pending_job
 pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
@@ -207,10 +230,21 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
                 JobType::RepairLibraryImages => process_repair_library_images_job(&job).await,
                 JobType::ReorganizeLibraryFiles => process_reorganize_library_files_job(&job).await,
                 JobType::AuditBlobReferences => super::reference_audit::process(&job).await,
+                JobType::RegenerateVideoPosters => {
+                    super::regenerate_video_posters::process(&job).await
+                }
             }
         })
         .await;
 
+    let result = normalize_scan_source_outcome(&job_type, result);
+    let skipped = result
+        .as_ref()
+        .ok()
+        .and_then(|output| output.as_ref())
+        .and_then(|output| output.get("skipped"))
+        .and_then(serde_json::Value::as_bool)
+        == Some(true);
     let processing_time = start_time.elapsed().as_millis() as u64;
 
     match result {
@@ -239,7 +273,7 @@ pub async fn process_job(job: Job) -> GrimoireResponse<JobResult> {
 
             // clean up completed ProcessFile / ProcessDirectory jobs to
             // avoid bloating the jobz table (scans can produce 1000s)
-            if matches!(job_type, JobType::ProcessFile | JobType::ProcessDirectory) {
+            if !skipped && matches!(job_type, JobType::ProcessFile | JobType::ProcessDirectory) {
                 let _ = delete_job(&job.id).await;
             }
 
@@ -1148,6 +1182,47 @@ pub async fn run_job_processor_once(max_jobs: u32) -> GrimoireResponse<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disconnected_scan_attempts_skip_without_hiding_other_errors() {
+        for kind in [
+            JobType::ScanDirectory,
+            JobType::ProcessDirectory,
+            JobType::ProcessFile,
+        ] {
+            let result = normalize_scan_source_outcome(
+                &kind,
+                Err(super::super::JobError::Grimoire(
+                    crate::GrimoireError::LibrarySourceUnavailable {
+                        reason: "device disconnected".into(),
+                    },
+                )),
+            )
+            .unwrap()
+            .unwrap();
+            assert_eq!(result["skipped"], true);
+            assert_eq!(result["outcome_type"], "library_source_unavailable");
+        }
+        assert!(normalize_scan_source_outcome(
+            &JobType::ProcessDirectory,
+            Err(super::super::JobError::Grimoire(
+                crate::GrimoireError::Validation {
+                    field: "device_path".into(),
+                    message: "duplicate volume identity".into()
+                }
+            ))
+        )
+        .is_err());
+        assert!(normalize_scan_source_outcome(
+            &JobType::TranscodeVideo,
+            Err(super::super::JobError::Grimoire(
+                crate::GrimoireError::LibrarySourceUnavailable {
+                    reason: "device disconnected".into()
+                }
+            ))
+        )
+        .is_err());
+    }
 
     // the media-add pipeline + video transcoding - exactly what the
     // webp-conversion starvation report named ("media add, transcode").

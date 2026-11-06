@@ -11,13 +11,14 @@
 //!
 //! wire protocol: one command per line (newline-delimited). action
 //! commands (`play_pause`, `next`, `previous`, `volume_up`,
-//! `volume_down`, `stop`, `rotate_pin`,
+//! `volume_down`, `stop`,
 //! `show_player`) are fire-and-forget - no reply is written back. query
 //! commands write a single-line JSON reply back on the same
 //! connection: `get_state` (now-playing song/video, playing/paused,
 //! position/duration, volume), `list_audio_devices` (the active
 //! backend's known output devices), and `show_admin_pin` (rotates an
-//! admin pairing code and replies with its digits).
+//! admin pairing code and replies with its digits), and `rotate_pin`
+//! (rotates a session code without an admin grant and replies with its digits).
 //! `set_audio_device <name>` takes the device name after its first space
 //! and is fire-and-forget, same as the other action commands.
 //! `library_storage <JSON>` replies with a restricted storage-admin envelope;
@@ -49,7 +50,7 @@ pub enum ControlSocketCommand {
     /// player-pairing overview, and replies with the code digits.
     ShowAdminPin,
     /// rotates the pairing session pin (no admin grant), then shows
-    /// the player-pairing overview so the new pin is visible.
+    /// the player-pairing overview and replies with the code digits.
     RotatePin,
     /// switches focus to the player-pairing overview (qr/art/queue),
     /// without touching the pin.
@@ -70,7 +71,7 @@ pub enum ControlSocketCommand {
 /// `None` and nothing is written back to the client.
 pub struct ControlSocketRequest {
     pub command: ControlSocketCommand,
-    /// query commands (`get_state`/`list_audio_devices`/`show_admin_pin`)
+    /// query commands (`get_state`/`list_audio_devices`/`show_admin_pin`/`rotate_pin`)
     /// send their JSON reply here; action commands leave this `None`.
     pub reply: Option<oneshot::Sender<String>>,
 }
@@ -231,6 +232,7 @@ async fn handle_connection(
                             ControlSocketCommand::GetState
                                 | ControlSocketCommand::ListAudioDevices
                                 | ControlSocketCommand::ShowAdminPin
+                                | ControlSocketCommand::RotatePin
                         );
                         if needs_reply {
                             let (reply_tx, reply_rx) = oneshot::channel();
@@ -330,7 +332,7 @@ mod tests {
         let mut lines = BufReader::new(reader).lines();
         writer
             .write_all(
-                b"library_storage {\"command\":\"users_delete\"}\nplay_pause\nget_state\nshow_admin_pin\n",
+                b"library_storage {\"command\":\"users_delete\"}\nplay_pause\nget_state\nshow_admin_pin\nrotate_pin\n",
             )
             .await
             .unwrap();
@@ -374,6 +376,17 @@ mod tests {
         assert_eq!(
             lines.next_line().await.unwrap().unwrap(),
             r#"{"pin":"123456"}"#
+        );
+        let session_pin = requests.recv().await.unwrap();
+        assert_eq!(session_pin.command, ControlSocketCommand::RotatePin);
+        session_pin
+            .reply
+            .unwrap()
+            .send(r#"{"pin":"654321"}"#.into())
+            .unwrap();
+        assert_eq!(
+            lines.next_line().await.unwrap().unwrap(),
+            r#"{"pin":"654321"}"#
         );
 
         server.abort();

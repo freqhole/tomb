@@ -11,6 +11,7 @@
 //! - fetch_processor: downloading from external sources (YouTube, etc.)
 //! - upload_processors: user upload handling (WebP conversion, music import)
 
+pub mod dashboard;
 pub mod job_events;
 mod lifecycle;
 pub(crate) use lifecycle::cancel_session as cancel_session_jobs;
@@ -18,6 +19,7 @@ mod models;
 mod music;
 pub mod rate_limit;
 mod reference_audit;
+mod regenerate_video_posters;
 mod runner;
 mod service;
 mod video;

@@ -1974,6 +1974,24 @@ class SessionTests(unittest.TestCase):
         for variable in ("WEBKIT_DISABLE_COMPOSITING_MODE", "WEBKIT_DISABLE_DMABUF_RENDERER"):
             self.assertIn(f"Environment={variable}=1", unit.splitlines())
 
+    def test_charnel_service_restarts_only_for_the_migration_handoff(self):
+        unit = (HERE / "charnel.service").read_text().splitlines()
+        self.assertIn("Environment=FREQHOLE_PI_SERVICE=1", unit)
+        self.assertIn("Restart=no", unit)
+        self.assertIn("RestartForceExitStatus=75", unit)
+
+    def test_setup_without_a_source_file_does_not_use_the_current_directory(self):
+        script = (HERE / "setup.sh").read_text()
+        snippet = script[script.index('source_dir=""'):script.index("uninstall()")]
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "configure.py").write_text("not an installer asset")
+            result = subprocess.run(
+                ["bash", "-uc", snippet + '\nprintf "<%s>\\n" "$source_dir"\nread -r answer\nprintf "%s" "$answer"'],
+                cwd=directory, input="prompt still works\n", text=True, capture_output=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "<>\nprompt still works")
+
     def test_setup_launches_selected_app_only_on_enter_and_checks_health(self):
         script = (HERE / "setup.sh").read_text()
         ending = script[script.index('echo "setup complete;'):]
@@ -2308,6 +2326,11 @@ class MenuFeedbackTests(unittest.TestCase):
                         self.assertIn(f"state: {expected}", output.getvalue())
 
     def test_admin_pin_send_returns_the_code(self):
+        for command in ("show_admin_pin", "rotate_pin"):
+            with self.subTest(command=command):
+                self.check_pin_reply(command)
+
+    def check_pin_reply(self, command):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "s.sock"
             with closing(socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)) as server:
@@ -2328,19 +2351,33 @@ class MenuFeedbackTests(unittest.TestCase):
                 worker.start()
                 with patch.object(menu, "current_socket_path", return_value=str(path)), \
                      patch("sys.stdout", new_callable=io.StringIO) as output:
-                    self.assertEqual(menu.send_socket_command("show_admin_pin"), 0)
+                    self.assertEqual(menu.send_socket_command(command), 0)
                 worker.join(timeout=2)
                 self.assertFalse(worker.is_alive())
-                self.assertEqual(received, [b"show_admin_pin\n"])
-                self.assertIn("admin pairing code: 123456", output.getvalue())
+                self.assertEqual(received, [(command + "\n").encode()])
+                label = "admin pairing code" if command == "show_admin_pin" else "pairing code"
+                self.assertIn(f"{label}: 123456", output.getvalue())
 
     def test_admin_pin_output_is_not_written_to_the_journal(self):
-        screen = menu.Menu.__new__(menu.Menu)
-        screen.running_admin_pin = None
-        with patch("sys.stdout", new_callable=io.StringIO) as output:
-            screen.handle_output_line(b"admin pairing code: 123456")
-        self.assertEqual(screen.running_admin_pin, "123456")
-        self.assertEqual(output.getvalue(), "")
+        for prefix in ("admin pairing code", "pairing code"):
+            screen = menu.Menu.__new__(menu.Menu)
+            screen.running_admin_pin = None
+            with patch("sys.stdout", new_callable=io.StringIO) as output:
+                screen.handle_output_line(f"{prefix}: 123456".encode())
+            self.assertEqual(screen.running_admin_pin, "123456")
+            self.assertEqual(output.getvalue(), "")
+
+    def test_invalid_pairing_replies_fail_instead_of_showing_success(self):
+        for payload in (b'{"error":"pairing disabled"}\n', b'{"pin":"123"}\n', b'not JSON\n', b''):
+            connection = Mock()
+            connection.__enter__ = Mock(return_value=connection)
+            connection.__exit__ = Mock(return_value=False)
+            connection.recv.return_value = payload
+            with self.subTest(payload=payload), \
+                 patch.object(menu.socket, "socket", return_value=connection), \
+                 patch("sys.stderr", new_callable=io.StringIO) as error:
+                self.assertEqual(menu.send_socket_command("rotate_pin"), 1)
+                self.assertIn("pairing code", error.getvalue())
 
     def finished_socket_menu(self, state, result=0):
         screen = menu.Menu.__new__(menu.Menu)
@@ -2380,6 +2417,16 @@ class MenuFeedbackTests(unittest.TestCase):
             screen.message_until,
             100.0 + menu.ADMIN_PIN_DISPLAY_SECONDS,
         )
+
+    def test_session_pin_is_shown_without_an_admin_label(self):
+        with patch.object(menu.time, "monotonic", return_value=100.0), \
+             patch("sys.stdout", new_callable=io.StringIO):
+            screen = self.finished_socket_menu(None)
+            screen.running_label = menu.PAIRING_PIN_LABEL
+            screen.running_admin_pin = "123456"
+            screen.poll_command()
+        self.assertEqual(screen.message, ("pairing code", "123456", "enter in Charnel"))
+        self.assertEqual(screen.message_until, 100.0 + menu.ADMIN_PIN_DISPLAY_SECONDS)
 
     def test_failed_send_sticks_without_log_hint(self):
         with patch("sys.stdout", new_callable=io.StringIO):

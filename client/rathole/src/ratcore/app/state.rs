@@ -200,6 +200,7 @@ pub enum Focus {
     /// switches the active transport; `a` opens [`Focus::PeerInput`]
     /// to add a new one; `d` deletes the highlighted entry.
     RemoteList,
+    JobsView,
     /// inline form for filling in the selected command's args.
     CommandForm,
     /// the last-dispatch output panel — takes focus so arrow keys
@@ -297,6 +298,7 @@ pub struct EphemeralState {
     /// rendered as a small `{kind} {pct}%` badge in the top bar.
     /// cleared on a matching `JobSessionComplete`.
     pub jobs_status: Option<JobsStatus>,
+    pub jobs: crate::ratcore::jobs::JobsView,
     /// number of pending knock requests known to the local node.
     /// surfaces a small bell-style indicator on the right of the
     /// top bar. fed by the same grimoire event channel that drives
@@ -396,6 +398,7 @@ impl Default for EphemeralState {
             remotes_view_cursor: 0,
             serve: ServeBadge::default(),
             jobs_status: None,
+            jobs: crate::ratcore::jobs::JobsView::default(),
             pending_knocks: 0,
             pending_knock_username: None,
             scan_status: None,

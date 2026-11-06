@@ -77,6 +77,7 @@ pub enum JobType {
     // format supports it; see `maintenance::reorganize_library`.
     ReorganizeLibraryFiles,
     AuditBlobReferences,
+    RegenerateVideoPosters,
 }
 
 /// parameters for a `TranscodeVideo` job - produces rendition `MediaBlob`

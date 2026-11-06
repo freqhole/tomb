@@ -1774,6 +1774,7 @@ pub fn run() {
             commands::get_libmpv_playback,
             commands::set_libmpv_playback,
             commands::get_background_images_enabled,
+            commands::get_wizard_jobz_enabled,
             commands::set_background_images_enabled,
             commands::get_edge_swipe_navigation_enabled,
             commands::set_edge_swipe_navigation_enabled,

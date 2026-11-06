@@ -1,6 +1,12 @@
 ---
 title: freqhole on a pi
 description: install rathole or charnel on Raspberry Pi OS, with optional OLED controls, updates and Wi-Fi setup
+created: 2026-09-16T12:40:28-04:00
+createdBy: "edwardsharp"
+createdSha: "b86dc98"
+updated: 2026-11-03T19:52:04-05:00
+updatedBy: "edwardsharp"
+updatedSha: "31b4973"
 ---
 
 ## install
@@ -12,11 +18,13 @@ not Lite.
 run as your regular account, **without sudo**:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/freqhole/tomb/main/scripts/raspberry-pi/setup.sh -o freqhole-setup.sh && bash freqhole-setup.sh
+bash -c "$(curl -fsSL https://freqhole.net/setup.sh)"
 ```
 
-the download replaces `freqhole-setup.sh` in the current directory. review it before
-running if preferred. don't pipe it into Bash: setup needs interactive input.
+no script file is created or left behind. Bash still reads prompts from your
+terminal. to review first, download it to a file instead. don't pipe it into Bash:
+setup needs interactive input. use HTTPS; this command trusts the website and
+does not independently verify a checksum.
 
 ## choose your setup
 

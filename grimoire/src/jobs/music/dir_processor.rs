@@ -128,6 +128,12 @@ pub async fn process_directory_job(job: &Job) -> Result<Option<Value>, JobError>
                 }
             }
             Err(e) => {
+                if matches!(
+                    &e,
+                    JobError::Grimoire(crate::GrimoireError::LibrarySourceUnavailable { .. })
+                ) {
+                    return Err(e);
+                }
                 let reason = match &e {
                     JobError::ProcessingFailed { reason } => reason.clone(),
                     other => format!("{:?}", other),

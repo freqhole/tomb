@@ -70,11 +70,7 @@ pub async fn process_scan_directory_job(job: &Job) -> Result<Option<Value>, JobE
     .await
     {
         Ok(outcome) => outcome,
-        Err(e) => {
-            return Err(JobError::ProcessingFailed {
-                reason: format!("failed to scan directory: {}", e),
-            })
-        }
+        Err(e) => return Err(e.into()),
     };
 
     // clear caches and write reports

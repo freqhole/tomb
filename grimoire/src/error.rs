@@ -113,6 +113,9 @@ pub enum GrimoireError {
     #[error("validation error: {field} - {message}")]
     Validation { field: String, message: String },
 
+    #[error("registered library source is unavailable: {reason}")]
+    LibrarySourceUnavailable { reason: String },
+
     #[error("processing failed: {message}")]
     ProcessingFailed { message: String },
 
@@ -270,6 +273,7 @@ impl GrimoireError {
             GrimoireError::InvalidEntityType { .. } => false,
             GrimoireError::DatabaseNotFound(_) => false,
             GrimoireError::Validation { .. } => false,
+            GrimoireError::LibrarySourceUnavailable { .. } => false,
             GrimoireError::InvalidFormat { .. } => false,
             GrimoireError::InvalidEventType(_) => false,
             GrimoireError::InvalidEventData(_) => false,
@@ -324,6 +328,7 @@ impl GrimoireError {
             GrimoireError::RouteNotFound { .. } => 404,
             GrimoireError::BadRequest { .. } => 400,
             GrimoireError::Validation { .. } => 400,
+            GrimoireError::LibrarySourceUnavailable { .. } => 409,
             GrimoireError::InvalidFormat { .. } => 400,
             GrimoireError::Serialization(_) => 400,
             GrimoireError::InvalidEntityType { .. } => 400,
