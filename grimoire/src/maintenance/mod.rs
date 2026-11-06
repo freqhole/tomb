@@ -34,6 +34,7 @@ pub use repair_library_images::{
     DirectoryBatchOutcome, RepairLibraryImagesOptions, RepairLibraryImagesPhase,
     RepairLibraryImagesResult, WaveformBatchOutcome, DIRECTORY_BATCH_SIZE, WAVEFORM_BATCH_SIZE,
 };
+pub(crate) use repair_video_images::regenerate_video_poster;
 pub use repair_video_images::{
     regenerate_video_thumbnails_batch, regenerate_video_thumbnails_sync,
     repair_video_thumbnails_batch, repair_video_waveforms_batch, VIDEO_THUMBNAIL_BATCH_SIZE,

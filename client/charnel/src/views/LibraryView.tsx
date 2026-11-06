@@ -1,10 +1,12 @@
 import { createSignal, createEffect, on, onMount, onCleanup, For, Show, type JSX } from "solid-js";
 import { open } from "@tauri-apps/plugin-dialog";
-import { invoke, Channel } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { resolvePath, directoryDisplayName, isDocumentPortalPath } from "../util/resolvePath";
 import { useAdminTransport } from "../admin/context";
 import LibraryDiskPicker, { type DiskFolderSelection } from "../components/LibraryDiskPicker";
 import BlobReferenceMaintenance from "../components/BlobReferenceMaintenance";
+import JobProgress, { LIBRARY_JOB_TYPES } from "../components/JobProgress";
+import { useJobs } from "../jobs";
 
 interface ScannedDir {
   id: string;
@@ -218,6 +220,8 @@ interface JobSessionCompletePayload {
 
 export default function LibraryView() {
   const admin = useAdminTransport();
+  const jobs = useJobs();
+  const relatedJobs = () => jobs.jobs().filter((job) => LIBRARY_JOB_TYPES.has(job.job_type));
   const [directories, setDirectories] = createSignal<ScannedDir[]>([]);
   const [librarySources, setLibrarySources] = createSignal<LibrarySource[]>([]);
   const [sourceStates, setSourceStates] = createSignal<SourceAvailability[]>([]);
@@ -413,8 +417,6 @@ export default function LibraryView() {
   >({});
   const [maintenancePreviewsLoading, setMaintenancePreviewsLoading] = createSignal(false);
 
-  let unlistenScan: (() => void) | null = null;
-
   onMount(async () => {
     // check for (and, if found, resume) any in-flight background runs
     // FIRST, before any other startup work, and in PARALLEL with each
@@ -474,110 +476,78 @@ export default function LibraryView() {
     } catch (e) {
       console.error("failed to resolve default fetch source dirs:", e);
     }
-    // subscribe to job lifecycle events via the typed broker channel.
-    // these fire for any active ProcessFile session, covering new scans and rescans.
-    try {
-      const channel = new Channel<{
-        kind: string;
-        evt?: unknown;
-        reason?: unknown;
-      }>();
-      channel.onmessage = (frame) => {
-        if (frame.kind !== "event") return;
-        const evt = frame.evt as
-          | {
-              kind?: string;
-              session_id?: string;
-              complete?: number;
-              total?: number;
-              message?: string;
-              details?: Record<string, unknown>;
-            }
-          | undefined;
-        if (!evt) return;
-        // reorganize-library runs share one session_id across every
-        // batch job - route events for the currently-active run here
-        // instead of falling through to the scan-progress handling
-        // below, which only understands the ProcessDirectory shape.
-        const activeReorganizeSession = reorganizeSessionId();
-        if (activeReorganizeSession && evt.session_id === activeReorganizeSession) {
-          if (evt.kind === "progress") {
-            setReorganizeProgress({ complete: evt.complete ?? 0, total: evt.total ?? 0 });
-          } else if (evt.kind === "completed") {
-            void finalizeReorganizeRun(activeReorganizeSession);
-          }
-          return;
-        }
-        const activeSession = activeLibrarySession();
-        if (!activeSession || evt.session_id !== activeSession) {
-          // no active "run repair library" flow this view started, or
-          // this event belongs to some other job session entirely
-          // (enrichment, a fetch, another tab's scan, ...) - ignore it
-          // rather than letting it stomp scanProgress/scanSummary with
-          // an unrelated session's (zeroed-out) counts.
-          return;
-        }
-        if (evt.kind === "progress") {
-          const d = (evt.details ?? {}) as {
-            directory?: string;
-            domain?: "music" | "video";
-          };
-          // `evt.complete`/`evt.total` are the generic, always-populated
-          // session-level job counts grimoire's runner emits for every
-          // job type (see runner.rs) - `evt.details` (songs_added,
-          // jobs_pending, jobs_total) is only ever filled in for a
-          // specific allowlist of "badge progress" job types
-          // (ImportMusic, ProcessFile, FetchMedia, ...) that does NOT
-          // include RescanDirectories/RepairLibraryImages, so reading
-          // from `details` here always saw an empty object and rendered
-          // a permanently-stuck "0 / 0 jobs" - confirmed real
-          // 2026-10-09. each repair-library batch is one job, so this
-          // now shows real, live "N / M jobs" (batches) progress.
-          const total = evt.total ?? 0;
-          const complete = evt.complete ?? 0;
-          setScanProgress({
-            session_id: evt.session_id ?? "",
-            directory: d.directory,
-            jobs_pending: Math.max(0, total - complete),
-            jobs_total: total,
-            domain: d.domain,
-          });
-        } else if (evt.kind === "stage" && evt.message) {
-          // real, live detail straight from the job processor (current
-          // directory/phase/batch, running totals) - see
-          // rescan_processor.rs / repair_library_images_processor.rs's
-          // `JobEvent::Stage` emit sites.
-          setScanStageMessage(evt.message);
-        }
-        // deliberately ignore "completed" here: grimoire's generic
-        // session-level Completed event fires the instant the SCAN
-        // phase's jobs hit zero pending/running - BEFORE the
-        // repair-images batch chain is even enqueued (see
-        // run_repair_library_session's doc comment) - so treating it as
-        // "done" here previously rendered "scan complete" and reloaded
-        // (still mid-run) directories while image repair was still
-        // actively running underneath. rescanAll()'s own
-        // repair_library_run_status poll is the sole source of truth
-        // for when the whole flow is actually finished.
-      };
-      const jobEventsSessionId = await invoke<string>("jobs_events_subscribe", {
-        filter: null,
-        events: channel,
-        targetPeer: null,
-      });
-      unlistenScan = () => {
-        void invoke("jobs_events_unsubscribe", {
-          sessionId: jobEventsSessionId,
-        });
-      };
-    } catch (e) {
-      console.error("failed to listen for job events:", e);
+  });
+
+  const unlistenJobs = jobs.onEvent((evt) => {
+    // reorganize-library runs share one session_id across every
+    // batch job - route events for the currently-active run here
+    // instead of falling through to the scan-progress handling
+    // below, which only understands the ProcessDirectory shape.
+    const activeReorganizeSession = reorganizeSessionId();
+    if (activeReorganizeSession && evt.session_id === activeReorganizeSession) {
+      if (evt.kind === "progress") {
+        setReorganizeProgress({ complete: evt.complete ?? 0, total: evt.total ?? 0 });
+      } else if (evt.kind === "completed") {
+        void finalizeReorganizeRun(activeReorganizeSession);
+      }
+      return;
     }
+    const activeSession = activeLibrarySession();
+    if (!activeSession || evt.session_id !== activeSession) {
+      // no active "run repair library" flow this view started, or
+      // this event belongs to some other job session entirely
+      // (enrichment, a fetch, another tab's scan, ...) - ignore it
+      // rather than letting it stomp scanProgress/scanSummary with
+      // an unrelated session's (zeroed-out) counts.
+      return;
+    }
+    if (evt.kind === "progress") {
+      const d = (evt.details ?? {}) as {
+        directory?: string;
+        domain?: "music" | "video";
+      };
+      // `evt.complete`/`evt.total` are the generic, always-populated
+      // session-level job counts grimoire's runner emits for every
+      // job type (see runner.rs) - `evt.details` (songs_added,
+      // jobs_pending, jobs_total) is only ever filled in for a
+      // specific allowlist of "badge progress" job types
+      // (ImportMusic, ProcessFile, FetchMedia, ...) that does NOT
+      // include RescanDirectories/RepairLibraryImages, so reading
+      // from `details` here always saw an empty object and rendered
+      // a permanently-stuck "0 / 0 jobs" - confirmed real
+      // 2026-10-09. each repair-library batch is one job, so this
+      // now shows real, live "N / M jobs" (batches) progress.
+      const total = evt.total ?? 0;
+      const complete = evt.complete ?? 0;
+      setScanProgress({
+        session_id: evt.session_id ?? "",
+        directory: d.directory,
+        jobs_pending: Math.max(0, total - complete),
+        jobs_total: total,
+        domain: d.domain,
+      });
+    } else if (evt.kind === "stage" && evt.message) {
+      // real, live detail straight from the job processor (current
+      // directory/phase/batch, running totals) - see
+      // rescan_processor.rs / repair_library_images_processor.rs's
+      // `JobEvent::Stage` emit sites.
+      setScanStageMessage(evt.message);
+    }
+    // deliberately ignore "completed" here: grimoire's generic
+    // session-level Completed event fires the instant the SCAN
+    // phase's jobs hit zero pending/running - BEFORE the
+    // repair-images batch chain is even enqueued (see
+    // run_repair_library_session's doc comment) - so treating it as
+    // "done" here previously rendered "scan complete" and reloaded
+    // (still mid-run) directories while image repair was still
+    // actively running underneath. rescanAll()'s own
+    // repair_library_run_status poll is the sole source of truth
+    // for when the whole flow is actually finished.
   });
 
   onCleanup(() => {
     libraryLoadGeneration++;
-    if (unlistenScan) unlistenScan();
+    unlistenJobs();
   });
 
   // retarget when admin scope changes
@@ -1027,7 +997,12 @@ export default function LibraryView() {
     const target = admin.current();
     try {
       const scans = await admin.dispatchOrThrow<ActiveScan[]>("library_active_scans", {});
-      if (generation !== directoryScanGeneration || admin.current() !== target || directoryScanSession() || !scans.length)
+      if (
+        generation !== directoryScanGeneration ||
+        admin.current() !== target ||
+        directoryScanSession() ||
+        !scans.length
+      )
         return;
       setDirectoryScanSession(scans[0].session_id);
       setScanning(scans[0].path || "__scans__");
@@ -1488,13 +1463,19 @@ export default function LibraryView() {
       // a window close/view navigation - see commands::maintenance_run's
       // doc comment for why the local path now can).
       const results: string[] = [];
+      const runTarget = admin.current();
 
       async function run(command: string, args: unknown = {}) {
         try {
-          const resp = await admin.dispatch(command, args);
+          if (admin.current() !== runTarget)
+            throw new Error("admin target changed; maintenance sequence stopped");
+          const resp = await jobs.dispatchAndWait(command, args);
           results.push(resp.success ? resp.message : `failed: ${resp.message}`);
         } catch (e) {
+          if (admin.current() !== runTarget) throw e;
           results.push(`failed: ${e}`);
+        } finally {
+          setMaintenanceProgress(null);
         }
       }
 
@@ -1903,7 +1884,7 @@ export default function LibraryView() {
           </div>
 
           <Show when={directories().length > 0}>
-            <p class="hint">"scan" finds new files in one directory.</p>
+            <p class="hint">"scan" finds new media files in directories.</p>
           </Show>
         </Show>
 
@@ -2242,9 +2223,9 @@ export default function LibraryView() {
                 <span class="checkbox-content">
                   <span class="checkbox-label">add already-hashed media to the p2p blob store</span>
                   <span class="checkbox-hint">
-                    off by default; backfills media missed by proactive ingest-time
-                    adds (e.g. from before this feature existed) so remote peers
-                    don't have to wait for it to be generated on demand.
+                    off by default; backfills media missed by proactive ingest-time adds (e.g. from
+                    before this feature existed) so remote peers don't have to wait for it to be
+                    generated on demand.
                   </span>
                 </span>
               </label>
@@ -2357,8 +2338,8 @@ export default function LibraryView() {
                   <span class="checkbox-label">regenerate every existing video poster</span>
                   <span class="checkbox-hint">
                     one-off: re-extracts a fresh poster for every video that already has one (not
-                    just ones missing one) - for after a change to the extraction logic itself,
-                    like the screenshot seek percentage. off by default.
+                    just ones missing one) - for after a change to the extraction logic itself, like
+                    the screenshot seek percentage. off by default.
                   </span>
                   <Show when={maintenancePreviewText("regenerate_video_thumbnails")}>
                     <span class="checkbox-count">
@@ -2625,9 +2606,46 @@ export default function LibraryView() {
             stacked in one fixed-to-the-window container so repair-library
             and maintenance-tasks progress can't overlap if both happen to
             be running at once. */}
-        <Show when={scanProgress() || maintenanceProgress()}>
+        <Show
+          when={
+            scanProgress() ||
+            maintenanceProgress() ||
+            relatedJobs().some((job) => ["pending", "running", "failed"].includes(job.status)) ||
+            jobs.error()
+          }
+        >
           <ProgressStack onHeight={setProgressHeight}>
-            <Show when={scanProgress()}>
+            <JobProgress filter={(job) => LIBRARY_JOB_TYPES.has(job.job_type)} />
+            <Show
+              when={
+                directoryScanSession() &&
+                relatedJobs().some(
+                  (job) =>
+                    job.session_id === scanProgress()?.session_id &&
+                    ["pending", "running"].includes(job.status),
+                )
+              }
+            >
+              <button
+                class="secondary"
+                disabled={cancellingScan()}
+                onClick={() => void cancelDirectoryScans()}
+              >
+                {cancellingScan() ? "cancelling..." : "cancel scan"}
+              </button>
+            </Show>
+            <Show
+              when={
+                scanProgress() &&
+                !relatedJobs().some(
+                  (job) =>
+                    job.session_id === scanProgress()?.session_id &&
+                    ["pending", "running"].includes(job.status),
+                )
+                  ? scanProgress()
+                  : null
+              }
+            >
               {(p) => {
                 const total = () => p().jobs_total || 0;
                 const done = () => Math.max(0, total() - (p().jobs_pending || 0));

@@ -229,6 +229,7 @@ fn on_key(
         Focus::AdminPalette => on_palette_key(app, code, tx),
         Focus::PeerInput => on_peer_input_key(app, code, node, tx),
         Focus::RemoteList => on_remote_list_key(app, code, node, tx),
+        Focus::JobsView => app.state.ephemeral.focus = Focus::RemoteList,
         Focus::CommandForm => on_form_key(app, code, shift, tx),
         Focus::ResultPanel => on_result_panel_key(app, code, shift),
         Focus::ResultActionMenu => on_action_menu_key(app, code, tx),
@@ -1370,6 +1371,7 @@ fn extract_options(
 
 fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender<AppAction>) {
     match action {
+        AppAction::JobsSnapshot { .. } | AppAction::JobsMutationResult { .. } => {}
         AppAction::AdminDispatchResult { command, response } => {
             let refresh_pending_knocks = response.success
                 && matches!(
@@ -2532,6 +2534,11 @@ fn on_repl_key_web(app: &mut App, code: KeyCode, action_tx: &mpsc::UnboundedSend
                 let mut handled = true;
                 let mut skip_repl_finalize = false;
                 match action {
+                    SlashAction::Jobs { .. } => {
+                        app.state.ephemeral.repl.status = Some(ReplStatus::err(
+                            "jobs dashboard is available in terminal rathole",
+                        ));
+                    }
                     SlashAction::Play { query: None } => {
                         send_player_web(app, PlayerCmd::Play);
                         app.state.ephemeral.repl.status = Some(ReplStatus::ok("play"));

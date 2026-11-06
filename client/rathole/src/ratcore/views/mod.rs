@@ -4,6 +4,7 @@ pub mod action_menu;
 pub mod admin;
 pub mod command_form;
 pub mod flyout;
+pub mod jobs;
 pub mod landing;
 pub mod music;
 pub mod peer_input;
@@ -85,6 +86,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Focus::MusicView => music::draw(frame, body, app),
         Focus::VideoView => video::draw(frame, body, app),
         Focus::PlayerPairing => player_pairing::draw(frame, body, app),
+        Focus::JobsView => jobs::draw(frame, body, &app.state.ephemeral.jobs),
         _ => admin::palette::draw(frame, body, app),
     }
 
@@ -219,7 +221,45 @@ fn header_line(app: &App) -> Line<'static> {
 
     // jobs progress badge (scan / fetch / etc.) — only renders
     // when a session is in flight.
-    push_jobs_badge(&mut spans, app.state.ephemeral.jobs_status.as_ref());
+    if app.state.ephemeral.jobs.error.is_some() {
+        spans.push(Span::styled(
+            "   jobs ?",
+            Style::new().fg(Color::Yellow).bold(),
+        ));
+    } else if let Some(snapshot) = &app.state.ephemeral.jobs.snapshot {
+        let stats = &snapshot.stats;
+        if stats.running + stats.pending > 0 {
+            let job = snapshot.active_jobs.first();
+            let percent = job
+                .filter(|_| stats.running == 1)
+                .and_then(|j| j.checked.zip(j.total))
+                .filter(|(_, total)| *total > 0)
+                .map(|(done, total)| format!(" {}%", done.min(total).saturating_mul(100) / total))
+                .unwrap_or_default();
+            let elapsed = job
+                .and_then(|j| j.started_at)
+                .map(|start| {
+                    format!(
+                        " {}",
+                        crate::ratcore::jobs::duration(
+                            app.state.ephemeral.jobs.now.saturating_sub(start).max(0) as u64
+                        )
+                    )
+                })
+                .unwrap_or_default();
+            spans.push(Span::styled(
+                format!(
+                    "   {} jobs {}r/{}p{percent}{elapsed}",
+                    crate::ratcore::jobs::spinner(app.state.ephemeral.jobs.now),
+                    stats.running,
+                    stats.pending
+                ),
+                Style::new().bg(Color::Cyan).fg(Color::Black).bold(),
+            ));
+        }
+    } else {
+        push_jobs_badge(&mut spans, app.state.ephemeral.jobs_status.as_ref());
+    }
 
     // informational-only heads-up: rathole's video/console handling
     // currently assumes a physical console session, not ssh (see
@@ -298,20 +338,45 @@ fn push_jobs_badge(spans: &mut Vec<Span<'static>>, jobs: Option<&crate::ratcore:
     if j.kind.is_empty() {
         return;
     }
+
     let spinner = spinner_glyph();
     let label = if j.percent > 0 {
-        format!(" {spinner} {} {}% ", j.kind, j.percent)
+        format!(" {spinner} jobs {}% ", j.percent)
     } else if j.jobs_total > 0 {
         let done = j.jobs_total.saturating_sub(j.jobs_pending);
-        format!(" {spinner} {} {}/{} ", j.kind, done, j.jobs_total)
+        format!(" {spinner} jobs {}/{} ", done, j.jobs_total)
     } else {
-        format!(" {spinner} {} ", j.kind)
+        format!(" {spinner} jobs ")
     };
     spans.push(Span::raw("   "));
     spans.push(Span::styled(
         label,
         Style::new().bg(Color::Cyan).fg(Color::Black).bold(),
     ));
+}
+
+#[cfg(test)]
+mod jobs_badge_tests {
+    use super::*;
+    use crate::ratcore::app::JobsStatus;
+
+    #[test]
+    fn fallback_badge_never_renders_long_stage_messages() {
+        let mut spans = Vec::new();
+        push_jobs_badge(
+            &mut spans,
+            Some(&JobsStatus {
+                kind: "checking 123456 media blobs for references...".into(),
+                percent: 42,
+                jobs_total: 10,
+                jobs_pending: 6,
+            }),
+        );
+        let text = spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+        assert!(text.contains("jobs 42%"));
+        assert!(text.len() < 30);
+        assert!(!text.contains("media blobs"));
+    }
 }
 
 /// rotating ascii spinner glyph driven by the system clock so we
@@ -408,6 +473,7 @@ fn footer_hints(app: &App) -> &'static str {
         }
         Focus::PeerInput => "type/paste node id   enter: connect   esc: cancel",
         Focus::RemoteList => "\u{2191}/\u{2193}: select   enter: connect   a: add   d: delete   esc: back",
+        Focus::JobsView => "left/right: tabs   up/down: select   enter: inspect   f: search   pgup/down: page   esc: back",
         Focus::CommandForm => "\u{2190}/\u{2192}: cycle option   tab/enter: next   esc: cancel",
         Focus::ResultPanel => "\u{2191}/\u{2193}: move row   pgup/pgdn: page   enter: actions   tab/esc: back",
         Focus::ResultActionMenu => "\u{2191}/\u{2193}: pick   enter: open form   esc: cancel",

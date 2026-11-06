@@ -284,6 +284,10 @@ pub async fn handle(
         // -- jobs --
         "jobs_list" => handlers::jobs::list(args).await,
         "jobs_stats" => handlers::jobs::stats().await,
+        "jobs_dashboard" => handlers::jobs::dashboard(args).await,
+        "jobs_retry" => handlers::jobs::retry(args).await,
+        "jobs_close_idle_session" => handlers::jobs::close_idle_session(args).await,
+        "jobs_close_idle_sessions" => handlers::jobs::close_idle_sessions(args).await,
         "jobs_cancel_session" => handlers::jobs::cancel_session(args).await,
 
         // -- music enrichment --

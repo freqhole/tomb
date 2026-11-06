@@ -60,6 +60,10 @@ pub struct FreqholeAppConfig {
     #[serde(default)]
     pub logging: LoggingConfig,
 
+    /// show the wizard's jobz navigation button (default: false)
+    #[serde(default)]
+    pub wizard_jobz_enabled: bool,
+
     /// disable backdrop-filter blur effects (for linux/webkitgtk compatibility)
     #[serde(default)]
     pub disable_backdrop_blur: bool,
@@ -235,6 +239,7 @@ impl Default for FreqholeAppConfig {
             server_config_path: None,
             admin_user: AdminUserConfig::default(),
             logging: LoggingConfig::default(),
+            wizard_jobz_enabled: false,
             disable_backdrop_blur: false,
             background_images_enabled: default_background_images_enabled(),
             edge_swipe_navigation_enabled: default_edge_swipe_navigation_enabled(),
@@ -583,17 +588,35 @@ pub fn cache_busting_query() -> String {
     format!("v={}-{}", get_binary_version(), env!("FREQHOLE_GIT_SHA"))
 }
 
-/// check if app config needs upgrade (version mismatch)
-///
-/// returns true if version in app config differs from binary version,
-/// or if version is missing (old config format)
+/// check for a version mismatch or a missing app preference.
 pub fn app_config_needs_upgrade(app_handle: &tauri::AppHandle) -> bool {
-    let Some(config) = FreqholeAppConfig::load(app_handle) else {
-        return false; // no config means setup not done yet, not an upgrade situation
+    let Some(path) = get_config_path(app_handle) else {
+        return false;
     };
+    let content = match std::fs::read_to_string(&path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return false,
+        Err(error) => {
+            tracing::warn!(?path, %error, "failed to read app config for upgrade");
+            return false;
+        }
+    };
+    match app_config_contents_need_upgrade(&content) {
+        Ok(needed) => needed,
+        Err(error) => {
+            tracing::warn!(?path, %error, "failed to parse app config for upgrade");
+            false
+        }
+    }
+}
 
-    let config_version = config.version.as_deref().unwrap_or("0.0.0");
-    config_version != get_binary_version()
+fn app_config_contents_need_upgrade(content: &str) -> Result<bool, toml::de::Error> {
+    let config: FreqholeAppConfig = toml::from_str(content)?;
+    let document: toml::Table = toml::from_str(content)?;
+    Ok(
+        config.version.as_deref().unwrap_or("0.0.0") != get_binary_version()
+            || !document.contains_key("wizard_jobz_enabled"),
+    )
 }
 
 /// result of an app config upgrade
@@ -609,7 +632,7 @@ pub struct AppConfigUpgradeResult {
 
 /// upgrade app config to current binary version
 ///
-/// creates backup first, then updates version field.
+/// creates backup first, then writes the version and missing field defaults.
 /// preserves all other config values.
 pub fn upgrade_app_config(app_handle: &tauri::AppHandle) -> Result<AppConfigUpgradeResult, String> {
     let config_path =
@@ -669,4 +692,87 @@ pub fn get_log_file_path(app_handle: &tauri::AppHandle) -> Option<PathBuf> {
         .app_data_dir()
         .ok()
         .map(|p| p.join(&config.logging.file))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wizard_jobz_command_is_allowed_for_the_wizard_dev_origin() {
+        let permissions: toml::Value =
+            toml::from_str(include_str!("../permissions/app-commands.toml")).unwrap();
+        let permission = permissions["permission"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|entry| entry["identifier"].as_str() == Some("allow-app-commands"))
+            .unwrap();
+        assert!(permission["commands"]["allow"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|command| command.as_str() == Some("get_wizard_jobz_enabled")));
+        let capability: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
+        assert!(capability["windows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|window| window.as_str() == Some("setup-wizard")));
+        assert!(capability["permissions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|grant| grant.as_str() == Some("allow-app-commands")));
+        assert!(capability["remote"]["urls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|url| url.as_str() == Some("http://localhost:*")));
+    }
+
+    #[test]
+    fn wizard_jobz_is_opt_in_and_survives_toml_round_trip() {
+        assert!(!FreqholeAppConfig::default().wizard_jobz_enabled);
+        let legacy: FreqholeAppConfig = toml::from_str("").unwrap();
+        assert!(!legacy.wizard_jobz_enabled);
+        let enabled: FreqholeAppConfig = toml::from_str("wizard_jobz_enabled = true").unwrap();
+        assert!(enabled.wizard_jobz_enabled);
+        let saved = toml::to_string(&enabled).unwrap();
+        assert!(
+            toml::from_str::<FreqholeAppConfig>(&saved)
+                .unwrap()
+                .wizard_jobz_enabled
+        );
+    }
+
+    #[test]
+    fn same_version_configs_upgrade_missing_jobz_default_without_overriding_opt_in() {
+        let legacy = format!("version = {:?}\n", get_binary_version());
+        assert!(app_config_contents_need_upgrade(&legacy).unwrap());
+        let mut upgraded: FreqholeAppConfig = toml::from_str(&legacy).unwrap();
+        upgraded.version = Some(get_binary_version().to_string());
+        let saved = toml::to_string_pretty(&upgraded).unwrap();
+        assert!(saved.contains("wizard_jobz_enabled = false"));
+        assert!(!app_config_contents_need_upgrade(&saved).unwrap());
+
+        for enabled in [true, false] {
+            let content = format!("{legacy}wizard_jobz_enabled = {enabled}\n");
+            assert!(!app_config_contents_need_upgrade(&content).unwrap());
+            let config: FreqholeAppConfig = toml::from_str(&content).unwrap();
+            let saved = toml::to_string_pretty(&config).unwrap();
+            assert_eq!(
+                toml::from_str::<FreqholeAppConfig>(&saved)
+                    .unwrap()
+                    .wizard_jobz_enabled,
+                enabled
+            );
+        }
+        assert!(
+            app_config_contents_need_upgrade("version = 'old'\nwizard_jobz_enabled = true")
+                .unwrap()
+        );
+        assert!(app_config_contents_need_upgrade("wizard_jobz_enabled = 'true'").is_err());
+    }
 }

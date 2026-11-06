@@ -343,6 +343,25 @@ pub async fn regenerate_video_thumbnails_batch(
     scan_directory: Option<&str>,
     created_by: Option<(String, String)>,
 ) -> GrimoireResponse<WaveformBatchOutcome> {
+    regenerate_video_posters_batch(dry_run, limit, offset, scan_directory, created_by, None).await
+}
+
+pub(crate) async fn regenerate_video_poster(
+    video_id: &str,
+    dry_run: bool,
+    created_by: Option<(String, String)>,
+) -> GrimoireResponse<WaveformBatchOutcome> {
+    regenerate_video_posters_batch(dry_run, 1, 0, None, created_by, Some(video_id)).await
+}
+
+async fn regenerate_video_posters_batch(
+    dry_run: bool,
+    limit: i64,
+    offset: i64,
+    scan_directory: Option<&str>,
+    created_by: Option<(String, String)>,
+    video_id: Option<&str>,
+) -> GrimoireResponse<WaveformBatchOutcome> {
     let mut result = RepairLibraryImagesResult::default();
     let pool = match database::connect().await {
         Ok(p) => p,
@@ -365,12 +384,14 @@ pub async fn regenerate_video_thumbnails_batch(
           AND v.poster_blob_id IS NOT NULL
           AND mb.local_path IS NOT NULL
           AND (?1 IS NULL OR mb.local_path LIKE ?1 ESCAPE '\')
+          AND (?4 IS NULL OR v.id = ?4)
         ORDER BY v.id
         LIMIT ?2 OFFSET ?3
         "#,
         like_prefix,
         limit,
         offset,
+        video_id,
     )
     .fetch_all(&pool)
     .await;
@@ -385,6 +406,19 @@ pub async fn regenerate_video_thumbnails_batch(
         }
     };
     let more_remaining = rows.len() as i64 == limit;
+    if rows.is_empty() && video_id.is_some() {
+        return GrimoireResponse::failure(
+            "video poster candidate is no longer available",
+            vec![ErrorDetail::new(
+                "video_poster_candidate_missing",
+                "video poster candidate missing",
+                format!(
+                    "video {} changed or was removed during regeneration",
+                    video_id.unwrap()
+                ),
+            )],
+        );
+    }
 
     for row in rows {
         if dry_run {

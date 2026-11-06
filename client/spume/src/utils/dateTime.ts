@@ -32,8 +32,7 @@ export function formatDateTime(timestamp: number): string {
  * format a date as relative time (e.g., "2 hours ago", "last week")
  * falls back to year-only for dates older than ~1 year
  */
-export function formatRelativeTime(date: string | Date | number): string {
-  const now = new Date();
+export function formatRelativeTime(date: string | Date | number, now = new Date()): string {
   const targetDate =
     typeof date === "string"
       ? new Date(date)
@@ -95,7 +94,7 @@ export function formatRelativeTime(date: string | Date | number): string {
   }
 
   // weeks
-  if (diffWeeks < 5) {
+  if (diffWeeks < 5 && diffMonths === 0) {
     return rtf.format(-diffWeeks, "week");
   }
 

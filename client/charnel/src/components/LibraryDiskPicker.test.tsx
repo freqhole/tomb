@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AdminTargetInfo } from "../admin/context";
 import LibraryDiskPicker from "./LibraryDiskPicker";
 import LibraryView from "../views/LibraryView";
+import { JobsProvider } from "../jobs";
 import { dispatchOrThrow } from "../admin/transport";
 
 const transport = vi.hoisted(() => ({
@@ -73,6 +74,8 @@ function mount(target: AdminTargetInfo, view = false, respond?: (command: string
   scope.current = current;
   let registered = false;
   transport.invoke.mockImplementation(async (bridge, payload) => {
+    if (bridge === "jobs_events_subscribe") return "subscription";
+    if (bridge === "jobs_events_snapshot") return [];
     if (bridge === "plugin:dialog|open") return transport.dialog(payload);
     if (!bridge.startsWith("admin_dispatch")) return null;
     const command = payload.command;
@@ -101,7 +104,9 @@ function mount(target: AdminTargetInfo, view = false, respond?: (command: string
   dispose = render(
     () =>
       view ? (
-        <LibraryView />
+        <JobsProvider>
+          <LibraryView />
+        </JobsProvider>
       ) : (
         <LibraryDiskPicker onSelectionChange={transport.selection} onBusyChange={transport.busy} />
       ),

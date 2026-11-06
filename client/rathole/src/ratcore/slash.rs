@@ -46,6 +46,11 @@ pub enum AutostartMode {
 /// where possible to avoid extra allocations in the hot path.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SlashAction {
+    Jobs {
+        view: String,
+        query: String,
+        session_id: Option<String>,
+    },
     /// switch to the music view's search mode and (optionally) seed
     /// the query with the given text.
     Search {
@@ -298,7 +303,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ),
     (
         "jobs",
-        "/jobs [sub]        jobs (sub: list|stats|session <id>)",
+        "/jobs [sub]        live dashboard (stats|running|pending|failed|completed|sessions|list) [search]",
     ),
     (
         "scan",
@@ -442,7 +447,14 @@ pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
         "jobs",
         &[
             ("list", "list recent jobs"),
+            ("all", "browse all retained jobs"),
             ("stats", "queue stats (counts per status)"),
+            ("running", "inspect currently running jobs"),
+            ("pending", "inspect queued jobs"),
+            ("failed", "inspect errors and retry failed jobs"),
+            ("completed", "inspect retained completed jobs"),
+            ("sessions", "browse job sessions"),
+            ("cancelled", "inspect cancelled jobs"),
             ("session", "list jobs in a session: /jobs session <id>"),
         ],
     ),
@@ -533,6 +545,10 @@ pub const GROUPS: &[(&str, &[(&str, &str)])] = &[
                 "add already-hashed blobs to FsStore [concurrency] [dry-run]",
             ),
             ("backfill-thumbs", "backfill thumbnails [limit] [dry-run]"),
+            (
+                "regenerate-video-posters",
+                "queue regeneration of existing posters [dry-run]; inspect progress in /jobs",
+            ),
             (
                 "retranscode-video",
                 "queue replacement video renditions [video_id]",
@@ -992,28 +1008,41 @@ fn parse_analytics_sub(arg: Option<&str>) -> SlashAction {
     }
 }
 
-/// parse `/jobs [list|stats|session <id>]`. bare and `list` list
-/// recent jobs across all sessions. `stats` shows queue-wide
-/// counters. `session <id>` filters to one session.
+/// jobs opens a live overview; filters and sessions open drill-down tabs.
 fn parse_jobs_sub(arg: Option<&str>) -> SlashAction {
     let (sub, rest) = split_sub(arg);
     let id = rest.trim();
     match sub.as_str() {
-        "" | "list" | "ls" => SlashAction::AdminDispatch {
-            name: "jobs_list",
-            body: serde_json::json!({}),
+        "" | "stats" | "queue" => SlashAction::Jobs {
+            view: "overview".into(),
+            query: id.into(),
+            session_id: None,
         },
-        "stats" | "queue" => SlashAction::AdminDispatch {
-            name: "jobs_stats",
-            body: serde_json::json!({}),
+        "list" | "ls" | "all" => SlashAction::Jobs {
+            view: "all".into(),
+            query: id.into(),
+            session_id: None,
         },
-        "session" | "for" if !id.is_empty() => SlashAction::AdminDispatch {
-            name: "jobs_list",
-            body: serde_json::json!({ "session_id": id }),
+        "running" | "pending" | "failed" | "completed" | "complete" | "cancelled" | "sessions" => SlashAction::Jobs {
+            view: match sub.as_str() {
+                "running" => "Running",
+                "pending" => "Pending",
+                "failed" => "Failed",
+                "completed" | "complete" => "Completed",
+                "cancelled" => "Cancelled",
+                _ => "sessions",
+            }.into(),
+            query: id.into(),
+            session_id: None,
+        },
+        "session" | "for" if !id.is_empty() => SlashAction::Jobs {
+            view: "all".into(),
+            query: String::new(),
+            session_id: Some(id.into()),
         },
         _ => SlashAction::BadArgs {
             name: "jobs",
-            hint: "usage: /jobs [list|stats|session <id>]",
+            hint: "usage: /jobs [stats|running|pending|failed|completed|cancelled|sessions|list] [search], /jobs session <id>",
         },
     }
 }
@@ -1911,7 +1940,7 @@ fn parse_maintenance_sub(arg: Option<&str>) -> SlashAction {
                 }),
             }
         }
-        "regenerate-video-thumbnails" | "regenerate_video_thumbnails"
+        "regenerate-video-posters" | "regenerate-video-thumbnails" | "regenerate_video_thumbnails"
         | "regenerate-video-thumbs" => SlashAction::AdminDispatch {
             name: "maintenance_regenerate_library_video_thumbnails",
             body: serde_json::json!({

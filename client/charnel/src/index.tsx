@@ -7,6 +7,7 @@ import App from "./App";
 import SetupView from "./views/SetupView";
 import LogsView from "./views/LogsView";
 import LibraryView from "./views/LibraryView";
+import JobsView from "./views/JobsView";
 import UsersView from "./views/UsersView";
 import SettingsView from "./views/SettingsView";
 import ConfigView from "./views/ConfigView";
@@ -25,6 +26,7 @@ render(
       <Route path="/setup" component={SetupView} />
       <Route path="/logs" component={LogsView} />
       <Route path="/library" component={LibraryView} />
+      <Route path="/jobs" component={JobsView} />
       <Route path="/users" component={UsersView} />
       <Route path="/settings" component={SettingsView} />
       <Route path="/config" component={ConfigViewRoute} />

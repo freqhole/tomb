@@ -1010,40 +1010,52 @@ pub(in crate::admin_dispatch) async fn repair_library_video_thumbnails(
 /// `RepairLibraryImagesOptions` toggle - it's a one-off "redo everything
 /// because the extraction logic changed" operation, not an ongoing
 /// backfill-whatever-slipped-through sweep, so it deliberately isn't
-/// folded into `repair_library`'s regular checklist). args: `{ dry_run?:
-/// bool, scan_directory?: string }`. loops every batch to completion in
-/// one call, same as `repair_library_video_thumbnails` above - this is
-/// meant to be run once (e.g. right after deploying a seek-percentage
-/// change), not driven step-by-step for live progress.
+/// folded into `repair_library`'s regular checklist). queues a background
+/// job with persisted per-video progress. args: `{ dry_run?: bool,
+/// scan_directory?: string }`.
 pub(in crate::admin_dispatch) async fn regenerate_library_video_thumbnails(
     args: JsonValue,
     caller: &Caller,
 ) -> GrimoireResponse<JsonValue> {
     let dry_run = opt_bool(&args, "dry_run").unwrap_or(false);
     let scan_directory = opt_str(&args, "scan_directory");
-    let created_by = Some((caller.user_id.clone(), caller.username.clone()));
-
-    let response = crate::maintenance::regenerate_video_thumbnails_sync(
-        dry_run,
-        scan_directory.as_deref(),
-        created_by,
-    )
+    if dry_run {
+        // previews retain their count-only response and never enqueue work.
+        return to_value(
+            crate::maintenance::regenerate_video_thumbnails_sync(
+                true,
+                scan_directory.as_deref(),
+                Some((caller.user_id.clone(), caller.username.clone())),
+            )
+            .await,
+        );
+    }
+    let session = crate::jobs::create_job_session(crate::jobs::CreateJobSessionRequest {
+        job_type: crate::jobs::JobType::RegenerateVideoPosters,
+        batch_size: Some(1),
+        created_by: Some(caller.user_id.clone()),
+    })
+    .await;
+    let Some(session) = session.data else {
+        return GrimoireResponse::failure(session.message, session.errors);
+    };
+    let response = crate::jobs::create_job(crate::jobs::CreateJobRequest {
+        job_type: crate::jobs::JobType::RegenerateVideoPosters,
+        session_id: Some(session.id.clone()),
+        parameters: json!({ "dry_run": dry_run, "scan_directory": scan_directory }),
+        max_retries: Some(0),
+        scheduled_at: None,
+        created_by: Some(caller.user_id.clone()),
+        priority: None,
+    })
     .await;
     if !response.success {
-        return to_value(response);
+        let failed = crate::jobs::fail_session(&session.id).await;
+        if !failed.success {
+            tracing::error!(session_id=%session.id, message=%failed.message, "could not close failed poster-regeneration session");
+        }
     }
-    let Some(totals) = response.data else {
-        return internal("video poster regeneration returned no result");
-    };
-    GrimoireResponse::success(
-        response.message,
-        json!({
-            "dry_run": dry_run,
-            "scan_directory": scan_directory,
-            "videos_posters_regenerated": totals.videos_posters_regenerated,
-            "errors": totals.errors,
-        }),
-    )
+    to_value(response)
 }
 
 /// one resumable step of the library image repair pass - exposes the

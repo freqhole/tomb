@@ -358,6 +358,7 @@ struct StageState {
     /// last emit instant for this job_id; used by the `emit_stage`
     /// debouncer to coalesce same-stage bursts.
     last_emit_at: Option<std::time::Instant>,
+    last_activity_at: i64,
 }
 
 static STAGE_CACHE: Lazy<Mutex<HashMap<String, StageState>>> =
@@ -379,6 +380,7 @@ fn record_stage(job_id: &str, stage: &str, message: Option<&str>) {
                 stage: Some(stage.to_string()),
                 message: message.map(|s| s.to_string()),
                 last_emit_at: Some(std::time::Instant::now()),
+                last_activity_at: time::OffsetDateTime::now_utc().unix_timestamp(),
             },
         );
     }
@@ -393,6 +395,16 @@ fn forget_stage(job_id: &str) {
 
 fn read_stage(job_id: &str) -> Option<StageState> {
     STAGE_CACHE.lock().ok().and_then(|c| c.get(job_id).cloned())
+}
+
+pub(crate) fn current_stage(job_id: &str) -> (Option<String>, Option<String>) {
+    read_stage(job_id)
+        .map(|s| (s.stage, s.message))
+        .unwrap_or_default()
+}
+
+pub(crate) fn last_stage_activity(job_id: &str) -> Option<i64> {
+    read_stage(job_id).map(|s| s.last_activity_at)
 }
 
 // ---------------------------------------------------------------------------
@@ -689,6 +701,7 @@ pub fn entity_ref_for(job_type: &JobType, params_json: &str) -> Option<EntityRef
         | JobType::SyncVideoByBlake3
         | JobType::RepairLibraryImages
         | JobType::AuditBlobReferences
+        | JobType::RegenerateVideoPosters
         | JobType::ReorganizeLibraryFiles => None,
     }
 }

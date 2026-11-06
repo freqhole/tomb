@@ -477,6 +477,7 @@ async fn run_inner(
                     sync_pending_knocks(&app, &action_tx);
                     last_knock_sync = std::time::Instant::now();
                 }
+                poll_jobs(&mut app, &action_tx);
                 // lazily start the freqhole-player/1 endpoint once the
                 // pairing view is actually visible (covers `/player`
                 // mid-session, when neither `--player` nor
@@ -703,6 +704,8 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
                 app.state.ephemeral.focus,
                 Focus::PeerInput | Focus::CommandForm | Focus::Repl
             ) && !in_music_text_input
+                && !(app.state.ephemeral.focus == Focus::JobsView
+                    && app.state.ephemeral.jobs.editing)
             {
                 crate::ratcore::repl_keys::enter_with_seed(&mut app.state, "/");
                 return;
@@ -735,6 +738,7 @@ fn on_event(app: &mut App, ev: Event, action_tx: &mpsc::UnboundedSender<AppActio
         Focus::PlayerRow => on_player_row_key(app, k.code, action_tx),
         Focus::RemoteList => on_remote_list_key_tty(app, k.code, action_tx),
         Focus::PlayerPairing => on_player_pairing_key(app, k.code, action_tx),
+        Focus::JobsView => on_jobs_key(app, k.code, action_tx),
     }
 }
 
@@ -967,7 +971,47 @@ fn sync_serve_badge(app: &mut App, monitor: &super::serve_monitor::ServeMonitor)
 
 fn on_action(app: &mut App, action: AppAction, action_tx: &mpsc::UnboundedSender<AppAction>) {
     match action {
+        AppAction::JobsSnapshot {
+            generation,
+            response,
+        } => {
+            app.state.ephemeral.jobs.receive(generation, response);
+        }
+        AppAction::JobsMutationResult {
+            generation,
+            response,
+        } => {
+            app.state
+                .ephemeral
+                .jobs
+                .receive_mutation(generation, response);
+        }
         AppAction::AdminDispatchResult { command, response } => {
+            if response.success
+                && response
+                    .data
+                    .as_ref()
+                    .and_then(|d| d.get("id"))
+                    .and_then(serde_json::Value::as_str)
+                    .is_some()
+                && matches!(
+                    command.as_str(),
+                    "maintenance_regenerate_library_video_thumbnails"
+                        | "maintenance_audit_blob_references"
+                )
+            {
+                let id = response
+                    .data
+                    .as_ref()
+                    .and_then(|d| d.get("id"))
+                    .and_then(serde_json::Value::as_str);
+                app.state.ephemeral.jobs.open("all", String::new(), None);
+                app.state.ephemeral.jobs.detail_id = id.map(str::to_owned);
+                app.state.ephemeral.form = None;
+                app.state.ephemeral.focus = Focus::JobsView;
+                poll_jobs(app, action_tx);
+                return;
+            }
             let refresh_pending_knocks = response.success
                 && matches!(
                     command.as_str(),
@@ -2223,6 +2267,96 @@ fn spawn_admin_dispatch(
             response,
         });
     });
+}
+
+fn poll_jobs(app: &mut App, tx: &mpsc::UnboundedSender<AppAction>) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let visible = app.state.ephemeral.focus == Focus::JobsView
+        || app.state.ephemeral.repl.return_focus == Some(Focus::JobsView);
+    let Some((generation, body)) =
+        app.state
+            .ephemeral
+            .jobs
+            .poll(now, app.state.ephemeral.connected_peer.clone(), visible)
+    else {
+        return;
+    };
+    let transport = app.transport.clone();
+    let tx = tx.clone();
+    tokio::task::spawn_local(async move {
+        let response = match tokio::time::timeout(
+            Duration::from_secs(15),
+            transport.admin_dispatch("jobs_dashboard", body),
+        )
+        .await
+        {
+            Ok(response) => response,
+            Err(_) => crate::ratcore::app::DispatchResponse {
+                success: false,
+                message: "jobs poll timed out; retrying in 10s".into(),
+                data: None,
+            },
+        };
+        let _ = tx.send(AppAction::JobsSnapshot {
+            generation,
+            response,
+        });
+    });
+}
+
+fn on_jobs_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppAction>) {
+    use crate::ratcore::jobs::JobsKey;
+    let key = match code {
+        KeyCode::Up => JobsKey::Up,
+        KeyCode::Down => JobsKey::Down,
+        KeyCode::Left => JobsKey::Left,
+        KeyCode::Right => JobsKey::Right,
+        KeyCode::Enter => JobsKey::Enter,
+        KeyCode::Esc => JobsKey::Escape,
+        KeyCode::Backspace => JobsKey::Backspace,
+        KeyCode::PageUp => JobsKey::PageUp,
+        KeyCode::PageDown => JobsKey::PageDown,
+        KeyCode::Tab => JobsKey::Tab,
+        KeyCode::BackTab => JobsKey::BackTab,
+        KeyCode::Char(c) => JobsKey::Char(c),
+        _ => return,
+    };
+    let eph = &mut app.state.ephemeral;
+    if let Some(body) = eph.jobs.key(key, &mut eph.focus) {
+        let command = if body.get("all_idle_sessions").and_then(serde_json::Value::as_bool) == Some(true) {
+            "jobs_close_idle_sessions"
+        } else if body.get("session_id").is_some() {
+            "jobs_close_idle_session"
+        } else {
+            "jobs_retry"
+        };
+        let generation = eph.jobs.generation;
+        let transport = app.transport.clone();
+        let tx = tx.clone();
+        tokio::task::spawn_local(async move {
+            let response = match tokio::time::timeout(
+                Duration::from_secs(15),
+                transport.admin_dispatch(command, body),
+            )
+            .await
+            {
+                Ok(response) => response,
+                Err(_) => crate::ratcore::app::DispatchResponse {
+                    success: false,
+                    message: "job action reply timed out; refresh before trying again".into(),
+                    data: None,
+                },
+            };
+            let _ = tx.send(AppAction::JobsMutationResult {
+                generation,
+                response,
+            });
+        });
+    }
+    poll_jobs(app, tx);
 }
 
 fn on_result_panel_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
@@ -4834,6 +4968,17 @@ fn execute_slash_with_player(
     use crate::ratcore::transport::PlayerCmd;
 
     match action {
+        SlashAction::Jobs {
+            view,
+            query,
+            session_id,
+        } => {
+            app.state.ephemeral.jobs.open(&view, query, session_id);
+            app.state.ephemeral.repl.clear_input();
+            rk::leave(&mut app.state);
+            app.state.ephemeral.focus = Focus::JobsView;
+            poll_jobs(app, tx);
+        }
         SlashAction::Search { query } => {
             app.state.ephemeral.repl.clear_input();
             rk::leave(&mut app.state);
