@@ -1,5 +1,12 @@
 # freqhole-release
 
+## 0.3.26
+
+### Patch Changes
+
+- 3d720b1: add non-admin pairing pin via raspi oled menu; post data-dir migration restart of charnel; ci changesets to regen docz timestamp + raspi setup.sh script;
+- 70ff44c: try to improve jobz ux in rathole and charnel wizard;
+
 ## 0.3.25
 
 ### Patch Changes
