@@ -406,7 +406,7 @@ async fn regenerate_video_posters_batch(
         }
     };
     let more_remaining = rows.len() as i64 == limit;
-    if rows.is_empty() && video_id.is_some() {
+    if let (true, Some(video_id)) = (rows.is_empty(), video_id) {
         return GrimoireResponse::failure(
             "video poster candidate is no longer available",
             vec![ErrorDetail::new(
@@ -414,7 +414,7 @@ async fn regenerate_video_posters_batch(
                 "video poster candidate missing",
                 format!(
                     "video {} changed or was removed during regeneration",
-                    video_id.unwrap()
+                    video_id
                 ),
             )],
         );

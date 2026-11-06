@@ -29,7 +29,12 @@ async fn process_with_pool(job: &Job, pool: &sqlx::SqlitePool) -> Result<Option<
     .await?;
     let total = video_ids.len();
     let mut totals = crate::maintenance::RepairLibraryImagesResult::default();
-    for checked in 0..=total {
+    for (checked, video_id) in video_ids
+        .iter()
+        .map(Some)
+        .chain(std::iter::once(None))
+        .enumerate()
+    {
         let progress = json!({
             "checked": checked, "total": total, "dry_run": params.dry_run,
             "videos_posters_regenerated": totals.videos_posters_regenerated,
@@ -57,7 +62,7 @@ async fn process_with_pool(job: &Job, pool: &sqlx::SqlitePool) -> Result<Option<
             Some(&format!("processed {checked} of {total} video posters")),
             Some(progress.clone()),
         );
-        if checked == total {
+        let Some(video_id) = video_id else {
             if !totals.errors.is_empty() {
                 return Err(JobError::ProcessingFailedFinal {
                     reason: totals
@@ -70,9 +75,9 @@ async fn process_with_pool(job: &Job, pool: &sqlx::SqlitePool) -> Result<Option<
                 });
             }
             return Ok(Some(progress));
-        }
+        };
         let response = crate::maintenance::regenerate_video_poster(
-            &video_ids[checked],
+            video_id,
             params.dry_run,
             job.created_by.clone().map(|id| (id, String::new())),
         )
