@@ -2326,7 +2326,11 @@ fn on_jobs_key(app: &mut App, code: KeyCode, tx: &mpsc::UnboundedSender<AppActio
     };
     let eph = &mut app.state.ephemeral;
     if let Some(body) = eph.jobs.key(key, &mut eph.focus) {
-        let command = if body.get("all_idle_sessions").and_then(serde_json::Value::as_bool) == Some(true) {
+        let command = if body
+            .get("all_idle_sessions")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+        {
             "jobs_close_idle_sessions"
         } else if body.get("session_id").is_some() {
             "jobs_close_idle_session"
