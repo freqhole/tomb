@@ -72,7 +72,10 @@ user="$(id -un)"
 uid="$(id -u)"
 [[ "$user" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "unsupported account name for service setup."
 root="$HOME/.local/share/freqhole-pi"
-source_dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source_dir=""
+if [ -n "${BASH_SOURCE[0]:-}" ]; then
+    source_dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+fi
 uninstall() {
     # every step is independent and tolerant: a broken or hand-edited install
     # still gets as much cleanup as is safe, and unmanaged files are skipped.
@@ -86,7 +89,7 @@ uninstall() {
     }
     helper_script() {
         local name="$1"
-        if [ -f "$source_dir/$name" ]; then echo "$source_dir/$name"
+        if [ -n "$source_dir" ] && [ -f "$source_dir/$name" ]; then echo "$source_dir/$name"
         elif [ -f "$root/$name" ]; then echo "$root/$name"
         fi
     }
@@ -455,7 +458,7 @@ finish_setup() {
     exit "$status"
 }
 trap finish_setup EXIT
-if [ ! -f "$source_dir/configure.py" ]; then
+if [ -z "$source_dir" ] || [ ! -f "$source_dir/configure.py" ]; then
     ref="${FREQHOLE_PI_REF:-main}"
     [[ "$ref" =~ ^[a-zA-Z0-9._-]+$ ]] || die "invalid FREQHOLE_PI_REF."
     curl -fsSL --retry 2 --connect-timeout 15 --max-time 60 \

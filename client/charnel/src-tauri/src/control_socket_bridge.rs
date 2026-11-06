@@ -20,7 +20,7 @@
 //!     `SharedPairingState` the pairing screen and real controllers see
 //!     (`grimoire::cenotaph::state`), then bring charnel's main window
 //!     forward and tell spume to show the player-pairing route; the
-//!     admin-pin command also replies with the freshly generated digits.
+//!     pin commands also reply with the freshly generated digits.
 //!
 //! list_audio_devices/set_audio_device are a known gap (see their match
 //! arms below) - no audio-output-device enumeration exists anywhere in
@@ -111,8 +111,8 @@ async fn dispatch(app: &AppHandle, command: ControlSocketCommand) -> Option<Stri
             adjust_volume(-VOLUME_STEP).await;
             None
         }
-        ControlSocketCommand::ShowAdminPin => {
-            let result = rotate_pin(true).await;
+        ControlSocketCommand::ShowAdminPin | ControlSocketCommand::RotatePin => {
+            let result = rotate_pin(matches!(command, ControlSocketCommand::ShowAdminPin)).await;
             if let Err(error) = &result {
                 warn!(target: "charnel::control_socket", error = %error, "rotate_pin failed");
             }
@@ -122,13 +122,6 @@ async fn dispatch(app: &AppHandle, command: ControlSocketCommand) -> Option<Stri
             };
             show_player(app);
             Some(reply)
-        }
-        ControlSocketCommand::RotatePin => {
-            if let Err(error) = rotate_pin(false).await {
-                warn!(target: "charnel::control_socket", error = %error, "rotate_pin failed");
-            }
-            show_player(app);
-            None
         }
         ControlSocketCommand::ShowPlayer => {
             show_player(app);

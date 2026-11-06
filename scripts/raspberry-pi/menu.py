@@ -106,6 +106,7 @@ WIFI_TOOL = Path.home() / ".local/bin/freqhole-wifi"
 WIFI_INFO = json.loads(WIFI_CONFIG.read_text()) if WIFI_CONFIG.exists() else None
 
 ADMIN_PIN_LABEL = "show admin code"
+PAIRING_PIN_LABEL = "rotate pairing pin"
 COMMANDS = (
     ("play / pause", "play_pause", (255, 0, 220)),
     ("next track", "next", (255, 25, 145)),
@@ -114,7 +115,7 @@ COMMANDS = (
     ("stop playback", "stop", (165, 0, 100)),
     (f"show {PLAYER} player", "show_player", (255, 90, 180)),
     # both rotate the session pin; admin also grants the next pairing admin access.
-    ("rotate pairing pin", "rotate_pin", (0, 255, 210)),
+    (PAIRING_PIN_LABEL, "rotate_pin", (0, 255, 210)),
     (ADMIN_PIN_LABEL, "show_admin_pin", (50, 200, 165)),
     ("network status", NETWORK_SCREEN, (40, 255, 100)),
     ("library disks", STORAGE_SCREEN, (80, 160, 255)),
@@ -284,47 +285,49 @@ def send_socket_command(command):
             print(f"state request failed: {error}", file=sys.stderr, flush=True)
             return 1
         return 0
+    pin_command = command in ("show_admin_pin", "rotate_pin")
+    pin_label = "admin pairing code" if command == "show_admin_pin" else "pairing code"
     path = current_socket_path()
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
             connection.settimeout(SOCKET_TIMEOUT_SECONDS)
             connection.connect(path)
             connection.sendall((command + "\n").encode("ascii"))
-            if command == "show_admin_pin":
+            if pin_command:
                 deadline = time.monotonic() + SOCKET_TIMEOUT_SECONDS
                 reply = bytearray()
                 while b"\n" not in reply:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
-                        raise TimeoutError("admin pairing code reply timed out")
+                        raise TimeoutError("pairing code reply timed out")
                     connection.settimeout(remaining)
                     chunk = connection.recv(4096)
                     if not chunk:
-                        raise ValueError("socket closed without an admin pairing code")
+                        raise ValueError("socket closed without a pairing code")
                     reply.extend(chunk)
                     if len(reply) > 4096:
-                        raise ValueError("admin pairing code reply too large")
+                        raise ValueError("pairing code reply too large")
     except (TimeoutError, ValueError) as error:
-        print(f"could not get admin pairing code: {error}", file=sys.stderr, flush=True)
+        print(f"could not get {pin_label}: {error}", file=sys.stderr, flush=True)
         return 1
     except OSError as error:
         print(f"could not send {command} to {path}: {error}", file=sys.stderr, flush=True)
         return 1
-    if command == "show_admin_pin":
+    if pin_command:
         try:
             response = json.loads(reply.split(b"\n", 1)[0])
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            print(f"could not parse admin pairing code reply: {error}", file=sys.stderr, flush=True)
+            print(f"could not parse {pin_label} reply: {error}", file=sys.stderr, flush=True)
             return 1
         if not isinstance(response, dict) or not isinstance(response.get("pin"), str):
             detail = response.get("error", "invalid reply") if isinstance(response, dict) else "invalid reply"
-            print(f"could not get admin pairing code: {detail}", file=sys.stderr, flush=True)
+            print(f"could not get {pin_label}: {detail}", file=sys.stderr, flush=True)
             return 1
         pin = response["pin"]
         if len(pin) != 6 or not pin.isascii() or not pin.isdigit():
-            print("could not get admin pairing code: expected six digits", file=sys.stderr, flush=True)
+            print(f"could not get {pin_label}: expected six digits", file=sys.stderr, flush=True)
             return 1
-        print(f"admin pairing code: {pin}", flush=True)
+        print(f"{pin_label}: {pin}", flush=True)
         return 0
     print(f"sent {command} to {path} (no reply expected)", flush=True)
     if command == "play_pause":
@@ -895,7 +898,7 @@ class Menu:
     def handle_output_line(self, raw):
         line = raw.decode("utf-8", "replace")
         text = " ".join(line.split())
-        if text.startswith("admin pairing code:"):
+        if text.startswith(("admin pairing code:", "pairing code:")):
             self.running_admin_pin = text.partition(":")[2].strip()
             return
         percent = PERCENT_PATTERN.match(text)
@@ -955,9 +958,9 @@ class Menu:
         if self.running_shutdown:
             title = "onoz! restart failed" if self.running_label == "restart pi" else "onoz! shutdown failed"
             self.wake_lights(time.monotonic())
-        if self.running_socket and result == 0 and self.running_label == ADMIN_PIN_LABEL:
+        if self.running_socket and result == 0 and self.running_label in (ADMIN_PIN_LABEL, PAIRING_PIN_LABEL):
             self.message = (
-                "admin pairing code",
+                "admin pairing code" if self.running_label == ADMIN_PIN_LABEL else "pairing code",
                 self.running_admin_pin or "unavailable",
                 "enter in Charnel",
             )

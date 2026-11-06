@@ -24,6 +24,20 @@ the coach-demo bundle is git-ignored (rebuilt on every deploy). to refresh it
 for local `npm run dev`, run `make build-coach-demo` (or just `npm run build`
 once).
 
+## generated release assets
+
+`npm run gen:release-assets` copies the maintained
+[Pi installer](../scripts/raspberry-pi/setup.sh) to [public/setup.sh](public/setup.sh)
+and stamps docs frontmatter from git history. the root version command runs this
+inside the changesets action, so both updates are committed with version bumps
+on the version PR branch. page dates require full git history and skip bot-only
+changes; the home page deliberately has no date byline.
+
+site builds also sync the installer before Astro copies public assets, so a deploy
+does not have to wait for the next version PR to serve the latest script.
+edit the source installer, not the public copy. `npm run check:installer` and
+`npm run check:dates` detect stale generated files.
+
 ## structure
 
 ```

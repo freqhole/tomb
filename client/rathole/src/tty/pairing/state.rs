@@ -144,9 +144,28 @@ impl PairingStateReader for PairingStateHandle {
     /// invite code - the plain "new code" button, distinct from the
     /// admin-bootstrap one above.
     fn regenerate_session_pin(&self) {
+        self.regenerate_session_pin_with_reply(Box::new(|result| {
+            if let Err(error) = result {
+                tracing::warn!(%error, "could not rotate pairing code");
+            }
+        }));
+    }
+
+    fn regenerate_session_pin_with_reply(
+        &self,
+        callback: Box<dyn FnOnce(Result<String, String>) + 'static>,
+    ) {
         let state = self.0.clone();
         tokio::task::spawn_local(async move {
-            let _ = grimoire::cenotaph::state::regenerate_session_pin(&state).await;
+            let result = grimoire::cenotaph::state::regenerate_session_pin(&state)
+                .await
+                .and_then(|()| {
+                    grimoire::cenotaph::state::snapshot(&state)
+                        .current_code
+                        .map(|code| code.code)
+                        .ok_or_else(|| "pairing code unavailable after rotation".to_string())
+                });
+            callback(result);
         });
     }
 

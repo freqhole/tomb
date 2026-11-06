@@ -8,7 +8,7 @@ pub fn start_pending(app: &AppHandle, path: PathBuf) -> Result<bool, String> {
     if !grimoire::storage_migration::pending(&path).map_err(|e| e.to_string())? {
         return Ok(false);
     }
-    // a native dialog avoids opening a webview/profile inside the source folder.
+    // a system dialog avoids opening a webview/profile inside the source folder.
     app.dialog()
         .message(
             "storage migration is starting. keep both disks connected and leave Charnel running. \
@@ -26,7 +26,14 @@ pub fn start_pending(app: &AppHandle, path: PathBuf) -> Result<bool, String> {
         .map_err(|e| e.to_string())
         .and_then(|r| r);
         match result {
-            Ok(()) => app.restart(),
+            Ok(()) => {
+                if std::env::var("FREQHOLE_PI_SERVICE").as_deref() == Ok("1") {
+                    // systemd must relaunch us; a child would die with this service's cgroup.
+                    app.exit(75);
+                } else {
+                    app.restart();
+                }
+            }
             Err(error) => {
                 tracing::error!(%error, "storage migration stopped");
                 let handle = app.clone();

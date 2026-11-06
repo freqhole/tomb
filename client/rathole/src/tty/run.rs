@@ -4505,14 +4505,7 @@ fn apply_control_socket_command(
                 crate::ratcore::app::VideoCommand::Close,
             );
         }
-        ControlSocketCommand::ShowAdminPin => {
-            app.state.ephemeral.focus = Focus::PlayerPairing;
-            app.state.ephemeral.player_pairing.mode = PairingViewMode::Overview;
-        }
-        ControlSocketCommand::RotatePin => {
-            if let Some(pairing) = &app.pairing {
-                pairing.regenerate_session_pin();
-            }
+        ControlSocketCommand::ShowAdminPin | ControlSocketCommand::RotatePin => {
             app.state.ephemeral.focus = Focus::PlayerPairing;
             app.state.ephemeral.player_pairing.mode = PairingViewMode::Overview;
         }
@@ -4570,7 +4563,7 @@ fn handle_control_socket_request(
     use super::control_socket::ControlSocketCommand;
     let show_admin_pin = matches!(&req.command, ControlSocketCommand::ShowAdminPin);
     let reply = req.reply;
-    if show_admin_pin {
+    if show_admin_pin || matches!(&req.command, ControlSocketCommand::RotatePin) {
         apply_control_socket_command(app, req.command, tx);
         let Some(pairing) = app.pairing.clone() else {
             if let Some(reply) = reply {
@@ -4579,7 +4572,7 @@ fn handle_control_socket_request(
             }
             return;
         };
-        pairing.regenerate_admin_pin_with_reply(Box::new(move |result| {
+        let callback: Box<dyn FnOnce(Result<String, String>)> = Box::new(move |result| {
             if let Some(reply) = reply {
                 let payload = match result {
                     Ok(pin) => serde_json::json!({ "pin": pin }),
@@ -4587,7 +4580,12 @@ fn handle_control_socket_request(
                 };
                 let _ = reply.send(payload.to_string());
             }
-        }));
+        });
+        if show_admin_pin {
+            pairing.regenerate_admin_pin_with_reply(callback);
+        } else {
+            pairing.regenerate_session_pin_with_reply(callback);
+        }
         return;
     }
     let reply_json = match &req.command {

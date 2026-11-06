@@ -4,7 +4,7 @@ Raspberry Pi OS Bookworm/Trixie; arm64 charnel or arm64/armhf rathole.
 run as your regular user:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/freqhole/tomb/main/scripts/raspberry-pi/setup.sh -o freqhole-setup.sh && bash freqhole-setup.sh
+bash -c "$(curl -fsSL https://freqhole.net/setup.sh)"
 ```
 
 choose one app per run, optional OLED/Wi-Fi/splash, and autostart.
@@ -31,7 +31,7 @@ LED/fan changes need a reboot.
 ## uninstall
 
 ```sh
-bash freqhole-setup.sh uninstall
+bash -c "$(curl -fsSL https://freqhole.net/setup.sh)" -- uninstall
 ```
 
 stops + removes services, helpers, commands, boot/profile edits, the splash,

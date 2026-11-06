@@ -5,12 +5,15 @@
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
-    "prebuild": "npm --prefix ../client/spume ci && npm --prefix ../client/spume run build:coach:wc",
+    "prebuild": "npm run gen:installer && npm --prefix ../client/spume ci && npm --prefix ../client/spume run build:coach:wc",
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
     "gen:dates": "node scripts/gen-page-dates.mjs",
     "gen:dates:force": "node scripts/gen-page-dates.mjs --force",
+    "gen:installer": "node scripts/sync-installer.mjs",
+    "gen:release-assets": "npm run gen:installer && npm run gen:dates",
+    "check:installer": "node scripts/sync-installer.mjs --check",
     "gen:schema": "node scripts/gen-schema-diagrams.mjs",
     "check:dates": "node scripts/gen-page-dates.mjs --check"
   },

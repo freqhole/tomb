@@ -294,5 +294,9 @@ pub trait PairingStateReader {
         callback: Box<dyn FnOnce(Result<String, String>) + 'static>,
     );
     fn regenerate_session_pin(&self);
+    fn regenerate_session_pin_with_reply(
+        &self,
+        callback: Box<dyn FnOnce(Result<String, String>) + 'static>,
+    );
     fn remove_controller(&self, node_id: &str);
 }
