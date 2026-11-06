@@ -190,8 +190,8 @@ pub fn draw(frame: &mut Frame, area: Rect, view: &JobsView) {
             _ => "unknown (unfinished or pruned job timestamps)".into(),
         };
         frame.render_widget(Paragraph::new(format!(
-            "session {}  {}  {} running / {} pending{}\nlast activity: {}\ncreated: {}\nrun span: {}",
-            short_id(&session.id), format!("{}{}", session.status.to_lowercase(), if session.closed { " (closed)" } else { "" }), session.running, session.pending,
+            "session {}  {}{}  {} running / {} pending{}\nlast activity: {}\ncreated: {}\nrun span: {}",
+            short_id(&session.id), session.status.to_lowercase(), if session.closed { " (closed)" } else { "" }, session.running, session.pending,
             if session.can_close { "  x: close idle session" } else { "" },
             timestamp(session.updated_at, view.now), timestamp(session.created_at, view.now), span
         )).block(Block::bordered().title("session details")), summary);
@@ -348,10 +348,11 @@ fn draw_sessions(frame: &mut Frame, area: Rect, view: &JobsView, title: &str) {
                         .map(|p| format!("  progress {}/{}", p["current"], p["total"]))
                         .unwrap_or_default();
                     ListItem::new(format!(
-                        "{}  {}  {}{}\n  running {} pending {} done {} failed {} cancelled {}{}\n  last activity: {}",
+                        "{}  {}  {}{}{}\n  running {} pending {} done {} failed {} cancelled {}{}\n  last activity: {}",
                         short_id(&s.id),
                         s.job_type,
-                        format!("{}{}", s.status, if s.closed { " (closed)" } else { "" }),
+                        s.status,
+                        if s.closed { " (closed)" } else { "" },
                         if s.can_close { " (idle; x: close)" } else { "" },
                         s.running,
                         s.pending,
@@ -376,6 +377,38 @@ fn draw_sessions(frame: &mut Frame, area: Rect, view: &JobsView, title: &str) {
 
 fn short_id(id: &str) -> String {
     id.chars().take(12).collect()
+}
+
+fn draw_list(
+    frame: &mut Frame,
+    area: Rect,
+    items: Vec<ListItem>,
+    cursor: Option<usize>,
+    title: &str,
+) {
+    let block = Block::bordered()
+        .title(title)
+        .border_style(if cursor.is_some() {
+            Style::new().fg(ACCENT)
+        } else {
+            Style::default()
+        });
+    if items.is_empty() {
+        frame.render_widget(
+            Paragraph::new("no matching jobs or sessions").block(block),
+            area,
+        );
+        return;
+    }
+    let mut state = ListState::default().with_selected(cursor);
+    frame.render_stateful_widget(
+        List::new(items)
+            .block(block)
+            .highlight_style(Style::new().bg(Color::DarkGray))
+            .highlight_symbol("> "),
+        area,
+        &mut state,
+    );
 }
 
 #[cfg(test)]
@@ -516,36 +549,4 @@ mod tests {
             }
         }
     }
-}
-
-fn draw_list(
-    frame: &mut Frame,
-    area: Rect,
-    items: Vec<ListItem>,
-    cursor: Option<usize>,
-    title: &str,
-) {
-    let block = Block::bordered()
-        .title(title)
-        .border_style(if cursor.is_some() {
-            Style::new().fg(ACCENT)
-        } else {
-            Style::default()
-        });
-    if items.is_empty() {
-        frame.render_widget(
-            Paragraph::new("no matching jobs or sessions").block(block),
-            area,
-        );
-        return;
-    }
-    let mut state = ListState::default().with_selected(cursor);
-    frame.render_stateful_widget(
-        List::new(items)
-            .block(block)
-            .highlight_style(Style::new().bg(Color::DarkGray))
-            .highlight_symbol("> "),
-        area,
-        &mut state,
-    );
 }

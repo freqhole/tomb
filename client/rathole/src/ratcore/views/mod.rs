@@ -355,30 +355,6 @@ fn push_jobs_badge(spans: &mut Vec<Span<'static>>, jobs: Option<&crate::ratcore:
     ));
 }
 
-#[cfg(test)]
-mod jobs_badge_tests {
-    use super::*;
-    use crate::ratcore::app::JobsStatus;
-
-    #[test]
-    fn fallback_badge_never_renders_long_stage_messages() {
-        let mut spans = Vec::new();
-        push_jobs_badge(
-            &mut spans,
-            Some(&JobsStatus {
-                kind: "checking 123456 media blobs for references...".into(),
-                percent: 42,
-                jobs_total: 10,
-                jobs_pending: 6,
-            }),
-        );
-        let text = spans.iter().map(|s| s.content.as_ref()).collect::<String>();
-        assert!(text.contains("jobs 42%"));
-        assert!(text.len() < 30);
-        assert!(!text.contains("media blobs"));
-    }
-}
-
 /// rotating ascii spinner glyph driven by the system clock so we
 /// don't need to thread a frame counter through render state. ~8Hz
 /// — fast enough to feel "live", slow enough to read.
@@ -509,5 +485,29 @@ fn short_id(s: &str) -> String {
         s.to_string()
     } else {
         format!("{}…{}", &s[..8], &s[s.len() - 6..])
+    }
+}
+
+#[cfg(test)]
+mod jobs_badge_tests {
+    use super::*;
+    use crate::ratcore::app::JobsStatus;
+
+    #[test]
+    fn fallback_badge_never_renders_long_stage_messages() {
+        let mut spans = Vec::new();
+        push_jobs_badge(
+            &mut spans,
+            Some(&JobsStatus {
+                kind: "checking 123456 media blobs for references...".into(),
+                percent: 42,
+                jobs_total: 10,
+                jobs_pending: 6,
+            }),
+        );
+        let text = spans.iter().map(|s| s.content.as_ref()).collect::<String>();
+        assert!(text.contains("jobs 42%"));
+        assert!(text.len() < 30);
+        assert!(!text.contains("media blobs"));
     }
 }
