@@ -980,61 +980,7 @@ async fn mobile_finish_boot(
     // spawn grimoire event listener for real-time UI updates - same
     // dedicated-runtime reasoning as the job runner above.
     let event_handle = app_handle.clone();
-    mobile_runtime().spawn(async move {
-        let mut rx = grimoire::events::subscribe();
-        tracing::info!("grimoire event listener started");
-        while let Ok(event) = rx.recv().await {
-            let spume_event = match &event {
-                grimoire::events::GrimoireEvent::KnockCreated {
-                    id,
-                    username,
-                    node_id,
-                    message,
-                } => {
-                    serde_json::json!({
-                        "type": "knock-created",
-                        "data": {
-                            "id": id,
-                            "username": username,
-                            "node_id": node_id,
-                            "message": if message.is_empty() { None } else { Some(message) }
-                        }
-                    })
-                }
-                grimoire::events::GrimoireEvent::KnockProcessed {
-                    id,
-                    status,
-                    username,
-                } => {
-                    serde_json::json!({
-                        "type": "knock-processed",
-                        "data": { "id": id, "status": status, "username": username }
-                    })
-                }
-                grimoire::events::GrimoireEvent::DeviceLinked {
-                    peer_addr,
-                    server_name,
-                } => {
-                    serde_json::json!({
-                        "type": "device-linked",
-                        "data": { "peer_addr": peer_addr, "server_name": server_name }
-                    })
-                }
-                grimoire::events::GrimoireEvent::KnockAccepted {
-                    peer_addr,
-                    server_name,
-                } => {
-                    serde_json::json!({
-                        "type": "knock-accepted",
-                        "data": { "peer_addr": peer_addr, "server_name": server_name }
-                    })
-                }
-            };
-            if let Err(e) = event_handle.emit("freqhole:event", spume_event) {
-                tracing::error!(error = %e, "failed to emit freqhole event");
-            }
-        }
-    });
+    mobile_runtime().spawn(spume_bridge::forward_grimoire_events(event_handle));
 
     // check federation config to decide whether to init P2P
     let federation_enabled_for_p2p = grimoire::config::get_config()
@@ -1500,58 +1446,7 @@ pub fn run() {
 
                 // spawn grimoire event listener for real-time UI updates
                 let event_handle = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    let mut rx = grimoire::events::subscribe();
-                    tracing::info!("grimoire event listener started");
-                    while let Ok(event) = rx.recv().await {
-                        // transform grimoire event to spume's expected format
-                        let spume_event = match &event {
-                            grimoire::events::GrimoireEvent::KnockCreated { id, username, node_id, message } => {
-                                serde_json::json!({
-                                    "type": "knock-created",
-                                    "data": {
-                                        "id": id,
-                                        "username": username,
-                                        "node_id": node_id,
-                                        "message": if message.is_empty() { None } else { Some(message) }
-                                    }
-                                })
-                            }
-                            grimoire::events::GrimoireEvent::KnockProcessed { id, status, username } => {
-                                serde_json::json!({
-                                    "type": "knock-processed",
-                                    "data": {
-                                        "id": id,
-                                        "status": status,
-                                        "username": username
-                                    }
-                                })
-                            }
-                            grimoire::events::GrimoireEvent::DeviceLinked { peer_addr, server_name } => {
-                                serde_json::json!({
-                                    "type": "device-linked",
-                                    "data": {
-                                        "peer_addr": peer_addr,
-                                        "server_name": server_name,
-                                    }
-                                })
-                            }
-                            grimoire::events::GrimoireEvent::KnockAccepted { peer_addr, server_name } => {
-                                serde_json::json!({
-                                    "type": "knock-accepted",
-                                    "data": {
-                                        "peer_addr": peer_addr,
-                                        "server_name": server_name,
-                                    }
-                                })
-                            }
-                        };
-                        // emit to frontend as tauri event (matching spume's event channel)
-                        if let Err(e) = event_handle.emit("freqhole:event", spume_event) {
-                            tracing::error!(error = %e, "failed to emit freqhole event");
-                        }
-                    }
-                });
+                tauri::async_runtime::spawn(crate::spume_bridge::forward_grimoire_events(event_handle));
 
                 // check federation config to decide whether to init P2P
                 let federation_enabled_for_p2p = grimoire::config::get_config()

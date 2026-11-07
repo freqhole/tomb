@@ -102,6 +102,13 @@ pub struct SyncSongByBlake3Response {
     pub images_linked: i64,
     /// image blake3s that couldn't be pulled/found - skipped, not fatal.
     pub missing_image_blake3s: Vec<String>,
+    /// local waveform media_blobz.id when the song already had one at
+    /// response time. `None` means one is being generated in the background
+    /// (or generation isn't possible) - a `waveform_ready` event follows
+    /// on success. lets clients that missed that event catch up on the next
+    /// sync of the same song.
+    #[serde(default)]
+    pub waveform_blob_id: Option<String>,
 }
 
 /// one member of a synced playlist, in order - a playlist is one shared
@@ -381,6 +388,10 @@ pub struct SyncVideoByBlake3Response {
     pub images_linked: i64,
     /// image blake3s that couldn't be pulled/found - skipped, not fatal.
     pub missing_image_blake3s: Vec<String>,
+    /// local waveform media_blobz.id when the video already had one - see
+    /// `SyncSongByBlake3Response::waveform_blob_id`.
+    #[serde(default)]
+    pub waveform_blob_id: Option<String>,
 }
 
 /// response when a sync-by-blake3 request is accepted and handed off to a

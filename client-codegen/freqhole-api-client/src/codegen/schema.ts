@@ -7492,7 +7492,8 @@ export const SyncSongByBlake3ResponseSchema = z.object({
   blake3: z.string(),
   existing: z.boolean(),
   images_linked: z.number(),
-  missing_image_blake3s: z.array(z.string())
+  missing_image_blake3s: z.array(z.string()),
+  waveform_blob_id: z.string().nullish()
 });
 export type SyncSongByBlake3Response = z.infer<typeof SyncSongByBlake3ResponseSchema>;
 
@@ -7547,7 +7548,8 @@ export const SyncVideoByBlake3ResponseSchema = z.object({
   season_id: z.string().nullish(),
   existing: z.boolean(),
   images_linked: z.number(),
-  missing_image_blake3s: z.array(z.string())
+  missing_image_blake3s: z.array(z.string()),
+  waveform_blob_id: z.string().nullish()
 });
 export type SyncVideoByBlake3Response = z.infer<typeof SyncVideoByBlake3ResponseSchema>;
 

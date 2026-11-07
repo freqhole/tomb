@@ -60,12 +60,14 @@ function imageRefsFor(item: MediaItem): Array<{ remoteId: string; blobId: string
     return refs;
   }
 
-  // video images carry no remote of their own - they belong to the video's
+  // video images normally carry no remote of their own - they belong to the
+  // video's (except an app-local override, see QueuedVideoImage)
   const video = item.video;
-  if (!video.remote_server_id) return refs;
   for (const img of video.images ?? []) {
-    if (img.blob_id) refs.push({ remoteId: video.remote_server_id, blobId: img.blob_id });
+    const remoteId = img.remote_server_id ?? video.remote_server_id;
+    if (img.blob_id && remoteId) refs.push({ remoteId, blobId: img.blob_id });
   }
+  if (!video.remote_server_id) return refs;
   if (video.poster_blob_id) {
     refs.push({ remoteId: video.remote_server_id, blobId: video.poster_blob_id });
   }

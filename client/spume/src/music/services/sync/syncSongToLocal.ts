@@ -42,6 +42,7 @@ import {
 import { invalidateMusicLibraryQueries } from "../../queries/cacheUpdates";
 import { imagesAreStale, preservePrimarySelection } from "../../../utils/images";
 import { generateUUID } from "../../../utils/uuid";
+import { applyWaveform } from "../../../app/services/media/applyWaveform";
 
 /** invoke `sync_song_by_blake3_with_progress` instead of the generic
  * `api_call`, wiring its `tauri::ipc::Channel<{bytes_downloaded}>` into the
@@ -269,6 +270,9 @@ interface SyncSongByBlake3Result {
   existing: boolean;
   images_linked: number;
   missing_image_blake3s: string[];
+  /** set when the song already had a waveform; otherwise one is generated in
+   *  the background and announced via the `waveform-ready` event. */
+  waveform_blob_id?: string | null;
 }
 
 // real audio files routinely take 8-70+ seconds to pull (see
@@ -316,6 +320,11 @@ function finishSyncResult(
         .slice(0, 5)
         .map((s) => s.slice(0, 8))
         .join(", ")}`
+    );
+  }
+  if (data?.waveform_blob_id && data.blake3) {
+    void applyWaveform("song", data.blake3, data.waveform_blob_id).catch((e) =>
+      warn("syncSongViaLocalGrimoire", `failed to attach waveform for "${song.title}":`, e)
     );
   }
   return {

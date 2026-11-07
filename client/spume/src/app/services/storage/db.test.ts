@@ -10,7 +10,7 @@ import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { openDB } from "idb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { appState, closeAppDB, loadAppState, migrateLegacyCurrentItemKey, updateQueueAvailability } from "./db";
+import { addWaveformToQueuedMedia, appState, closeAppDB, loadAppState, migrateLegacyCurrentItemKey, updateQueueAvailability } from "./db";
 import { APP_DB_NAME, STORE_APP_STATE, type AppState } from "./types";
 import { refreshQueuedAvailability } from "../../../music/services/queue/refreshAvailability";
 
@@ -190,5 +190,54 @@ describe("app_state upgrade-time migration (v13 -> v14)", () => {
       refreshQueuedAvailability({ remote_id: "one" }, cancelled.signal)
     ).rejects.toThrow();
     expect(appState()).toBe(current);
+  });
+
+  it("attaches a waveform to queued songs and videos by blake3 without touching others", async () => {
+    const waveform = {
+      remote_blob_id: "wf-1",
+      remote_server_id: "self",
+      is_primary: false,
+      blob_type: "waveform" as const,
+    };
+    const thumb = { remote_blob_id: "t", is_primary: true, blob_type: "thumbnail" as const };
+    const existingWave = { remote_blob_id: "old", is_primary: false, blob_type: "waveform" as const };
+    const poster = { blob_id: "p", is_primary: 1, blob_type: "thumbnail" };
+    await seedPreMigrationDb({
+      ...baseState(),
+      queue: [
+        { kind: "song", song: { id: "a", blake3: "ABC", images: [thumb] } },
+        { kind: "song", song: { id: "b", blake3: "def", images: [thumb] } },
+        { kind: "song", song: { id: "c", blake3: "abc", images: [existingWave] } },
+        { kind: "song", song: { id: "d", blake3: "abc" } },
+        { kind: "video", video: { id: "v", blake3: "abc", images: [poster] } },
+      ],
+    });
+    const original = await loadAppState();
+    await addWaveformToQueuedMedia("song", "abc", "wf-1", "self");
+    const updated = appState()!;
+    expect(updated.queue[0]).toMatchObject({ song: { images: [thumb, waveform] } });
+    expect(updated.queue[1]).toBe(original.queue[1]);
+    expect(updated.queue[2]).toBe(original.queue[2]);
+    expect(updated.queue[3]).toMatchObject({ song: { images: [waveform] } });
+    expect(updated.queue[4]).toBe(original.queue[4]);
+    expect((await loadAppState()).queue).toEqual(updated.queue);
+
+    const before = appState();
+    await addWaveformToQueuedMedia("song", "abc", "wf-2", "self");
+    expect(appState()).toBe(before);
+
+    await addWaveformToQueuedMedia("video", "ABC", "wf-v", "self");
+    const withVideo = appState()!;
+    expect(withVideo.queue[0]).toBe(before!.queue[0]);
+    expect(withVideo.queue[4]).toMatchObject({
+      video: {
+        images: [
+          poster,
+          { blob_id: "wf-v", remote_server_id: "self", is_primary: 0, blob_type: "waveform" },
+        ],
+      },
+    });
+    await addWaveformToQueuedMedia("video", "abc", "wf-v2", "self");
+    expect(appState()).toBe(withVideo);
   });
 });

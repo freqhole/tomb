@@ -109,6 +109,7 @@ import { preCacheP2PBlob } from "../music/services/storage/blobResolver";
 import { recoverLegacyImages } from "../music/services/storage/legacyImageRecovery";
 import type { Song } from "../music/services/storage/types";
 import { debug } from "../utils/logger";
+import { applyWaveform } from "./services/media/applyWaveform";
 import { useLibraryAvailability } from "../utils/useLibraryAvailability";
 import {
   extractShareTokenFromHash,
@@ -916,6 +917,13 @@ export function App() {
             );
           }
         })();
+        break;
+
+      case "waveform-ready":
+        void applyWaveform(event.data.kind, event.data.blake3, event.data.waveform_blob_id).catch(
+          (e) =>
+            debug("App", `failed to attach waveform for ${event.data.blake3.slice(0, 8)}: ${e}`)
+        );
         break;
 
       case "libmpv-unavailable":
