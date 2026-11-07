@@ -128,3 +128,20 @@ export async function deleteBlob(blobId: string): Promise<void> {
  * settings/services/storageManager.ts's reset flow needs no changes.
  */
 export function closeBlobDB(): void {}
+
+/**
+ * read the bytes behind a URL a transport just handed out, then revoke it if
+ * it's a `blob:` URL - transports never keep the URLs they create (see
+ * `Transport.getBlobUrl`), so a one-shot reader owns its cleanup.
+ */
+export async function readTransportBlobUrl(url: string): Promise<Blob> {
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`failed to fetch blob: ${response.status} ${response.statusText}`);
+    }
+    return await response.blob();
+  } finally {
+    if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+  }
+}

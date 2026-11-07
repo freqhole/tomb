@@ -64,7 +64,10 @@ function nodeWith(branch: "verified" | "api_request" | "by_id" | "legacy"): Midd
     node.download_verified_with_ensure = async () => BYTES;
   }
   if (branch === "by_id") {
+    // midden always ships both variants together (see WasmTransport's
+    // fetchBlobWithProgress comment) - the progress path only uses this one
     node.download_verified_by_id = async () => [BYTES, BLAKE3];
+    node.download_verified_by_id_progress = async () => [BYTES, BLAKE3];
   }
   if (branch === "legacy") {
     node.fetch_blob = async () => ({

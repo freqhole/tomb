@@ -14,6 +14,7 @@
 // video is played and the "sync queue to local" setting is on.
 
 import { usesBlobResolver } from "../../../music/services/storage/blobResolver";
+import { readTransportBlobUrl } from "../../../music/services/storage/blobs";
 import { withLoadingProgress } from "../../../music/services/download";
 import { getSyncQueueToLocal } from "../../../app/services/storage/db";
 import { isCharnelMode } from "../../../app/services/charnel";
@@ -133,9 +134,7 @@ async function fetchP2PVideoBlob(
         meta.mime ?? undefined,
         { cache: "skip" }
       );
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`failed to fetch video blob: ${response.statusText}`);
-      const blob = await response.blob();
+      const blob = await readTransportBlobUrl(url);
       const extension = extensionFromMime(blob.type);
       return {
         opfsPath: await writeVideoToOPFS(blob, video.id, extension),
@@ -144,10 +143,9 @@ async function fetchP2PVideoBlob(
       };
     }
 
-    const url = await transport.getBlobUrl(blobId, meta.blake3 ?? undefined, { cache: "skip" });
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`failed to fetch video blob: ${response.statusText}`);
-    const blob = await response.blob();
+    const blob = await readTransportBlobUrl(
+      await transport.getBlobUrl(blobId, meta.blake3 ?? undefined, { cache: "skip" })
+    );
     const extension = extensionFromMime(blob.type);
     return {
       opfsPath: await writeVideoToOPFS(blob, video.id, extension),
@@ -601,13 +599,10 @@ export async function syncVideoToLocal(
         const remote = remoteOverride ?? (await getRemoteById(video.remote_server_id));
         if (remote) {
           const transport = await getTransportForRemote(remote);
-          const posterUrl = await transport.getBlobUrl(video.poster_blob_id, undefined, {
-            cache: "skip",
-          });
-          const posterResponse = await fetch(posterUrl);
-          if (posterResponse.ok) {
-            posterOpfsPath = await writeVideoPosterToOPFS(await posterResponse.blob(), video.id);
-          }
+          const posterBlob = await readTransportBlobUrl(
+            await transport.getBlobUrl(video.poster_blob_id, undefined, { cache: "skip" })
+          );
+          posterOpfsPath = await writeVideoPosterToOPFS(posterBlob, video.id);
         }
       } catch (err) {
         warn("videoSync", `poster sync failed for video ${video.id} (non-fatal):`, err);

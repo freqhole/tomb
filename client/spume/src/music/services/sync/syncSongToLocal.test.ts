@@ -86,7 +86,11 @@ vi.mock("../storage/db/taxons", () => ({
   upsertTaxon: vi.fn(),
   linkAlbumTaxon: vi.fn(),
 }));
-vi.mock("../storage/blobs", () => ({ storeBlob: vi.fn(async () => "blob-1") }));
+vi.mock("../storage/blobs", async (importOriginal) => ({
+  readTransportBlobUrl: (await importOriginal<typeof import("../storage/blobs")>())
+    .readTransportBlobUrl,
+  storeBlob: vi.fn(async () => "blob-1"),
+}));
 
 const markSongSynced = vi.fn((...args: unknown[]) => void args);
 const canStartDownload = vi.fn((...args: unknown[]) => {

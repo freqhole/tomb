@@ -100,8 +100,6 @@ interface ApiResponse {
 export class CharnelLocalTransport implements Transport {
   // cache blob paths to avoid repeated IPC calls
   private blobPathCache = new Map<string, { path: string; mime?: string }>();
-  // cache object URLs for db-stored blobs (no local path)
-  private blobObjectUrlCache = new Map<string, string>();
 
   constructor(_baseUrl: string) {
     // baseUrl no longer needed - all requests go through IPC.
@@ -345,17 +343,6 @@ export class CharnelLocalTransport implements Transport {
   async fetchBlob(blobId: string, _blake3?: string): Promise<BlobData> {
     await ensureInvoke();
 
-    // check if we have a cached object URL (db-stored blob)
-    const cachedObjectUrl = this.blobObjectUrlCache.get(blobId);
-    if (cachedObjectUrl) {
-      const fetchResponse = await fetch(cachedObjectUrl);
-      const arrayBuffer = await fetchResponse.arrayBuffer();
-      return {
-        data: new Uint8Array(arrayBuffer),
-        contentType: fetchResponse.headers.get("content-type") ?? "application/octet-stream",
-      };
-    }
-
     // try to get path from cache or IPC
     let pathInfo = this.blobPathCache.get(blobId);
     if (!pathInfo) {
@@ -398,7 +385,7 @@ export class CharnelLocalTransport implements Transport {
 
   /**
    * fetch blob data via /api/blobs/{id}/data - for db-stored blobs
-   * returns base64-decoded data and creates/caches object URL
+   * returns base64-decoded data
    */
   private async fetchBlobData(blobId: string): Promise<BlobData> {
     const response = await this.request("GET", `/api/blobs/${blobId}/data`, undefined);
@@ -418,36 +405,22 @@ export class CharnelLocalTransport implements Transport {
       bytes[i] = binaryString.charCodeAt(i);
     }
 
-    const mime = parsed.data.mime ?? "application/octet-stream";
-
-    // create and cache object URL for future use
-    const blob = new Blob([bytes], { type: mime });
-    const objectUrl = URL.createObjectURL(blob);
-    this.blobObjectUrlCache.set(blobId, objectUrl);
-
     return {
       data: bytes,
-      contentType: mime,
+      contentType: parsed.data.mime ?? "application/octet-stream",
     };
   }
 
   /**
    * get blob URL — preference order:
-   * 1. cached object URL (db-stored blobs)
-   * 2. tauri asset:// (via `convertFileSrc`), for any blob with a local path
+   * 1. tauri asset:// (via `convertFileSrc`), for any blob with a local path
+   * 2. a fresh object URL for db-stored blobs (owned by the caller)
    *
    * note: when the libmpv audio backend is enabled (charnel + opt-in)
    * playback bypasses html `<audio>` entirely and reads files via
    * filesystem path — this method is unused for that path.
    */
   getBlobUrl(blobId: string, _blake3?: string): string | Promise<string> {
-    // check object URL cache first (db-stored blobs)
-    const cachedObjectUrl = this.blobObjectUrlCache.get(blobId);
-    if (cachedObjectUrl) {
-      console.debug(`[CharnelLocalTransport] blob ${blobId}: object-url cache`);
-      return cachedObjectUrl;
-    }
-
     // check path cache (filesystem blobs) — direct asset:// url
     const cached = this.blobPathCache.get(blobId);
     if (cached && convertFileSrc) {
@@ -493,12 +466,9 @@ export class CharnelLocalTransport implements Transport {
     );
 
     if (isNoLocalPath) {
-      // fetch blob data and create object URL
-      await this.fetchBlobData(blobId);
-      const objectUrl = this.blobObjectUrlCache.get(blobId);
-      if (objectUrl) {
-        return objectUrl;
-      }
+      // db-stored blob: a fresh object URL, owned (and revoked) by the caller
+      const { data, contentType } = await this.fetchBlobData(blobId);
+      return URL.createObjectURL(new Blob([data.slice().buffer], { type: contentType }));
     }
 
     throw new Error(`failed to get blob path: ${response.body}`);

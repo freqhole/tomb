@@ -172,9 +172,6 @@ export function isCharnelAvailable(): boolean {
 // default cache name if none provided
 const DEFAULT_CACHE_NAME = "freqhole-blobs-v1";
 
-// in-memory url cache for revocation
-const urlCache = new Map<string, string>();
-
 /**
  * decode base64 string to Uint8Array
  * handles both standard and URL-safe base64 encoding
@@ -599,45 +596,22 @@ export class CharnelTransport implements Transport {
   }
 
   /**
-   * get a URL for a blob - caches in Cache API unless `opts.cache === "skip"`
-   * if blake3 provided, uses verified iroh-blobs download
+   * get a fresh object URL for a blob - caches the bytes in the Cache API
+   * unless `opts.cache === "skip"`. if blake3 provided, uses verified
+   * iroh-blobs download.
+   *
+   * the caller owns the returned URL (and revokes it when done) - no URL is
+   * kept here, so one caller revoking can never hand a dead URL to another.
    */
   async getBlobUrl(blobId: string, blake3?: string, opts?: BlobFetchOptions): Promise<string> {
-    // check in-memory cache first
-    const cached = urlCache.get(blobId);
-    if (cached) {
-      return cached;
-    }
-
-    // check Cache API (use HTTP URL key for webkitgtk compatibility)
     const cache = await caches.open(this.cacheName);
     const cachedResponse = await cache.match(cacheKey(blobId));
-
     if (cachedResponse) {
-      const blob = await cachedResponse.blob();
-      const url = URL.createObjectURL(blob);
-      urlCache.set(blobId, url);
-      return url;
+      return URL.createObjectURL(await cachedResponse.blob());
     }
 
-    // fetch via P2P and cache (pass blake3 for verified download)
     const blobData = await this.fetchBlob(blobId, blake3);
-    const blob = new Blob([blobData.data.slice().buffer], {
-      type: blobData.contentType,
-    });
-
-    if (opts?.cache !== "skip") {
-      // store in Cache API (HTTP URL key for webkitgtk compatibility)
-      const response = new Response(blob, {
-        headers: { "Content-Type": blobData.contentType },
-      });
-      await cache.put(cacheKey(blobId), response);
-    }
-
-    // create object URL
-    const url = URL.createObjectURL(blob);
-    urlCache.set(blobId, url);
-    return url;
+    return this.storeAndCreateUrl(cache, blobId, blobData, opts);
   }
 
   /**
@@ -653,18 +627,10 @@ export class CharnelTransport implements Transport {
     mimeType?: string,
     opts?: BlobFetchOptions,
   ): Promise<string> {
-    const cached = urlCache.get(blobId);
-    if (cached) {
-      onProgress(1, 1);
-      return cached;
-    }
-
     const cache = await caches.open(this.cacheName);
     const cachedResponse = await cache.match(cacheKey(blobId));
     if (cachedResponse) {
-      const blob = await cachedResponse.blob();
-      const url = URL.createObjectURL(blob);
-      urlCache.set(blobId, url);
+      const url = URL.createObjectURL(await cachedResponse.blob());
       onProgress(1, 1);
       return url;
     }
@@ -676,41 +642,24 @@ export class CharnelTransport implements Transport {
       totalBytes,
       mimeType,
     );
-    const blob = new Blob([blobData.data.slice().buffer], {
-      type: blobData.contentType,
-    });
+    return this.storeAndCreateUrl(cache, blobId, blobData, opts);
+  }
 
+  private async storeAndCreateUrl(
+    cache: Cache,
+    blobId: string,
+    blobData: BlobData,
+    opts?: BlobFetchOptions,
+  ): Promise<string> {
+    const blob = new Blob([blobData.data.slice().buffer], { type: blobData.contentType });
     if (opts?.cache !== "skip") {
-      const response = new Response(blob, {
-        headers: { "Content-Type": blobData.contentType },
-      });
-      await cache.put(cacheKey(blobId), response);
+      // HTTP URL key for webkitgtk compatibility
+      await cache.put(
+        cacheKey(blobId),
+        new Response(blob, { headers: { "Content-Type": blobData.contentType } }),
+      );
     }
-
-    const url = URL.createObjectURL(blob);
-    urlCache.set(blobId, url);
-    return url;
-  }
-
-  /**
-   * revoke a blob URL
-   */
-  revokeBlobUrl(blobId: string): void {
-    const url = urlCache.get(blobId);
-    if (url) {
-      URL.revokeObjectURL(url);
-      urlCache.delete(blobId);
-    }
-  }
-
-  /**
-   * clear all blob URLs
-   */
-  clearBlobUrls(): void {
-    for (const url of urlCache.values()) {
-      URL.revokeObjectURL(url);
-    }
-    urlCache.clear();
+    return URL.createObjectURL(blob);
   }
 
   /**

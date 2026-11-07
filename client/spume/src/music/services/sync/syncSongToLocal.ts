@@ -23,7 +23,7 @@ import { getOrCreateGenre } from "../storage/db/genres";
 import { createTag } from "../storage/db/tags";
 import { addAlbumTag, getAlbumTags } from "../storage/db/albumTags";
 import { upsertTaxon, linkAlbumTaxon } from "../storage/db/taxons";
-import { storeBlob } from "../storage/blobs";
+import { readTransportBlobUrl, storeBlob } from "../storage/blobs";
 import {
   markSongSynced,
   canStartDownload,
@@ -451,23 +451,9 @@ export async function downloadAndStoreImages(
       // fetch via transport (handles P2P vs HTTP). `cache: "skip"` — these
       // bytes are about to be stored as a local blob, so caching them too
       // would keep a second copy.
-      const blobUrl = await transport.getBlobUrl(img.remote_blob_id, undefined, { cache: "skip" });
-      const response = await fetch(blobUrl);
-
-      if (!response.ok) {
-        debug("syncSongToLocal", `failed to fetch image ${img.remote_blob_id}: ${response.status}`);
-        // keep remote reference as fallback
-        results.push({
-          remote_url: img.remote_url,
-          is_primary: img.is_primary,
-          blob_type: img.blob_type || "thumbnail",
-          remote_blob_id: img.remote_blob_id,
-          remote_server_id: img.remote_server_id,
-        });
-        continue;
-      }
-
-      const blob = await response.blob();
+      const blob = await readTransportBlobUrl(
+        await transport.getBlobUrl(img.remote_blob_id, undefined, { cache: "skip" })
+      );
       const mimeType = blob.type || "image/jpeg";
 
       // store blob locally and get local_blob_id
@@ -758,13 +744,7 @@ export async function syncSongToLocal(
           });
         }
 
-        // fetch the blob data
-        const response = await fetch(blobUrl);
-        if (!response.ok) {
-          return { success: false, error: `failed to fetch audio blob: ${response.statusText}` };
-        }
-
-        const blob = await response.blob();
+        const blob = await readTransportBlobUrl(blobUrl);
 
         // save to OPFS using sha256 as filename
         opfsPath = await writeAudioToOPFS(blob, sha256, extension);
