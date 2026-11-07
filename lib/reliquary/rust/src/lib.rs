@@ -71,7 +71,7 @@ pub use identity::{
     IdentityError, ReliquaryIdentity, DEFAULT_KEYPAIR_FILENAME,
 };
 #[cfg(feature = "node")]
-pub use node::{InFlightGuard, NodeError, StorageNode, StorageNodeOptions};
+pub use node::{InFlightGuard, NodeError, SharedBlobsProtocol, StorageNode, StorageNodeOptions};
 #[cfg(feature = "snatch")]
 pub use snatch::{
     BlobDescriptor, BlobRefSource, PeerProbeTransport, ProbeError, SnatchEngine,

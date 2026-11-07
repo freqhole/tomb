@@ -8,9 +8,12 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, RwLock};
 use std::time::Duration;
 
+use iroh::endpoint::Connection;
+use iroh::protocol::{AcceptError, ProtocolHandler};
 use iroh::Endpoint;
 use iroh_blobs::api::blobs::{AddPathOptions, ExportMode, ExportOptions, ImportMode};
 use iroh_blobs::api::downloader::Downloader;
@@ -23,6 +26,12 @@ use crate::blobz::{BlobStore, BlobStoreError};
 
 const DEFAULT_GC_INTERVAL: Duration = Duration::from_secs(3600);
 const PROTECT_REFRESH_INTERVAL: Duration = Duration::from_secs(600);
+/// how long [`StorageNode::check_local_store`] waits for the store to answer.
+/// a single tag lookup, so anything near this is a stalled store, not load.
+const LOCAL_STORE_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+/// tag name looked up by [`StorageNode::check_local_store`]. never created -
+/// the probe only cares whether the store answers, not what it answers.
+const LOCAL_STORE_PROBE_TAG: &[u8] = b"reliquary-local-store-probe";
 
 #[derive(Debug, thiserror::Error)]
 pub enum NodeError {
@@ -34,6 +43,12 @@ pub enum NodeError {
 
     #[error("blob store error: {0}")]
     BlobStore(#[from] BlobStoreError),
+
+    /// the iroh-blobs store stopped answering requests (shut down, or its
+    /// internal database task died). it can't be revived in-process - the
+    /// app has to restart.
+    #[error("local blob store is unavailable: {0}")]
+    StoreUnavailable(String),
 }
 
 /// options controlling [`StorageNode::init`].
@@ -78,10 +93,14 @@ impl Default for StorageNodeOptions {
 /// times over the node's life, so a consuming app can stop and restart its
 /// endpoint without ever needing a new `StorageNode`.
 pub struct StorageNode {
-    /// the iroh-blobs native store. `'static` because `BlobsProtocol` and
+    /// the underlying iroh-blobs store. `'static` because `BlobsProtocol` and
     /// `Downloader` both want it - each `StorageNode::init_local` call
     /// leaks one `Box<FsStore>` (fine: one per long-running process, or one
     /// per test tempdir).
+    ///
+    /// shared by every router/downloader for the node's whole life, so never
+    /// call `fs_store.shutdown()` directly - use [`StorageNode::shutdown`],
+    /// and only when the owning process is exiting.
     pub fs_store: &'static FsStore,
     /// the blobz metadata + canonical-file store this node exports
     /// downloaded blobs into.
@@ -99,6 +118,9 @@ pub struct StorageNode {
     /// `blobz`. also shared with `snatch::SnatchEngine` for the same reason.
     pub in_flight: Arc<StdMutex<HashSet<Hash>>>,
     protect_refresh: Option<tokio::task::JoinHandle<()>>,
+    /// set once [`StorageNode::shutdown`] runs, so later calls are no-ops
+    /// and [`StorageNode::check_local_store`] can answer without a probe.
+    shut_down: AtomicBool,
 }
 
 impl StorageNode {
@@ -205,6 +227,7 @@ impl StorageNode {
             downloader: Arc::new(RwLock::new(None)),
             in_flight,
             protect_refresh,
+            shut_down: AtomicBool::new(false),
         };
 
         if opts.prewarm {
@@ -299,10 +322,62 @@ impl StorageNode {
         Ok(())
     }
 
-    /// build a `BlobsProtocol` handler for `iroh-blobs/*`, optionally gated
-    /// via an `EventSender` (see `crate::gate::build_gated_blobs_events`).
-    pub fn blobs_protocol(&self, events: Option<EventSender>) -> BlobsProtocol {
-        BlobsProtocol::new(self.fs_store, events)
+    /// build an `iroh-blobs/*` protocol handler, optionally gated via an
+    /// `EventSender` (see `crate::gate::build_gated_blobs_events`).
+    ///
+    /// returns [`SharedBlobsProtocol`] rather than a bare `BlobsProtocol`:
+    /// iroh-blobs' own handler shuts its store down whenever the router it's
+    /// registered on shuts down, which would kill this node's shared store
+    /// for every later router (e.g. after an endpoint restart).
+    pub fn blobs_protocol(&self, events: Option<EventSender>) -> SharedBlobsProtocol {
+        SharedBlobsProtocol(BlobsProtocol::new(self.fs_store, events))
+    }
+
+    /// cleanly shut down the shared store, flushing any batched writes to
+    /// disk. call this once, only from the owning process's exit path - the
+    /// store can't be reopened afterwards, so every later store operation on
+    /// this node fails. repeat calls are no-ops.
+    pub async fn shutdown(&self) -> Result<(), NodeError> {
+        if self.shut_down.swap(true, Ordering::SeqCst) {
+            return Ok(());
+        }
+        if let Some(handle) = &self.protect_refresh {
+            handle.abort();
+        }
+        self.detach_endpoint();
+        self.fs_store
+            .shutdown()
+            .await
+            .map_err(|e| NodeError::FsStore(e.to_string()))
+    }
+
+    /// check that the shared store still answers requests. returns
+    /// [`NodeError::StoreUnavailable`] if it was shut down or stopped
+    /// responding with an error. a probe that merely times out is treated as
+    /// healthy (a busy store, not a dead one), so this never falsely reports
+    /// an outage.
+    pub async fn check_local_store(&self) -> Result<(), NodeError> {
+        if self.shut_down.load(Ordering::SeqCst) {
+            return Err(NodeError::StoreUnavailable(
+                "the store was shut down".to_string(),
+            ));
+        }
+        match tokio::time::timeout(
+            LOCAL_STORE_PROBE_TIMEOUT,
+            self.fs_store.tags().get(LOCAL_STORE_PROBE_TAG),
+        )
+        .await
+        {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(NodeError::StoreUnavailable(e.to_string())),
+            Err(_) => {
+                tracing::warn!(
+                    timeout_secs = LOCAL_STORE_PROBE_TIMEOUT.as_secs(),
+                    "local store probe timed out; assuming the store is busy, not down"
+                );
+                Ok(())
+            }
+        }
     }
 
     /// raii guard: inserts `hash` into the in-flight set on construction,
@@ -319,6 +394,19 @@ impl Drop for StorageNode {
         if let Some(handle) = self.protect_refresh.take() {
             handle.abort();
         }
+    }
+}
+
+/// `iroh-blobs/*` handler for a [`StorageNode`]'s shared store. forwards
+/// every connection to iroh-blobs' `BlobsProtocol`, but does nothing on
+/// router shutdown - the store outlives any single router, so only
+/// [`StorageNode::shutdown`] may close it.
+#[derive(Debug, Clone)]
+pub struct SharedBlobsProtocol(BlobsProtocol);
+
+impl ProtocolHandler for SharedBlobsProtocol {
+    async fn accept(&self, conn: Connection) -> Result<(), AcceptError> {
+        self.0.accept(conn).await
     }
 }
 
@@ -888,5 +976,161 @@ mod tests {
 
         endpoint_b2.close().await;
         router_a.shutdown().await.ok();
+    }
+
+    /// regression: shutting down a router that serves `blobs_protocol()`
+    /// used to shut down the node's shared store too, so after an endpoint
+    /// restart every later fetch failed with "send get"/"unexpected end of
+    /// stream" until the app was restarted.
+    #[tokio::test]
+    #[serial_test::serial(iroh_net)]
+    async fn router_shutdown_leaves_the_shared_store_usable_for_the_next_router() {
+        use iroh::address_lookup::MemoryLookup;
+        use iroh::protocol::Router;
+        use iroh_blobs::HashAndFormat;
+
+        let tmp_a = tempfile::tempdir().expect("tempdir");
+        let blobz_a = test_blobz(tmp_a.path()).await;
+        let node_a = StorageNode::init_local(
+            tmp_a.path(),
+            blobz_a,
+            StorageNodeOptions {
+                gc_enabled: false,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("init_local peer a");
+
+        let tag = node_a
+            .fs_store
+            .blobs()
+            .add_bytes(b"served by the second router".to_vec())
+            .await
+            .expect("add bytes on peer a");
+
+        // first router comes and goes, the way an endpoint restart does.
+        let endpoint_a1 = test_endpoint().await;
+        node_a.attach_endpoint(&endpoint_a1);
+        let router_a1 = Router::builder(endpoint_a1)
+            .accept(iroh_blobs::ALPN, node_a.blobs_protocol(None))
+            .spawn();
+        router_a1.shutdown().await.expect("shut down router a1");
+        node_a.detach_endpoint();
+
+        assert!(
+            node_a.fs_store.blobs().has(tag.hash).await.unwrap(),
+            "store still answers reads after a router shutdown"
+        );
+        node_a
+            .fs_store
+            .blobs()
+            .add_bytes(b"written after router shutdown".to_vec())
+            .await
+            .expect("store still accepts writes after a router shutdown");
+        node_a
+            .check_local_store()
+            .await
+            .expect("health probe passes after a router shutdown");
+
+        // second router on a brand new endpoint serves the same store.
+        let endpoint_a2 = test_endpoint().await;
+        node_a.attach_endpoint(&endpoint_a2);
+        let router_a2 = Router::builder(endpoint_a2)
+            .accept(iroh_blobs::ALPN, node_a.blobs_protocol(None))
+            .spawn();
+        let addr_a2 = router_a2.endpoint().addr();
+
+        let tmp_b = tempfile::tempdir().expect("tempdir");
+        let blobz_b = test_blobz(tmp_b.path()).await;
+        let discovery_b = MemoryLookup::new();
+        discovery_b.add_endpoint_info(addr_a2.clone());
+        let endpoint_b = Endpoint::builder(iroh::endpoint::presets::Minimal)
+            .relay_mode(iroh::RelayMode::Disabled)
+            .clear_ip_transports()
+            .bind_addr("127.0.0.1:0")
+            .unwrap()
+            .address_lookup(discovery_b)
+            .bind()
+            .await
+            .expect("bind endpoint b");
+        let node_b = StorageNode::init(
+            tmp_b.path(),
+            blobz_b,
+            &endpoint_b,
+            StorageNodeOptions {
+                gc_enabled: false,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("init peer b");
+
+        node_b
+            .downloader()
+            .expect("downloader attached")
+            .download(HashAndFormat::raw(tag.hash), [addr_a2.id])
+            .await
+            .expect("peer b downloads from peer a's second router");
+        let bytes = node_b.fs_store.blobs().get_bytes(tag.hash).await.unwrap();
+        assert_eq!(&bytes[..], b"served by the second router");
+
+        endpoint_b.close().await;
+        router_a2.shutdown().await.ok();
+    }
+
+    #[tokio::test]
+    async fn shutdown_is_idempotent_and_makes_the_health_probe_fail() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let blobz = test_blobz(tmp.path()).await;
+        let node = StorageNode::init_local(
+            tmp.path(),
+            blobz,
+            StorageNodeOptions {
+                gc_enabled: false,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("init_local storage node");
+
+        node.check_local_store()
+            .await
+            .expect("healthy before shutdown");
+        node.shutdown().await.expect("first shutdown");
+        node.shutdown().await.expect("second shutdown is a no-op");
+
+        let err = node
+            .check_local_store()
+            .await
+            .expect_err("probe fails after shutdown");
+        assert!(matches!(err, NodeError::StoreUnavailable(_)), "{err}");
+    }
+
+    /// the store dying underneath the node (the old router-shutdown bug, or
+    /// its internal db task crashing) must be detected by the probe itself,
+    /// not just by the shut_down flag.
+    #[tokio::test]
+    async fn health_probe_detects_a_store_killed_out_from_under_the_node() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let blobz = test_blobz(tmp.path()).await;
+        let node = StorageNode::init_local(
+            tmp.path(),
+            blobz,
+            StorageNodeOptions {
+                gc_enabled: false,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("init_local storage node");
+
+        node.fs_store.shutdown().await.expect("kill the store directly");
+
+        let err = node
+            .check_local_store()
+            .await
+            .expect_err("probe notices the dead store");
+        assert!(matches!(err, NodeError::StoreUnavailable(_)), "{err}");
     }
 }

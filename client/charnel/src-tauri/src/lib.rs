@@ -1931,7 +1931,7 @@ pub fn run() {
                 tracing::info!("shutdown: video window closed");
 
                 // same reasoning, separate subprocess: a radio session's
-                // own `mpv --idle=yes` (video-capable stations, native
+                // own `mpv --idle=yes` (video-capable stations, mpv
                 // player config on) is owned by a spawned async task, not
                 // anything this exit handler itself holds a drop-time
                 // handle to - relying on that task's cooperative
@@ -1953,6 +1953,21 @@ pub fn run() {
 
                 // brief pause to let poll tasks exit
                 std::thread::sleep(std::time::Duration::from_millis(100));
+
+                // last, once nothing else can touch blobs: flush and close
+                // the shared blob store. bounded so a stuck store can't
+                // hang the quit.
+                tauri::async_runtime::block_on(async {
+                    if tokio::time::timeout(
+                        std::time::Duration::from_secs(5),
+                        grimoire::database::shutdown_storage_node(),
+                    )
+                    .await
+                    .is_err()
+                    {
+                        tracing::warn!("shutdown: storage node did not shut down within 5s");
+                    }
+                });
                 tracing::info!("shutdown: cleanup complete");
             }
         });

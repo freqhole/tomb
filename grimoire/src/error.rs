@@ -199,6 +199,16 @@ pub enum GrimoireError {
     #[error("blob verification failed for {blake3}: {reason}")]
     BlobVerificationFailed { blake3: String, reason: String },
 
+    /// this node's own iroh-blobs store stopped answering (shut down, or its
+    /// internal database task died), so nothing can be downloaded into it.
+    /// not the peer's fault, and retrying won't help - only an app restart
+    /// reopens the store. `reason` is the underlying store error, kept for
+    /// logs; the display text is aimed at end users.
+    #[error(
+        "freqhole's local media storage stopped working, so songs and videos can't be downloaded right now. please restart freqhole to fix it."
+    )]
+    LocalBlobStoreUnavailable { reason: String },
+
     #[error("federation not configured")]
     FederationNotConfigured,
 
@@ -305,6 +315,7 @@ impl GrimoireError {
             GrimoireError::PeerUnauthorized { .. } => false,     // needs knock, not retry
             GrimoireError::BlobNotFoundOnPeer { .. } => false,   // peer confirmed it has nothing
             GrimoireError::BlobVerificationFailed { .. } => false, // corrupt/malicious, retrying won't fix it
+            GrimoireError::LocalBlobStoreUnavailable { .. } => false, // needs an app restart
             GrimoireError::FederationNotConfigured => false,
             GrimoireError::FederationCredentialsNotFound => false,
             GrimoireError::FederationCredentialsInvalid { .. } => false,
@@ -354,6 +365,7 @@ impl GrimoireError {
             GrimoireError::PeerProtocolMismatch { .. } => 400,
             GrimoireError::BlobNotFoundOnPeer { .. } => 404,
             GrimoireError::BlobVerificationFailed { .. } => 422,
+            GrimoireError::LocalBlobStoreUnavailable { .. } => 503,
             // everything else is internal error
             _ => 500,
         }
