@@ -525,8 +525,18 @@ function Inner(props: {
   // entirely (the charnel sidecar already provides a real local-library
   // remote), so we skip seeding it there.
   const includeLocalHub = !isCharnelMode();
+  // keyed on membership only, so a renamed/toggled remote (same ids) doesn't
+  // wipe search/pivot-discovered nodes below.
+  const remoteIdsKey = createMemo(() =>
+    props
+      .remotes()
+      .map((r) => r.remote_id)
+      .sort()
+      .join("\n")
+  );
   createEffect(() => {
-    const active = new Set(props.remotes().map((r) => r.remote_id));
+    const ids = remoteIdsKey();
+    const active = new Set(ids ? ids.split("\n") : []);
     if (includeLocalHub) active.add(LOCAL_GRAPH_REMOTE_ID);
     setNodesByRemote((prev) => {
       let changed = false;

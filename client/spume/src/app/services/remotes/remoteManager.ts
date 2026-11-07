@@ -525,6 +525,8 @@ export async function updateRemote(
   await getBackend().put(updated);
   invalidateRemoteCache(updated.remote_id);
   debug(`updated remote: ${updated.name}`);
+  // name/graph_disabled/etc changed - let reactive remotes lists re-read
+  bumpRemoteDataVersion();
 
   return updated;
 }
@@ -539,6 +541,8 @@ export async function deleteRemote(remoteId: string): Promise<void> {
   await backend.remove(remoteId);
   invalidateRemoteCache(remoteId);
   debug(`deleted remote: ${existing.name}`);
+  // let reactive remotes lists (top nav, explore graph, ...) drop it
+  bumpRemoteDataVersion();
 }
 
 // set a remote as active (deactivates all others)
