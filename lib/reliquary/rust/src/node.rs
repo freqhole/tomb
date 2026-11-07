@@ -1125,7 +1125,10 @@ mod tests {
         .await
         .expect("init_local storage node");
 
-        node.fs_store.shutdown().await.expect("kill the store directly");
+        node.fs_store
+            .shutdown()
+            .await
+            .expect("kill the store directly");
 
         let err = node
             .check_local_store()
