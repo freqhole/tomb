@@ -58,10 +58,9 @@ jobs:
   build:
     name: ios arm64 (ipa + testflight)
     # a dedicated variable, not the shared `MACOS_ARM64_RUNNER` the
-    # desktop mac jobs use (release.yml) - ios genuinely needs a newer
-    # Xcode than those jobs do (see the "select newest xcode" step below),
-    # so pinning this independently avoids forcing the desktop jobs onto a
-    # newer/different runner image just to satisfy ios's requirement.
+    # desktop mac jobs use (release.yml) - ios has its own Xcode requirements
+    # (see the "select newest xcode" step below), so it can be pinned
+    # independently of the desktop jobs.
     # `macos-15` is the current github-hosted image confirmed (via its own
     # runner-images docs) to carry Xcode 26.x side-by-side with older
     # versions - `macos-14` tops out at 16.2, too old to even open a
