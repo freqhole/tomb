@@ -32,7 +32,7 @@ function generateId(): string {
 function toImageMetadata(video: QueuedVideo): ImageMetadata[] | undefined {
   return video.images?.map((img) => ({
     remote_blob_id: img.blob_id,
-    remote_server_id: video.remote_server_id,
+    remote_server_id: img.remote_server_id ?? video.remote_server_id,
     is_primary: !!img.is_primary,
     blob_type: img.blob_type,
   }));

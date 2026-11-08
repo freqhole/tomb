@@ -203,6 +203,25 @@ export const LibmpvUnavailableEventSchema = z.object({
 });
 
 /**
+ * waveform-ready event - the local grimoire finished generating (and
+ * linking) a waveform image for a synced song or video in the background.
+ * spume patches queued copies (matched by blake3) so the playerbar and
+ * queue rows can render it.
+ */
+export const WaveformReadyEventSchema = z.object({
+  type: z.literal("waveform-ready"),
+  data: z.object({
+    kind: z.enum(["song", "video"]),
+    /** local song or video id */
+    entity_id: z.string(),
+    /** blake3 of the media blob */
+    blake3: z.string(),
+    /** local media blob id of the waveform image */
+    waveform_blob_id: z.string(),
+  }),
+});
+
+/**
  * discriminated union of all event types
  */
 export const UpdateCheckResultEventSchema = z.object({
@@ -230,6 +249,7 @@ export const TauriEventSchema = z.discriminatedUnion("type", [
   ExternalStorageMountedChangedEventSchema,
   ExternalStorageSyncProgressEventSchema,
   LibmpvUnavailableEventSchema,
+  WaveformReadyEventSchema,
 ]);
 
 export type TauriEvent = z.infer<typeof TauriEventSchema>;
@@ -250,3 +270,4 @@ export type ExternalStorageSyncProgressEvent = z.infer<
   typeof ExternalStorageSyncProgressEventSchema
 >;
 export type LibmpvUnavailableEvent = z.infer<typeof LibmpvUnavailableEventSchema>;
+export type WaveformReadyEvent = z.infer<typeof WaveformReadyEventSchema>;

@@ -361,6 +361,8 @@ async fn run_inner(
                                 peer_addr: peer_addr.clone(),
                                 server_name: server_name.clone(),
                             },
+                            // spume-only (queue waveform patching); nothing to show in the tty.
+                            grimoire::events::GrimoireEvent::WaveformReady { .. } => continue,
                         };
                         if tx.send(action).is_err() {
                             break;

@@ -162,7 +162,7 @@ mod tests {
     #[tokio::test]
     async fn make_storage_node_boots_with_gc_disabled() {
         let (node, tmp) = make_storage_node().await;
-        assert!(tmp.path().join("iroh-blobs").exists());
+        assert!(tmp.path().join("freqhole-blobz").exists());
         assert!(
             node.downloader().is_some(),
             "make_storage_node attaches an endpoint"
@@ -186,7 +186,7 @@ mod tests {
     #[tokio::test]
     async fn make_local_storage_node_has_no_downloader_attached() {
         let (node, tmp) = make_local_storage_node().await;
-        assert!(tmp.path().join("iroh-blobs").exists());
+        assert!(tmp.path().join("freqhole-blobz").exists());
         assert!(
             node.downloader().is_none(),
             "make_local_storage_node attaches no endpoint"

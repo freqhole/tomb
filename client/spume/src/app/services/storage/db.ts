@@ -3,8 +3,13 @@ import { openDB, type IDBPDatabase } from "idb";
 import { createSignal } from "solid-js";
 import { persistIdentity, resolveIdentity, type IdentityStore } from "@freqhole/haruspex/identity";
 import { clearInProgressTracking } from "../../../music/services/cache/inProgressTracking";
-import type { Song } from "../../../music/services/storage/types";
-import { withQueueEntryId, type MediaItem, type QueuedVideo } from "./mediaItem";
+import type { ImageMetadata, Song } from "../../../music/services/storage/types";
+import {
+  withQueueEntryId,
+  type MediaItem,
+  type QueuedVideo,
+  type QueuedVideoImage,
+} from "./mediaItem";
 import { notifyQueueDepartures } from "../media/queueDeparture";
 import { isCharnelMode } from "../charnel/mode";
 import {
@@ -382,6 +387,54 @@ async function updateQueueAvailability(
   await db.put(STORE_APP_STATE, { ...updated, queue: toPlainQueueItems(queue) });
 }
 
+// attach a freshly generated waveform (served by `remoteServerId`) to every
+// queued song or video of `kind` with `blake3` that doesn't already carry
+// one (see the charnel `waveform-ready` event). items that already have a
+// waveform keep theirs, so repeated calls are no-ops. untouched items keep
+// their identity so unrelated rows don't re-render.
+async function addWaveformToQueuedMedia(
+  kind: MediaItem["kind"],
+  blake3: string,
+  waveformBlobId: string,
+  remoteServerId: string
+): Promise<void> {
+  if (!blake3) return;
+  const db = await initAppDB();
+  // read after the await so a queue replaced in the meantime isn't clobbered.
+  const current = appState();
+  if (!current) return;
+  const key = blake3.toLowerCase();
+  const queue = current.queue.map((item): MediaItem => {
+    if (item.kind !== kind) return item;
+    if (item.kind === "song") {
+      const song = item.song;
+      if (song.blake3?.toLowerCase() !== key) return item;
+      if (song.images?.some((img) => img.blob_type === "waveform")) return item;
+      const waveform: ImageMetadata = {
+        remote_blob_id: waveformBlobId,
+        remote_server_id: remoteServerId,
+        is_primary: false,
+        blob_type: "waveform",
+      };
+      return { kind: "song", song: { ...song, images: [...(song.images ?? []), waveform] } };
+    }
+    const video = item.video;
+    if (video.blake3?.toLowerCase() !== key) return item;
+    if (video.images?.some((img) => img.blob_type === "waveform")) return item;
+    const waveform: QueuedVideoImage = {
+      blob_id: waveformBlobId,
+      remote_server_id: remoteServerId,
+      is_primary: 0,
+      blob_type: "waveform",
+    };
+    return { kind: "video", video: { ...video, images: [...(video.images ?? []), waveform] } };
+  });
+  if (queue.every((item, index) => item === current.queue[index])) return;
+  const updated = { ...current, queue, last_updated: Date.now() };
+  setAppState(updated);
+  await db.put(STORE_APP_STATE, { ...updated, queue: toPlainQueueItems(queue) });
+}
+
 // update a specific song in the queue (for metadata changes like favorites, ratings)
 // no-ops for video queue items (identified by songId/sha256 not matching).
 async function updateSongInQueue(
@@ -732,6 +785,7 @@ async function deletePendingRemoteByPeerAddr(peerAddr: string): Promise<void> {
 }
 
 export {
+  addWaveformToQueuedMedia,
   appState,
   clearAppData,
   closeAppDB,

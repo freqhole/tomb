@@ -20,6 +20,7 @@ mod models;
 mod playlist;
 mod song;
 mod video;
+mod waveform;
 
 pub use album::sync_album;
 pub use job_notify::sync_job_notify;

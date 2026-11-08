@@ -7,6 +7,11 @@
 //
 // only tier 2 (the api cache) is purged here. a library copy of a synced
 // item is permanent and must survive leaving the queue.
+//
+// images (art, waveforms, posters) are deliberately left alone: they're
+// small, routinely shared with other queued items and on-screen library
+// views, and revoking their object URLs here broke whatever was still
+// showing them. they go when the cache is cleared in settings.
 
 import { registerQueueDeparture } from "../../../app/services/media/queueDeparture";
 import type { MediaItem } from "../../../app/services/storage/mediaItem";
@@ -39,43 +44,7 @@ function cacheKeysFor(item: MediaItem): { remoteId: string; keys: string[] } | n
   return { remoteId: video.remote_server_id, keys: [video.media_blob_id] };
 }
 
-/** every remote image blob an item references (art, waveform, thumbnail).
- * album art is routinely shared across a whole album's worth of queued songs,
- * so these are refcounted against the surviving queue before being purged. */
-function imageRefsFor(item: MediaItem): Array<{ remoteId: string; blobId: string }> {
-  const refs: Array<{ remoteId: string; blobId: string }> = [];
-
-  if (item.kind === "song") {
-    const song = item.song;
-    const all = [
-      ...(song.images ?? []),
-      ...(song.album_images ?? []),
-      ...(song.artist_images ?? []),
-    ];
-    for (const img of all) {
-      if (img.remote_blob_id && img.remote_server_id) {
-        refs.push({ remoteId: img.remote_server_id, blobId: img.remote_blob_id });
-      }
-    }
-    return refs;
-  }
-
-  // video images carry no remote of their own - they belong to the video's
-  const video = item.video;
-  if (!video.remote_server_id) return refs;
-  for (const img of video.images ?? []) {
-    if (img.blob_id) refs.push({ remoteId: video.remote_server_id, blobId: img.blob_id });
-  }
-  if (video.poster_blob_id) {
-    refs.push({ remoteId: video.remote_server_id, blobId: video.poster_blob_id });
-  }
-  return refs;
-}
-
-export async function purgeDepartedMedia(
-  items: MediaItem[],
-  remaining: MediaItem[] = []
-): Promise<void> {
+export async function purgeDepartedMedia(items: MediaItem[]): Promise<void> {
   // cancel before any async cache deletion: a load resolving at this moment
   // must see the invalid generation before it can start playback.
   cancelMediaLoads(items.map(mediaItemKey));
@@ -91,24 +60,6 @@ export async function purgeDepartedMedia(
     }
   }
 
-  // images are shared, so only purge those nothing still queued refers to
-  const stillReferenced = new Set<string>();
-  for (const item of remaining) {
-    for (const ref of imageRefsFor(item)) {
-      stillReferenced.add(`${ref.remoteId}/${ref.blobId}`);
-    }
-  }
-  const purgedImages = new Set<string>();
-  for (const item of items) {
-    for (const ref of imageRefsFor(item)) {
-      const key = `${ref.remoteId}/${ref.blobId}`;
-      if (stillReferenced.has(key) || purgedImages.has(key)) continue;
-      purgedImages.add(key);
-      await evictCachedBlob(ref.remoteId, ref.blobId);
-      await evictP2PBlob(ref.blobId, ref.remoteId);
-    }
-  }
-
   debug("queueDeparture", `purged tier-2 bytes for ${items.length} departed item(s)`);
 }
 
@@ -117,5 +68,5 @@ let registered = false;
 export function initQueueDeparturePurge(): void {
   if (registered) return;
   registered = true;
-  registerQueueDeparture((items, remaining) => purgeDepartedMedia(items, remaining));
+  registerQueueDeparture(purgeDepartedMedia);
 }

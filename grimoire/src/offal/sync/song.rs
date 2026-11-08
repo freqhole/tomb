@@ -14,6 +14,8 @@ use crate::response::GrimoireResponse;
 
 use super::images::resolve_sync_image_ref;
 use super::models::{SyncSongByBlake3Request, SyncSongByBlake3Response};
+use super::waveform::waveform_or_spawn;
+use crate::events::WaveformEntityKind;
 
 /// get all song blake3 hashes from local grimoire database
 /// used by client to initialize synced song cache on startup
@@ -201,7 +203,15 @@ pub async fn sync_song_by_blake3_impl(
                 media_blob_id,
                 local_path,
             );
-            ensure_waveform(&existing_song_id, &media_blob_id, &local_path, caller).await;
+            let waveform_blob_id = waveform_or_spawn(
+                WaveformEntityKind::Song,
+                &existing_song_id,
+                &media_blob_id,
+                &local_path,
+                &req.blake3,
+                &caller.user_id,
+            )
+            .await;
             let artist_id = song_artist_id(&existing_song_id).await;
             let response = SyncSongByBlake3Response {
                 song_id: existing_song_id,
@@ -212,6 +222,7 @@ pub async fn sync_song_by_blake3_impl(
                 existing: true,
                 images_linked: 0,
                 missing_image_blake3s: Vec::new(),
+                waveform_blob_id,
             };
             return GrimoireResponse::success(
                 "song already existed",
@@ -480,12 +491,16 @@ pub async fn sync_song_by_blake3_impl(
     // 6. backfill a waveform if the source never generated/sent one - sync
     //    never runs the full ImportMusic job pipeline (step 4 in
     //    file_processor.rs), so without this a synced song could otherwise
-    //    go without a waveform forever.
-    ensure_waveform(
+    //    go without a waveform forever. runs in the background (see
+    //    `super::waveform`) so playback, which waits on this response,
+    //    isn't held up by ffmpeg.
+    let waveform_blob_id = waveform_or_spawn(
+        WaveformEntityKind::Song,
         &song_id,
         &pulled.blob.id,
         &pulled.local_path.to_string_lossy(),
-        caller,
+        &req.blake3,
+        &caller.user_id,
     )
     .await;
 
@@ -513,6 +528,7 @@ pub async fn sync_song_by_blake3_impl(
         existing: import_existing,
         images_linked,
         missing_image_blake3s,
+        waveform_blob_id,
     };
 
     GrimoireResponse::success(
@@ -538,69 +554,6 @@ async fn song_artist_id(song_id: &str) -> String {
     .ok()
     .flatten()
     .unwrap_or_default()
-}
-
-/// best-effort: generate + link a waveform for `song_id` if it doesn't
-/// already have one. sync never runs the full `ImportMusic` job pipeline
-/// (file_processor.rs's step 4), so a song whose source never generated
-/// (or never sent) a waveform would otherwise go without one forever -
-/// called from both sync_song_by_blake3's existing-shortcut path and its
-/// fresh-pull path.
-async fn ensure_waveform(song_id: &str, media_blob_id: &str, file_path: &str, caller: &Caller) {
-    let pool = match crate::database::connect().await {
-        Ok(p) => p,
-        Err(_) => return,
-    };
-    let has_waveform = sqlx::query_scalar!(
-        "SELECT si.media_blob_id FROM song_imagez si
-         JOIN media_blobz mb ON mb.id = si.media_blob_id
-         WHERE si.song_id = ? AND mb.blob_type = 'waveform'
-         LIMIT 1",
-        song_id
-    )
-    .fetch_optional(&pool)
-    .await
-    .ok()
-    .flatten()
-    .is_some();
-    if has_waveform {
-        return;
-    }
-
-    let config = crate::config::get_config();
-    let response = crate::blob_data::create_audio_waveform_blob(
-        media_blob_id,
-        file_path,
-        &config,
-        Some(caller.user_id.clone()),
-    )
-    .await;
-    if !response.success {
-        tracing::warn!(
-            "sync_song_by_blake3: waveform backfill failed for song {}: {}",
-            song_id,
-            response.message
-        );
-        return;
-    }
-    let Some(waveform_blob_id) = response.data else {
-        return;
-    };
-    let add_result =
-        crate::music::entities::songs::add_song_image(song_id, &waveform_blob_id, false, None)
-            .await;
-    if add_result.success {
-        tracing::debug!(
-            "sync_song_by_blake3: backfilled waveform for song {}",
-            song_id
-        );
-    } else {
-        tracing::warn!(
-            "sync_song_by_blake3: failed to link backfilled waveform for song {}: {}",
-            song_id,
-            add_result.message
-        );
-    }
 }
 
 /// idempotently ensure an existing song is linked to the artist / album /

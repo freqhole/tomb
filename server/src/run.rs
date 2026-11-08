@@ -435,6 +435,9 @@ pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
         }
     }
 
+    // last, once nothing else can touch blobs: flush and close the shared store
+    grimoire::database::shutdown_storage_node().await;
+
     tracing::info!("shutdown complete");
 
     Ok(())

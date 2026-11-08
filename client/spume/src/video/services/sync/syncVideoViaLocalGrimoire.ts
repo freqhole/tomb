@@ -12,8 +12,9 @@ import { waitForJobResult } from "../../../app/services/jobs/jobService";
 import { isP2PRemote } from "../../../app/services/storage/schemas/remote";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
 import type { QueuedVideo } from "../../../app/services/storage/mediaItem";
+import { applyWaveform } from "../../../app/services/media/applyWaveform";
 import { buildSyncVideoByBlake3Body } from "./buildSyncVideoRequest";
-import { debug, error as errorLog } from "../../../utils/logger";
+import { debug, error as errorLog, warn } from "../../../utils/logger";
 
 export interface VideoSyncResult {
   success: boolean;
@@ -159,11 +160,15 @@ interface SyncVideoByBlake3Result {
   video_id: string;
   media_blob_id: string;
   file_path: string;
+  blake3: string;
   series_id: string | null;
   season_id: string | null;
   existing: boolean;
   images_linked: number;
   missing_image_blake3s: string[];
+  /** set when the video already had a waveform; otherwise one is generated
+   *  in the background and announced via the `waveform-ready` event. */
+  waveform_blob_id?: string | null;
 }
 
 // real video files can be large - same generous bound as the song path.
@@ -196,6 +201,11 @@ function finishVideoSyncResult(
     "syncVideoViaLocalGrimoire",
     `${label} synced video=${data?.video_id} existing=${data?.existing ?? false} series=${data?.series_id ?? "none"} images_linked=${data?.images_linked ?? 0}`
   );
+  if (data?.waveform_blob_id && data.blake3) {
+    void applyWaveform("video", data.blake3, data.waveform_blob_id).catch((e) =>
+      warn("syncVideoViaLocalGrimoire", `failed to attach waveform for "${video.title}":`, e)
+    );
+  }
   return {
     success: true,
     videoId: data?.video_id,

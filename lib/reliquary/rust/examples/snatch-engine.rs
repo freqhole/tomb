@@ -149,14 +149,11 @@ async fn main() -> anyhow::Result<()> {
     // the downloader's connection pool defaults to a 1s connect timeout,
     // which is tight enough to flake occasionally even for a localhost
     // connection on a busy machine - give it more room for this demo.
-    let downloader = Downloader::new_with_opts(
-        store_b,
-        &endpoint_b,
-        iroh_blobs::util::connection_pool::Options {
-            connect_timeout: std::time::Duration::from_secs(10),
-            ..Default::default()
-        },
-    );
+    let mut pool_options = iroh_blobs::util::connection_pool::Options::default();
+    pool_options.connect_timeout = std::time::Duration::from_secs(10);
+    let downloader = Downloader::builder(store_b, &endpoint_b)
+        .pool_options(pool_options)
+        .build();
     let in_flight = Arc::new(StdMutex::new(std::collections::HashSet::<Hash>::new()));
 
     let source = FixedSource::new(BlobDescriptor {

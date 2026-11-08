@@ -646,6 +646,20 @@ async fn download_blob_to_store(
                     error = %msg,
                     "[p2p] iroh-blobs verified download failed"
                 );
+                // a dead local store fails every download with the same
+                // opaque io error a flaky peer would, so check our own side
+                // before blaming the network.
+                if let Err(e) = node.check_local_store().await {
+                    error!(
+                        hash = %hash_short,
+                        peer = %node_id_short,
+                        error = %e,
+                        "[p2p] download failed because this node's local blob store is unavailable - restart required"
+                    );
+                    return Err(GrimoireError::LocalBlobStoreUnavailable {
+                        reason: e.to_string(),
+                    });
+                }
                 let progress_note = if bytes_before_failure > 0 {
                     format!(
                         "{} bytes transferred before the connection dropped",
@@ -823,6 +837,8 @@ pub async fn fetch_blob_verified_with_ensure_progress(
     // first attempt - might fail if blob not in FsStore
     match fetch_blob_verified_with_progress(peer_addr, blake3_hash, on_progress).await {
         Ok(data) => return Ok(data),
+        // our own store is down - asking the peer to ensure won't help
+        Err(e @ GrimoireError::LocalBlobStoreUnavailable { .. }) => return Err(e),
         Err(e) => {
             let hash_short = &blake3_hash[..16.min(blake3_hash.len())];
             warn!(
@@ -957,6 +973,8 @@ pub async fn fetch_blob_verified_to_file_with_ensure_and_progress_and_sink(
     .await
     {
         Ok(size) => return Ok(size),
+        // our own store is down - asking the peer to ensure won't help
+        Err(e @ GrimoireError::LocalBlobStoreUnavailable { .. }) => return Err(e),
         Err(e) => {
             let hash_short = &blake3_hash[..16.min(blake3_hash.len())];
             tracing::warn!(
@@ -1082,6 +1100,8 @@ pub async fn pull_blob_to_local_store_with_ensure(
     // first attempt
     match download_blob_to_store(peer_addr, blake3_hash, on_progress, None).await {
         Ok(_) => return Ok(()),
+        // our own store is down - asking the peer to ensure won't help
+        Err(e @ GrimoireError::LocalBlobStoreUnavailable { .. }) => return Err(e),
         Err(e) => {
             tracing::warn!(
                 "pull_blob_to_local_store: first attempt FAILED for {} from {} -- will try ensure+retry. error: {}",

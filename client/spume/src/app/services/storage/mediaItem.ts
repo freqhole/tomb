@@ -16,10 +16,18 @@
 import type { Video } from "@freqhole/api-client";
 import { songIdentityKey, type Song } from "../../../music/services/storage/types";
 
+export type QueuedVideoImage = NonNullable<Video["images"]>[number] & {
+  /** app-local: the remote that serves this image when it differs from the
+   * video's own `remote_server_id` - e.g. a waveform the local grimoire
+   * generated for a synced video (see app/services/media/applyWaveform.ts). */
+  remote_server_id?: string;
+};
+
 /** app-local extension of the generated `Video` type — mirrors how `Song`
  * already carries queue/sync bookkeeping fields that aren't part of the
  * server schema. */
 export interface QueuedVideo extends Video {
+  images?: QueuedVideoImage[] | null;
   /** assigned when the video is added to the queue (progress tracking). */
   queue_entry_id?: string;
   /** which remote this video came from — required for remote/server-backed

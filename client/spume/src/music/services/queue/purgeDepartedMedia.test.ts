@@ -142,58 +142,16 @@ describe("purgeDepartedMedia", () => {
   });
 });
 
-describe("purgeDepartedMedia image refcounting", () => {
-  function songWithArt(sha: string, artBlobId: string): MediaItem {
-    return remoteSong({
-      sha256: sha,
-      media_blob_id: `blob-${sha}`,
-      album_images: [{ remote_blob_id: artBlobId, remote_server_id: "remote-1" }],
-    });
+// images are shared with other queued items and on-screen views, so leaving
+// the queue must never revoke or evict them
+it("leaves a departed item's images alone", async () => {
+  const song = remoteSong({
+    images: [{ remote_blob_id: "wave-1", remote_server_id: "remote-1", blob_type: "waveform" }],
+    album_images: [{ remote_blob_id: "art-1", remote_server_id: "remote-1" }],
+  });
+  await purgeDepartedMedia([song, remoteVideo({ poster_blob_id: "poster-1" })]);
+  for (const key of ["wave-1", "art-1", "poster-1"]) {
+    expect(evictedKeys()).not.toContain(key);
+    expect(evictP2PBlob).not.toHaveBeenCalledWith(key, "remote-1");
   }
-
-  it("purges art belonging only to departed items", async () => {
-    await purgeDepartedMedia([songWithArt("a", "art-1")], []);
-    expect(evictedKeys()).toContain("art-1");
-  });
-
-  // album art is shared across every track on the album - yanking it because
-  // one track left would blank the artwork for the tracks still queued
-  it("keeps art still referenced by a surviving queue item", async () => {
-    await purgeDepartedMedia([songWithArt("a", "art-1")], [songWithArt("b", "art-1")]);
-    expect(evictedKeys()).not.toContain("art-1");
-  });
-
-  it("purges art once when several departed items share it", async () => {
-    await purgeDepartedMedia([songWithArt("a", "art-1"), songWithArt("b", "art-1")], []);
-    expect(evictedKeys().filter((k) => k === "art-1")).toHaveLength(1);
-  });
-
-  it("purges waveform and thumbnail images too", async () => {
-    const song = remoteSong({
-      images: [
-        { remote_blob_id: "wave-1", remote_server_id: "remote-1", blob_type: "waveform" },
-        { remote_blob_id: "thumb-1", remote_server_id: "remote-1", blob_type: "thumbnail" },
-      ],
-    });
-    await purgeDepartedMedia([song], []);
-    expect(evictedKeys()).toEqual(expect.arrayContaining(["wave-1", "thumb-1"]));
-  });
-
-  it("purges a departed video's poster", async () => {
-    await purgeDepartedMedia([remoteVideo({ poster_blob_id: "poster-1" })], []);
-    expect(evictedKeys()).toContain("poster-1");
-  });
-
-  it("keeps a video poster still referenced by a surviving video", async () => {
-    const a = remoteVideo({ id: "v1", poster_blob_id: "poster-1" });
-    const b = remoteVideo({ id: "v2", poster_blob_id: "poster-1" });
-    await purgeDepartedMedia([a], [b]);
-    expect(evictedKeys()).not.toContain("poster-1");
-  });
-
-  it("ignores images with no remote to evict from", async () => {
-    const song = remoteSong({ album_images: [{ remote_blob_id: "art-1" }] });
-    await purgeDepartedMedia([song], []);
-    expect(evictedKeys()).not.toContain("art-1");
-  });
 });

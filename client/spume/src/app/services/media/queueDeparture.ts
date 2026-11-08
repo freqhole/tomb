@@ -43,7 +43,7 @@ export function diffQueueDepartures(prev: MediaItem[], next: MediaItem[]): Media
   return departed;
 }
 
-type DepartureHandler = (items: MediaItem[], remaining: MediaItem[]) => void | Promise<void>;
+type DepartureHandler = (items: MediaItem[]) => void | Promise<void>;
 
 const handlers = new Set<DepartureHandler>();
 
@@ -51,11 +51,7 @@ const handlers = new Set<DepartureHandler>();
  *
  * `db.ts` cannot import the media/cache layer directly (that would close an
  * import cycle), so the media layer subscribes here instead — the same idiom
- * as `registerStopMusic` in playbackCoordinator.ts.
- *
- * handlers receive the surviving queue as well, because some resources are
- * shared between items (album art across a whole album) and must not be
- * purged while anything still queued references them. */
+ * as `registerStopMusic` in playbackCoordinator.ts. */
 export function registerQueueDeparture(fn: DepartureHandler): void {
   handlers.add(fn);
 }
@@ -68,7 +64,7 @@ export function notifyQueueDepartures(prev: MediaItem[], next: MediaItem[]): voi
   for (const fn of handlers) {
     void (async () => {
       try {
-        await fn(departed, next);
+        await fn(departed);
       } catch (e) {
         warn("queueDeparture", "departure handler failed:", e);
       }

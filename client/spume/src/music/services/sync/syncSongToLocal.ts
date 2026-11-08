@@ -23,7 +23,7 @@ import { getOrCreateGenre } from "../storage/db/genres";
 import { createTag } from "../storage/db/tags";
 import { addAlbumTag, getAlbumTags } from "../storage/db/albumTags";
 import { upsertTaxon, linkAlbumTaxon } from "../storage/db/taxons";
-import { storeBlob } from "../storage/blobs";
+import { readTransportBlobUrl, storeBlob } from "../storage/blobs";
 import {
   markSongSynced,
   canStartDownload,
@@ -42,6 +42,7 @@ import {
 import { invalidateMusicLibraryQueries } from "../../queries/cacheUpdates";
 import { imagesAreStale, preservePrimarySelection } from "../../../utils/images";
 import { generateUUID } from "../../../utils/uuid";
+import { applyWaveform } from "../../../app/services/media/applyWaveform";
 
 /** invoke `sync_song_by_blake3_with_progress` instead of the generic
  * `api_call`, wiring its `tauri::ipc::Channel<{bytes_downloaded}>` into the
@@ -269,6 +270,9 @@ interface SyncSongByBlake3Result {
   existing: boolean;
   images_linked: number;
   missing_image_blake3s: string[];
+  /** set when the song already had a waveform; otherwise one is generated in
+   *  the background and announced via the `waveform-ready` event. */
+  waveform_blob_id?: string | null;
 }
 
 // real audio files routinely take 8-70+ seconds to pull (see
@@ -316,6 +320,11 @@ function finishSyncResult(
         .slice(0, 5)
         .map((s) => s.slice(0, 8))
         .join(", ")}`
+    );
+  }
+  if (data?.waveform_blob_id && data.blake3) {
+    void applyWaveform("song", data.blake3, data.waveform_blob_id).catch((e) =>
+      warn("syncSongViaLocalGrimoire", `failed to attach waveform for "${song.title}":`, e)
     );
   }
   return {
@@ -442,23 +451,9 @@ export async function downloadAndStoreImages(
       // fetch via transport (handles P2P vs HTTP). `cache: "skip"` — these
       // bytes are about to be stored as a local blob, so caching them too
       // would keep a second copy.
-      const blobUrl = await transport.getBlobUrl(img.remote_blob_id, undefined, { cache: "skip" });
-      const response = await fetch(blobUrl);
-
-      if (!response.ok) {
-        debug("syncSongToLocal", `failed to fetch image ${img.remote_blob_id}: ${response.status}`);
-        // keep remote reference as fallback
-        results.push({
-          remote_url: img.remote_url,
-          is_primary: img.is_primary,
-          blob_type: img.blob_type || "thumbnail",
-          remote_blob_id: img.remote_blob_id,
-          remote_server_id: img.remote_server_id,
-        });
-        continue;
-      }
-
-      const blob = await response.blob();
+      const blob = await readTransportBlobUrl(
+        await transport.getBlobUrl(img.remote_blob_id, undefined, { cache: "skip" })
+      );
       const mimeType = blob.type || "image/jpeg";
 
       // store blob locally and get local_blob_id
@@ -749,13 +744,7 @@ export async function syncSongToLocal(
           });
         }
 
-        // fetch the blob data
-        const response = await fetch(blobUrl);
-        if (!response.ok) {
-          return { success: false, error: `failed to fetch audio blob: ${response.statusText}` };
-        }
-
-        const blob = await response.blob();
+        const blob = await readTransportBlobUrl(blobUrl);
 
         // save to OPFS using sha256 as filename
         opfsPath = await writeAudioToOPFS(blob, sha256, extension);

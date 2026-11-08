@@ -388,8 +388,15 @@ function extractErrorType(err: unknown): { message: string; errorType?: string }
  * const client = createClient(transport);
  * ```
  */
+function objectUrlFor({ data, contentType }: BlobData): string {
+  const arrayBuffer = data.buffer.slice(
+    data.byteOffset,
+    data.byteOffset + data.byteLength,
+  ) as ArrayBuffer;
+  return URL.createObjectURL(new Blob([arrayBuffer], { type: contentType }));
+}
+
 export class WasmTransport implements Transport {
-  private blobUrlCache = new Map<string, string>();
   private readonly cacheName: string;
 
   constructor(
@@ -1003,24 +1010,12 @@ export class WasmTransport implements Transport {
     );
   }
 
+  /**
+   * get a fresh object URL for a blob (pass blake3 for verified download).
+   * the caller owns the returned URL and revokes it when done.
+   */
   async getBlobUrl(blobId: string, blake3?: string, opts?: BlobFetchOptions): Promise<string> {
-    // check in-memory cache first
-    const cached = this.blobUrlCache.get(blobId);
-    if (cached) {
-      return cached;
-    }
-
-    // fetch and create object URL (pass blake3 for verified download)
-    const { data, contentType } = await this.fetchBlob(blobId, blake3, opts);
-    const arrayBuffer = data.buffer.slice(
-      data.byteOffset,
-      data.byteOffset + data.byteLength,
-    ) as ArrayBuffer;
-    const blob = new Blob([arrayBuffer], { type: contentType });
-    const url = URL.createObjectURL(blob);
-
-    this.blobUrlCache.set(blobId, url);
-    return url;
+    return objectUrlFor(await this.fetchBlob(blobId, blake3, opts));
   }
 
   /**
@@ -1030,7 +1025,7 @@ export class WasmTransport implements Transport {
    * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs
    * @param totalBytes - optional known total size in bytes
    * @param mimeType - optional content type for the assembled blob
-   * @returns URL usable in <audio>/<img> src
+   * @returns fresh URL usable in <audio>/<img> src, owned by the caller
    */
   async getBlobUrlWithProgress(
     blobId: string,
@@ -1040,32 +1035,9 @@ export class WasmTransport implements Transport {
     mimeType?: string,
     opts?: BlobFetchOptions,
   ): Promise<string> {
-    // check in-memory cache first
-    const cached = this.blobUrlCache.get(blobId);
-    if (cached) {
-      // report 100% progress for cached URLs
-      onProgress(1, 1);
-      return cached;
-    }
-
-    // fetch with progress and create object URL (pass blake3 for verified download)
-    const { data, contentType } = await this.fetchBlobWithProgress(
-      blobId,
-      onProgress,
-      blake3,
-      totalBytes,
-      mimeType,
-      opts,
+    return objectUrlFor(
+      await this.fetchBlobWithProgress(blobId, onProgress, blake3, totalBytes, mimeType, opts),
     );
-    const arrayBuffer = data.buffer.slice(
-      data.byteOffset,
-      data.byteOffset + data.byteLength,
-    ) as ArrayBuffer;
-    const blob = new Blob([arrayBuffer], { type: contentType });
-    const url = URL.createObjectURL(blob);
-
-    this.blobUrlCache.set(blobId, url);
-    return url;
   }
 
   /**
@@ -1131,27 +1103,6 @@ export class WasmTransport implements Transport {
     await writeChain;
 
     return { contentType: mimeType ?? "application/octet-stream", totalBytes: totalReceived };
-  }
-
-  /**
-   * revoke a blob URL to free memory
-   */
-  revokeBlobUrl(blobId: string): void {
-    const url = this.blobUrlCache.get(blobId);
-    if (url) {
-      URL.revokeObjectURL(url);
-      this.blobUrlCache.delete(blobId);
-    }
-  }
-
-  /**
-   * clear all cached blob URLs
-   */
-  clearBlobUrls(): void {
-    for (const url of this.blobUrlCache.values()) {
-      URL.revokeObjectURL(url);
-    }
-    this.blobUrlCache.clear();
   }
 
   /**

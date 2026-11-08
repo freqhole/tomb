@@ -55,6 +55,9 @@ pub enum PullAudioBlobError {
     /// source peer refused because we aren't a registered federation peer.
     /// caller should create a knock request before retrying.
     PeerUnauthorized { peer: String, blake3: String },
+    /// this node's own blob store is down (see
+    /// `GrimoireError::LocalBlobStoreUnavailable`) - only a restart helps.
+    LocalBlobStoreUnavailable(GrimoireError),
     /// exhausted every retry attempt without finishing in time - see
     /// `MAX_ATTEMPTS_WITH_PROGRESS`/`MAX_ATTEMPTS_NO_PROGRESS`/`OVERALL_TIME_BUDGET`.
     Timeout { attempts: u32, elapsed_secs: u64 },
@@ -135,6 +138,11 @@ impl PullAudioBlobError {
                         ),
                     )],
                 )
+            }
+            PullAudioBlobError::LocalBlobStoreUnavailable(e) => {
+                // the error's own display text is written for end users, and
+                // the top-level message is what the UI shows
+                GrimoireResponse::failure(e.to_string(), vec![ErrorDetail::from(e)])
             }
             PullAudioBlobError::Timeout { attempts, elapsed_secs } => GrimoireResponse::failure(
                 "blob fetch timed out",
@@ -453,6 +461,10 @@ pub async fn pull_audio_blob_to_local_storage_with_progress(
                 if let GrimoireError::PeerUnauthorized { peer, blake3: b } = e {
                     // not retryable - needs a knock request, not more attempts.
                     return Err(PullAudioBlobError::PeerUnauthorized { peer, blake3: b });
+                }
+                if matches!(e, GrimoireError::LocalBlobStoreUnavailable { .. }) {
+                    // not retryable - our own store is down until restart.
+                    return Err(PullAudioBlobError::LocalBlobStoreUnavailable(e));
                 }
                 tracing::error!(
                     "failed to fetch blob {} from peer {} (attempt {}, {} bytes transferred): {}",

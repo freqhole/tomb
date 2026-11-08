@@ -313,3 +313,115 @@ pub fn notify_update_check_result(
         },
     )
 }
+
+/// map a grimoire event onto spume's `{ type, data }` wire shape.
+fn grimoire_event_payload(event: &grimoire::events::GrimoireEvent) -> serde_json::Value {
+    use grimoire::events::GrimoireEvent;
+    match event {
+        GrimoireEvent::KnockCreated {
+            id,
+            username,
+            node_id,
+            message,
+        } => serde_json::json!({
+            "type": "knock-created",
+            "data": {
+                "id": id,
+                "username": username,
+                "node_id": node_id,
+                "message": if message.is_empty() { None } else { Some(message) }
+            }
+        }),
+        GrimoireEvent::KnockProcessed {
+            id,
+            status,
+            username,
+        } => serde_json::json!({
+            "type": "knock-processed",
+            "data": { "id": id, "status": status, "username": username }
+        }),
+        GrimoireEvent::DeviceLinked {
+            peer_addr,
+            server_name,
+        } => serde_json::json!({
+            "type": "device-linked",
+            "data": { "peer_addr": peer_addr, "server_name": server_name }
+        }),
+        GrimoireEvent::KnockAccepted {
+            peer_addr,
+            server_name,
+        } => serde_json::json!({
+            "type": "knock-accepted",
+            "data": { "peer_addr": peer_addr, "server_name": server_name }
+        }),
+        GrimoireEvent::WaveformReady {
+            kind,
+            entity_id,
+            blake3,
+            waveform_blob_id,
+        } => serde_json::json!({
+            "type": "waveform-ready",
+            "data": {
+                "kind": kind,
+                "entity_id": entity_id,
+                "blake3": blake3,
+                "waveform_blob_id": waveform_blob_id,
+            }
+        }),
+    }
+}
+
+/// forward every grimoire event to spume as a `freqhole:event` until the
+/// grimoire event channel closes. a lagged receiver skips ahead instead of
+/// ending the loop - `while let Ok(..) = rx.recv()` would silently stop
+/// forwarding forever after one burst of more than the channel's capacity.
+pub async fn forward_grimoire_events(app: AppHandle<Wry>) {
+    use tokio::sync::broadcast::error::RecvError;
+    let mut rx = grimoire::events::subscribe();
+    tracing::info!("grimoire event listener started");
+    loop {
+        match rx.recv().await {
+            Ok(event) => {
+                if let Err(e) = app.emit(EVENT_NAME, grimoire_event_payload(&event)) {
+                    tracing::error!(error = %e, "failed to emit freqhole event");
+                }
+            }
+            Err(RecvError::Lagged(skipped)) => {
+                tracing::warn!(skipped, "grimoire event listener lagged; skipped events");
+            }
+            Err(RecvError::Closed) => break,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn waveform_ready_payload_shape() {
+        for (kind, label) in [
+            (grimoire::events::WaveformEntityKind::Song, "song"),
+            (grimoire::events::WaveformEntityKind::Video, "video"),
+        ] {
+            let payload = grimoire_event_payload(&grimoire::events::GrimoireEvent::WaveformReady {
+                kind,
+                entity_id: "e1".into(),
+                blake3: "b3".into(),
+                waveform_blob_id: "w1".into(),
+            });
+            assert_eq!(
+                payload,
+                serde_json::json!({
+                    "type": "waveform-ready",
+                    "data": {
+                        "kind": label,
+                        "entity_id": "e1",
+                        "blake3": "b3",
+                        "waveform_blob_id": "w1"
+                    }
+                })
+            );
+        }
+    }
+}

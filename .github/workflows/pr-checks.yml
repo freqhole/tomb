@@ -100,6 +100,11 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      - name: cargo clippy (reliquary + haruspex, all features)
+        # also lints code and examples behind opt-in features (`test-utils`,
+        # `thumbnails`, `augur`, ...) that the workspace run above skips.
+        run: cargo clippy -p reliquary -p haruspex --all-features --all-targets -- -D warnings
+
   rust-test:
     name: rust (unit tests)
     # skip on the changesets "Version Packages" PR: it only bumps versions +
@@ -148,6 +153,12 @@ jobs:
         # lib + bin unit tests only. the cli integration suite (make test-cli)
         # is slower + fixture-driven and runs outside the fast PR path.
         run: cargo test --workspace --lib --bins
+
+      - name: reliquary + haruspex unit tests (all features)
+        # the workspace run above only builds the feature sets consumers
+        # enable, so modules behind opt-in features (e.g. `test-utils`'s
+        # reliquary::testing) never compile or run there. cover them here.
+        run: cargo test -p reliquary -p haruspex --all-features --lib
 
   web-check:
     name: web (typecheck + vitest + circular deps)

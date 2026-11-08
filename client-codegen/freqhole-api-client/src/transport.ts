@@ -110,7 +110,9 @@ export interface Transport {
 
   /**
    * get a URL for a blob (for <audio>/<img> src)
-   * HTTP transport returns direct URL, P2P transports may need caching
+   * HTTP transport returns direct URL; P2P/IPC transports may return a fresh
+   * `blob:` object URL each call. transports never keep or reuse object
+   * URLs - the caller owns any `blob:` URL returned and revokes it when done.
    * @param blobId - the blob ID to fetch
    * @param blake3 - optional blake3 hash for verified streaming via iroh-blobs
    * @param opts - optional cache policy

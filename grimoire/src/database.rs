@@ -343,6 +343,20 @@ pub(crate) async fn storage_node() -> GrimoireResult<&'static reliquary::Storage
         .await
 }
 
+/// cleanly shut down the shared storage node's blob store, flushing pending
+/// writes. only for the process's exit path - the store can't be reopened,
+/// so every later blob operation fails. does nothing if the node was never
+/// initialized (no point booting it just to close it).
+pub async fn shutdown_storage_node() {
+    let Some(node) = STORAGE_NODE.get() else {
+        return;
+    };
+    match node.shutdown().await {
+        Ok(()) => tracing::info!("storage node shut down"),
+        Err(e) => tracing::warn!(error = %e, "storage node shutdown failed"),
+    }
+}
+
 /// the shared chunked-upload session tracker: bytes accumulate into a temp
 /// file across multiple calls (e.g. one http/ipc request per chunk), then
 /// get adopted into the storage node's blobz store once the upload

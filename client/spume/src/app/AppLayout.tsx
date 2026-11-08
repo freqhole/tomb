@@ -2207,7 +2207,7 @@ export function AppLayout(props: AppLayoutProps) {
                   remote_server_id: cv.remote_server_id,
                   images: cv.images?.map((img) => ({
                     remote_blob_id: img.blob_id,
-                    remote_server_id: cv.remote_server_id,
+                    remote_server_id: img.remote_server_id ?? cv.remote_server_id,
                     is_primary: !!img.is_primary,
                     blob_type: img.blob_type,
                   })),

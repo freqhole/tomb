@@ -43,6 +43,36 @@ pub enum GrimoireEvent {
         /// display name of the server
         server_name: String,
     },
+    /// a waveform image was generated + linked for a synced song or video
+    /// in the background (see `offal::sync::waveform`). clients patch any
+    /// queued copies (matched by blake3) so the playerbar and queue rows can
+    /// render it without waiting for a refetch.
+    WaveformReady {
+        kind: WaveformEntityKind,
+        /// local song or video id the waveform was linked to
+        entity_id: String,
+        /// blake3 of the media blob - the stable cross-peer key
+        blake3: String,
+        /// local media_blobz.id of the waveform image
+        waveform_blob_id: String,
+    },
+}
+
+/// which kind of media a `WaveformReady` event refers to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WaveformEntityKind {
+    Song,
+    Video,
+}
+
+impl WaveformEntityKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Song => "song",
+            Self::Video => "video",
+        }
+    }
 }
 
 /// the global event channel
