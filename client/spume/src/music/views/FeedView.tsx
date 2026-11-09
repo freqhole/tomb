@@ -22,13 +22,7 @@ import { getNavHeight, useViewportHeight } from "../../utils/viewport";
 import { getCurrentRemote, getCurrentUser, getDataSource, RemoteOfflineError } from "../data";
 import { isAdmin } from "../data/permissions";
 import type { FeedItem, PlaybackSession } from "../data/types";
-import {
-  showAlbumEditor,
-  showArtistEditor,
-  showImageCarousel,
-  showSongEditor,
-  type CarouselSlide,
-} from "../hooks/modals";
+import { showAlbumEditor, showArtistEditor, showSongEditor } from "../hooks/modals";
 import { showPlaylistSelector } from "../hooks/playlistSelectorState";
 import {
   ALL_FEED_TYPES,
@@ -38,14 +32,10 @@ import {
 } from "../queries/analytics";
 import { queryKeys } from "../queries/queryKeys";
 import { activeHistoryEntryId } from "../services/queue/listenProgress";
+import { createFeedActions } from "../services/feed/feedActions";
 import { addToQueue, playQueue, resumeHistoryEntry } from "../services/queue/queue";
 import { queueHistory, updateHistoryServerSession } from "../services/queue/queueHistory";
 import { resumeServerSession } from "../services/queue/serverSession";
-import {
-  resolveBlobUrl,
-  usesBlobResolver,
-  withThumbSuffix,
-} from "../services/storage/blobResolver";
 import { setHighlightedSongId } from "../state/highlightedSong";
 import { routes } from "../utils/routing";
 import {
@@ -83,6 +73,7 @@ export function FeedView() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const remote = getCurrentRemote();
+  const feedActions = createFeedActions(() => remote ?? undefined, navigate);
 
   // filter state (persisted in browser history)
   const [feedTypeFilters, setFeedTypeFilters] = useHistoryState<FeedTypeFilter[]>(
@@ -195,43 +186,7 @@ export function FeedView() {
   };
 
   // handle feed item click — navigate to the relevant entity
-  const handleItemClick = (item: FeedItem) => {
-    // for new_image, row click opens the image carousel
-    if (item.feed_type === "new_image") {
-      void handleImageCarousel(item);
-      return;
-    }
-
-    if (item.feed_type === "listen_session" && item.session_id) {
-      // radio sessions have no queue to resume — link to the station
-      // instead of trying to replay it.
-      if (item.session_type === "radio" && item.entity_id) {
-        navigate(routes.radioStation(item.entity_id, remote?.peer_addr));
-        return;
-      }
-      // own sessions resume, other users' sessions start over
-      const isOwnSession = item.user_id && item.user_id === getCurrentUser()?.userId;
-      if (isOwnSession) {
-        void playSession(item);
-      } else {
-        void startSessionOver(item);
-      }
-      return;
-    }
-    if (item.album_id) {
-      // if navigating to album for a song, highlight the song
-      if (item.song_id) {
-        setHighlightedSongId(item.song_id);
-      }
-      navigate(routes.album(item.album_id));
-    } else if (item.artist_id) {
-      navigate(routes.artist(item.artist_id));
-    } else if (item.playlist_id) {
-      navigate(routes.playlist(item.playlist_id));
-    } else if (item.video_id) {
-      navigate(routes.videoDetailOn(remote?.peer_addr, item.video_id));
-    }
-  };
+  const handleItemClick = (item: FeedItem) => void feedActions.navigateTo(item);
 
   // helper: fetch songs by IDs via data source (batch request)
   const fetchSongsByIds = async (songIds: string[]) => {
@@ -465,214 +420,26 @@ export function FeedView() {
     }
   };
 
-  // helper: play a single song by ID
-  const playSongById = async (songId: string, title: string) => {
-    const dataSource = getDataSource();
-    try {
-      const song = await dataSource.getSongById(songId);
-      if (song) {
-        await playQueue([song], { source: { type: "song", label: title } });
-      }
-    } catch {
-      toast.error("failed to play song");
-    }
-  };
-
-  // helper: play all songs from an album
-  const playAlbumById = async (albumId: string, title: string) => {
-    const dataSource = getDataSource();
-    if (!dataSource.getAlbumSongs) return;
-    try {
-      const response = await dataSource.getAlbumSongs(albumId);
-      if (response.items.length > 0) {
-        await playQueue(response.items, {
-          source: { type: "album", label: title, entity_id: albumId },
-        });
-      }
-    } catch {
-      toast.error("failed to play album");
-    }
-  };
-
-  // helper: play all songs from a playlist
-  const playPlaylistById = async (playlistId: string, title: string) => {
-    const dataSource = getDataSource();
-    if (!dataSource.getPlaylistSongs) return;
-    try {
-      const response = await dataSource.getPlaylistSongs(playlistId);
-      if (response.items.length > 0) {
-        await playQueue(response.items, {
-          source: { type: "playlist", label: title, entity_id: playlistId },
-        });
-      }
-    } catch {
-      toast.error("failed to play playlist");
-    }
-  };
-
-  // helper: open image carousel for an item
-  const handleImageCarousel = async (item: FeedItem) => {
-    const images = item.images;
-    if (images && images.length > 0) {
-      // filter out waveforms, keep images that have blob_id or remote_url
-      const displayableImages = images.filter(
-        (img) => img.blob_type !== "waveform" && (img.remote_blob_id || img.remote_url)
-      );
-
-      if (displayableImages.length > 0) {
-        // check if we need blob resolution (tauri-managed or P2P)
-        const firstWithServerId = displayableImages.find((img) => img.remote_server_id);
-        const needsResolution = firstWithServerId
-          ? await usesBlobResolver(firstWithServerId.remote_server_id!)
-          : false;
-
-        let urls: string[];
-        let slides: CarouselSlide[];
-        if (needsResolution) {
-          // resolve all image URLs via blobResolver
-          urls = await Promise.all(
-            displayableImages.map(async (img) => {
-              if (img.remote_blob_id && img.remote_server_id) {
-                try {
-                  return await resolveBlobUrl(img.remote_blob_id, img.remote_server_id, "image");
-                } catch {
-                  return img.remote_url ?? "";
-                }
-              }
-              return img.remote_url ?? "";
-            })
-          );
-          urls = urls.filter((u) => u); // remove empty strings
-          slides = urls.map((url) => ({ url }));
-        } else {
-          // standard HTTP - use remote_url directly, with a cheap small
-          // thumbnail variant for the strip (p2p/tauri-managed remotes
-          // above don't support sized variants yet, hence no thumbnailUrl
-          // in that branch).
-          urls = displayableImages.filter((img) => img.remote_url).map((img) => img.remote_url!);
-          slides = urls.map((url) => ({ url, thumbnailUrl: withThumbSuffix(url, 200) }));
-        }
-
-        if (urls.length > 0) {
-          showImageCarousel({
-            images: slides,
-            title: item.title ?? undefined,
-          });
-          return;
-        }
-
-        // there were candidate images but every one of them failed to
-        // resolve to a usable url — a genuine failure, worth a toast
-        // (as opposed to the item simply having no images at all).
-        toast.error(
-          item.title ? `couldn't load images for ${item.title}` : "couldn't load images",
-          { title: "image carousel" }
-        );
-      }
-    }
-  };
-
-  // handle image/thumb click — open carousel if images available, otherwise play
+  // image events open the viewer; every play overlay starts playback.
   const handleImageClick = async (item: FeedItem) => {
-    if (item.feed_type === "new_image") {
-      // for new_image, thumbnail click opens carousel (matches carousel icon on hover)
-      await handleImageCarousel(item);
-      return;
-    }
-
-    // for other types, open carousel or fall back to play
-    await handleImageCarousel(item);
-    if (!(
-      item.images &&
-      item.images.length > 0 &&
-      item.images.some(
-        (img) => img.blob_type !== "waveform" && (img.remote_blob_id || img.remote_url)
-      )
-    )) {
+    if (item.feed_type === "listen_session" && item.session_type !== "radio") {
       await handlePlayItem(item);
-    }
+    } else await feedActions.thumbnail(item);
   };
 
   // play or resume the feed item (used by context menu + image click fallback)
   const handlePlayItem = async (item: FeedItem) => {
-    switch (item.feed_type) {
-      case "listen_session":
-        await playSession(item);
-        break;
-
-      case "recent_listen":
-      case "recent_favorite":
-      case "recent_rating":
-        // song-based items — play the song
-        if (item.song_id) {
-          await playSongById(item.song_id, item.title);
-        } else if (item.album_id) {
-          await playAlbumById(item.album_id, item.title);
-        }
-        break;
-
-      case "recent_album":
-        if (item.album_id) {
-          await playAlbumById(item.album_id, item.title);
-        }
-        break;
-
-      case "recent_playlist":
-        if (item.playlist_id) {
-          await playPlaylistById(item.playlist_id, item.title);
-        }
-        break;
-
-      case "recent_video":
-        if (item.video_id) {
-          navigate(routes.videoDetailOn(remote?.peer_addr, item.video_id));
-        }
-        break;
-
-      case "recent_video_favorite":
-      case "recent_video_watch":
-        if (item.video_id) {
-          navigate(routes.videoDetailOn(remote?.peer_addr, item.video_id));
-        }
-        break;
+    if (item.feed_type === "listen_session" && item.session_type !== "radio") {
+      if (item.user_id === getCurrentUser()?.userId) await playSession(item);
+      else await startSessionOver(item);
+    } else {
+      await feedActions.play(item);
     }
   };
 
   // add item to queue (shared between context menu and quick-action button)
   const handleAddToQueue = async (item: FeedItem) => {
-    try {
-      if (item.song_id) {
-        const dataSource = getDataSource();
-        const song = await dataSource.getSongById(item.song_id);
-        if (song) {
-          await addToQueue([song], {
-            source: { type: "song", label: item.title },
-          });
-        }
-      } else if (item.album_id) {
-        const dataSource = getDataSource();
-        if (dataSource.getAlbumSongs) {
-          const response = await dataSource.getAlbumSongs(item.album_id);
-          if (response.items.length > 0) {
-            await addToQueue(response.items, {
-              source: { type: "album", label: item.title, entity_id: item.album_id },
-            });
-          }
-        }
-      } else if (item.playlist_id) {
-        const dataSource = getDataSource();
-        if (dataSource.getPlaylistSongs) {
-          const response = await dataSource.getPlaylistSongs(item.playlist_id);
-          if (response.items.length > 0) {
-            await addToQueue(response.items, {
-              source: { type: "playlist", label: item.title, entity_id: item.playlist_id },
-            });
-          }
-        }
-      }
-    } catch {
-      toast.error("failed to add to queue");
-    }
+    await feedActions.play(item, true);
   };
 
   // build context menu actions for a feed item
@@ -687,6 +454,11 @@ export function FeedView() {
 
       // radio sessions have no queue to resume — link to the station instead.
       if (item.session_type === "radio" && item.entity_id) {
+        actions.push({
+          label: "play",
+          icon: IconNames.play,
+          onClick: () => void feedActions.play(item),
+        });
         actions.push({
           label: "go to station",
           icon: IconNames.headphones,
@@ -808,7 +580,7 @@ export function FeedView() {
     });
 
     // add to queue (for items with songs)
-    if (item.song_id || item.album_id || item.playlist_id) {
+    if (item.song_id || item.album_id || item.playlist_id || item.artist_id || item.video_id) {
       actions.push({
         label: "add to queue",
         icon: IconNames.queue,

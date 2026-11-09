@@ -2,6 +2,11 @@
 //!
 //! This module provides analytics functionality specific to music playback,
 //! including play event tracking, listening history, and play statistics.
+//! song and video plays require `event_data.played_seconds / duration_seconds > 0.9`.
+//! resume positions are independent: seeking or completing a radio stream does
+//! not by itself qualify as a play. radio clients report qualified plays, while
+//! the broadcaster retains its separate broadcast history.
+//! CLI recording requires `--played-seconds` and `--duration-seconds`.
 //!
 //! ## Architecture
 //!
@@ -23,7 +28,7 @@
 //!     "song_id".to_string(),
 //!     Some("user_id".to_string()),
 //!     Some("session_id".to_string()),
-//!     Some(json!({"position": 0, "progress": 0.0})),
+//!     Some(json!({"played_seconds": 91, "duration_seconds": 100})),
 //! );
 //!
 //! // Record the event

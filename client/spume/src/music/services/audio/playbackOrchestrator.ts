@@ -7,7 +7,7 @@
 //
 //   1. listen-history progress accumulation (`recordTimeProgress`)
 //   2. per-queue-row progress fill (`updateQueueItemProgress`)
-//   3. >=90% completion detection (`markSongCompleted` +
+//   3. >90% actual listening-time completion detection (`markSongCompleted` +
 //      `queueAnalyticsEvent("play_complete")`)
 //
 // **why a separate module**: these are queue/analytics concerns,
@@ -19,7 +19,7 @@
 // observes, so everything just works.
 //
 // **per-song debounce**: tracks `completionRecordedFor` so each song
-// fires the >=90% events at most once. resets on song change.
+// fires the >90% events at most once. resets on song change.
 //
 // **delta filtering**: only records listen progress for forward
 // time deltas in (0, 5)s — large jumps are seek operations, not
@@ -37,21 +37,19 @@ import {
 } from "../queue/listenProgress";
 import { updateQueueItemProgress } from "../queue/queueProgress";
 import { queueAnalyticsEvent } from "../analytics/analyticsQueue";
-import { currentTime, duration } from "./playerState";
+import { PlayCompletion } from "../analytics/playCompletion";
+import { currentTime, duration, isPlaying } from "./playerState";
 
 // max delta (seconds) between consecutive ticks that we'll attribute
 // to actual listening. anything above this is almost certainly a
 // seek and shouldn't be added to the user's listen-time tally.
 const MAX_DELTA_SECONDS = 5;
 
-// fraction of the song that must elapse to count as "completed"
-// for analytics + listen history purposes.
-const COMPLETION_THRESHOLD = 0.9;
-
 let installed = false;
 let lastTimeForItemKey: string | null = null;
 let lastTimeValue = 0;
-let completionRecordedFor: string | null = null;
+let completion = new PlayCompletion();
+let wasPlaying = false;
 
 /**
  * install the playback orchestrator. idempotent — subsequent calls
@@ -65,16 +63,23 @@ export function installPlaybackOrchestrator(): void {
     createEffect(() => {
       const ct = currentTime();
       const dur = duration();
+      const playing = isPlaying();
       const state = appState();
-      if (!state) return;
+      if (!state?.current_item_key) {
+        lastTimeForItemKey = null;
+        completion = new PlayCompletion();
+        wasPlaying = false;
+        return;
+      }
       const { queue, current_item_key: currentItemKey } = state;
-      if (!currentItemKey) return;
 
       // reset per-song bookkeeping when the active song changes.
       if (lastTimeForItemKey !== currentItemKey) {
         lastTimeForItemKey = currentItemKey;
         lastTimeValue = ct;
-        completionRecordedFor = null;
+        completion = new PlayCompletion();
+        completion.observe(ct, dur, playing);
+        wasPlaying = playing;
         return;
       }
 
@@ -88,7 +93,7 @@ export function installPlaybackOrchestrator(): void {
       // 1. listen-history progress accumulation. only counts forward
       //    motion within the small-delta window so seeks don't pad
       //    the listen tally.
-      if (currentSong && activeHistoryEntryId() && ct > lastTimeValue) {
+      if (playing && wasPlaying && currentSong && activeHistoryEntryId() && ct > lastTimeValue) {
         // a reconnected-on-boot entry's remote session reconnect was
         // deferred until now - this is the first real forward tick,
         // proof the user is actually playing, not just that the queue
@@ -100,6 +105,8 @@ export function installPlaybackOrchestrator(): void {
         }
       }
       lastTimeValue = ct;
+      wasPlaying = playing;
+      const qualified = completion.observe(ct, dur, playing);
 
       // need a meaningful duration for the rest.
       if (!Number.isFinite(dur) || dur <= 0) return;
@@ -128,12 +135,7 @@ export function installPlaybackOrchestrator(): void {
       //    silently dropped analytics for single-song listens.
       //    video completion isn't tracked here yet - videos have their
       //    own history/completion mechanism (videoListenProgress.ts).
-      if (
-        currentSong &&
-        completionRecordedFor !== currentItemKey &&
-        progress >= COMPLETION_THRESHOLD
-      ) {
-        completionRecordedFor = currentItemKey;
+      if (currentSong && qualified) {
         if (activeHistoryEntryId()) {
           markSongCompleted(songIdx >= 0 ? songIdx : 0, currentSong);
         }
@@ -152,6 +154,7 @@ export function installPlaybackOrchestrator(): void {
             song_id: currentSong.id,
             target_remote_id: currentSong.remote_server_id ?? undefined,
             target_base_url: targetBaseUrl,
+            event_data: completion.eventData(dur),
           });
         }
       }

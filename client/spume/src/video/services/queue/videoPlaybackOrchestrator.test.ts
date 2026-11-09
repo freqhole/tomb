@@ -6,10 +6,12 @@ const state = vi.hoisted(() => ({
   duration: 100,
   playing: true,
   key: "episode-1" as string | null,
+  clock: 0,
   sync: vi.fn(),
   record: vi.fn(),
   complete: vi.fn(),
   flush: vi.fn(),
+  analytics: vi.fn(),
 }));
 vi.mock("solid-js", () => ({
   createRoot: (fn: () => void) => fn(),
@@ -44,7 +46,7 @@ vi.mock("../../../music/services/queue/serverSession", () => ({
   getSessionIdForRemote: () => "season-session",
 }));
 vi.mock("../../../music/services/analytics/analyticsQueue", () => ({
-  queueAnalyticsEvent: vi.fn(),
+  queueAnalyticsEvent: state.analytics,
 }));
 
 import { installVideoPlaybackOrchestrator } from "./videoPlaybackOrchestrator";
@@ -53,6 +55,8 @@ installVideoPlaybackOrchestrator();
 
 beforeEach(() => {
   state.key = null;
+  state.clock = 0;
+  vi.spyOn(performance, "now").mockImplementation(() => state.clock);
   state.effect();
   vi.clearAllMocks();
   state.time = 0;
@@ -63,6 +67,7 @@ beforeEach(() => {
 });
 
 function tick(time: number) {
+  state.clock += 1000;
   state.time = time;
   state.effect();
 }
@@ -102,15 +107,39 @@ describe("watch progress lifecycle", () => {
   });
 
   it("records completion once with the named queue session before advancing it", () => {
-    tick(90);
+    for (let time = 1; time <= 90; time++) tick(time);
+    expect(state.analytics).not.toHaveBeenCalled();
+    expect(state.complete).not.toHaveBeenCalled();
+    tick(91);
     tick(92);
     expect(state.complete).toHaveBeenCalledTimes(1);
+    expect(state.analytics).toHaveBeenCalledTimes(1);
+    expect(state.analytics).toHaveBeenCalledWith(
+      "video_play_complete",
+      expect.objectContaining({
+        video_id: "episode-1",
+        event_data: { played_seconds: 91, duration_seconds: 100 },
+      })
+    );
     expect(state.sync).toHaveBeenCalledWith(
       expect.objectContaining({ id: "episode-1" }),
-      90,
+      91,
       100,
       "season-session"
     );
+  });
+
+  it("does not count seeking past 90% or skipping as a play", () => {
+    tick(95);
+    tick(96);
+    expect(state.analytics).not.toHaveBeenCalled();
+    state.key = "episode-2";
+    tick(0);
+    expect(state.analytics).not.toHaveBeenCalled();
+    for (let time = 1; time <= 90; time++) tick(time);
+    expect(state.analytics).not.toHaveBeenCalled();
+    tick(91);
+    expect(state.analytics).toHaveBeenCalledTimes(1);
   });
 
   it("does not accumulate watch time from paused seeks", () => {

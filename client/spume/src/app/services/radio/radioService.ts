@@ -24,6 +24,8 @@ import {
 import { recordHistoryEntry } from "./radioHistory";
 import { RadioListenSession } from "./radioListenSession";
 import { RadioVideoProgress } from "./radioVideoProgress";
+import { RadioPlayAnalytics } from "./radioPlayAnalytics";
+import { queueAnalyticsEvent } from "../../../music/services/analytics/analyticsQueue";
 import {
   type RadioModeCapability,
   type RadioTimelineSnapshot,
@@ -316,15 +318,18 @@ let audioSink: HTMLVideoElement | null = null;
 // leaveRadio. confirmed history entries supply the played songs/videos.
 let activeRadioListenSession: RadioListenSession | null = null;
 const radioVideoProgress = new RadioVideoProgress();
+const radioPlayAnalytics = new RadioPlayAnalytics();
+
+async function stationRemoteFor(sess: RadioSession) {
+  const remote = sess.isLocal
+    ? await getTauriManagedRemote()
+    : await getRemoteByPeerAddr(sess.peerAddr);
+  if (!remote) throw new Error("no remote for radio station");
+  return remote;
+}
 
 function stationClientFor(sess: RadioSession) {
-  return async () => {
-    const remote = sess.isLocal
-      ? await getTauriManagedRemote()
-      : await getRemoteByPeerAddr(sess.peerAddr);
-    if (!remote) throw new Error("no remote for radio station");
-    return getClientForRemote(remote);
-  };
+  return async () => getClientForRemote(await stationRemoteFor(sess));
 }
 
 /** feeds series/video resume progress from the audible radio track. */
@@ -348,6 +353,35 @@ function observeRadioVideoProgress(
     getClient: stationClientFor(sess),
     sessionId: () => activeRadioListenSession?.id ?? null,
   });
+  const eventData = radioPlayAnalytics.observe({
+    stationKey: `${sess.peerAddr}:${sess.stationId ?? currentStationId()}`,
+    initSeq,
+    entityId: np?.song_id ?? null,
+    kind: np?.kind === "video" ? "video" : "song",
+    durationS: (np?.duration_ms ?? 0) / 1000,
+    positionS: positionS + startOffsetS,
+    playing,
+  });
+  if (eventData && np?.song_id && np.audio_blob_id) {
+    const kind = np.kind;
+    const entityId = np.song_id;
+    const blobId = np.audio_blob_id;
+    const sessionId = activeRadioListenSession?.id ?? undefined;
+    const stationId = sess.stationId ?? currentStationId();
+    void stationRemoteFor(sess)
+      .then((remote) =>
+        queueAnalyticsEvent(kind === "video" ? "video_play_complete" : "play_complete", {
+          media_blob_id: blobId,
+          ...(kind === "video" ? { video_id: entityId } : { song_id: entityId }),
+          target_remote_id: remote.remote_id,
+          session_id: sessionId,
+          event_data: { ...eventData, radio_station_id: stationId },
+        })
+      )
+      .catch((error) => console.warn("[radio] failed to queue qualified play:", error));
+  } else if (eventData) {
+    console.warn("[radio] qualified play is missing its entity or media blob id");
+  }
 }
 
 function getRadioListenSession(): RadioListenSession | null {
@@ -484,6 +518,7 @@ export function recordCurrentRadioTrackHistory(track: {
 // the broadcaster emits sparse meta payloads (e.g. admin skip edges).
 export function applyTimelineNowPlaying(track: {
   songId: string | null;
+  audioBlobId?: string | null;
   title: string;
   artist?: string | null;
   album?: string | null;
@@ -510,6 +545,7 @@ export function applyTimelineNowPlaying(track: {
     // timeline/queue mode is song-only today - see plan doc.
     kind: "song",
     song_id: songId,
+    audio_blob_id: track.audioBlobId ?? null,
     title: track.title,
     artist: track.artist ?? null,
     album: track.album ?? null,
@@ -745,6 +781,7 @@ export function radioPause(): void {
   const session = activeSession;
   activeSession = null;
   void radioVideoProgress.flush();
+  radioPlayAnalytics.pause();
   stopElapsedTicker();
   // flip status BEFORE tearing down the media element below - session.leave()
   // calls audio.pause()/audio.load(), which fire native media events
@@ -808,6 +845,7 @@ export function leaveRadio(): void {
   lastConfirmedHistoryTrackKey = null;
   pausedContext = null;
   void radioVideoProgress.flush();
+  radioPlayAnalytics.reset();
   void endRadioListenSession("completed");
   if (activeSession) {
     try {

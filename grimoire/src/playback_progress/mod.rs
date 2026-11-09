@@ -30,7 +30,6 @@ use zod_gen_derive::ZodSchema;
 use crate::database;
 use crate::entities::TaggableEntity;
 use crate::error::ErrorDetail;
-use crate::music::analytics::feed_events::create_video_watch_feed_event;
 use crate::response::GrimoireResponse;
 
 /// column identifiers for `playback_progressz`, used by
@@ -86,10 +85,6 @@ fn bind_values<'q, O>(
     }
     q
 }
-
-/// position_fraction at or above this counts as "watched" for feed purposes,
-/// mirroring the ~90% completion heuristic used elsewhere for plays.
-const WATCHED_THRESHOLD: f64 = 0.9;
 
 /// a single playback progress row
 #[derive(Debug, Clone, Serialize, Deserialize, ZodSchema, PartialEq, FromRow)]
@@ -157,7 +152,7 @@ pub async fn upsert_playback_progress(
     duration_seconds: Option<f64>,
     position_locator: Option<String>,
     completed_at: Option<i64>,
-    session_id: Option<String>,
+    _session_id: Option<String>,
 ) -> GrimoireResponse<PlaybackProgress> {
     let pool = match database::connect().await {
         Ok(p) => p,
@@ -217,21 +212,6 @@ pub async fn upsert_playback_progress(
             )
         }
     };
-
-    // video-watch completion feed event - video-only (song completion
-    // events are handled entirely by music's own, separate, long-standing
-    // play-tracking pathway; nothing to wire up here for it).
-    if entity_type == TaggableEntity::Video && position_fraction >= WATCHED_THRESHOLD {
-        let user_id = user_id.to_string();
-        let video_id = entity_id.to_string();
-        tokio::spawn(async move {
-            let response =
-                create_video_watch_feed_event(&video_id, &user_id, session_id.as_deref()).await;
-            if !response.success {
-                tracing::warn!(message = %response.message, errors = ?response.errors, "failed to record video watch feed event");
-            }
-        });
-    }
 
     GrimoireResponse::success("Playback progress saved successfully", progress)
 }

@@ -2687,6 +2687,10 @@ export const FeedItemSchema = z.object({
   artist_id: z.string().nullish(),
   playlist_id: z.string().nullish(),
   video_id: z.string().nullish(),
+  video_content_type: z.string().nullish(),
+  series_id: z.string().nullish(),
+  season_number: z.number().nullish(),
+  episode_number: z.number().nullish(),
   title: z.string(),
   subtitle: z.string().nullish(),
   images: z.array(z.object({
@@ -2754,6 +2758,10 @@ export const FeedResponseSchema = z.object({
   artist_id: z.string().nullish(),
   playlist_id: z.string().nullish(),
   video_id: z.string().nullish(),
+  video_content_type: z.string().nullish(),
+  series_id: z.string().nullish(),
+  season_number: z.number().nullish(),
+  episode_number: z.number().nullish(),
   title: z.string(),
   subtitle: z.string().nullish(),
   images: z.array(z.object({

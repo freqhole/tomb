@@ -9,7 +9,7 @@
 // local watch-progress tracker (`videoListenProgress.ts`):
 //
 //   1. watch-history progress accumulation (`recordVideoTimeProgress`)
-//   2. >=90% completion detection (`markVideoCompleted`)
+//   2. >90% actual watch-time completion detection (`markVideoCompleted`)
 //   3. completion-on-advance/skip: unlike the song orchestrator (which
 //      only marks a song completed at the 90% threshold), a video that
 //      the queue advances away from before reaching 90% is still
@@ -35,20 +35,19 @@ import {
 import { startVideoRemoteSync, syncVideoProgress } from "./videoServerProgressSync";
 import { getSessionIdForRemote } from "../../../music/services/queue/serverSession";
 import { queueAnalyticsEvent } from "../../../music/services/analytics/analyticsQueue";
+import { PlayCompletion } from "../../../music/services/analytics/playCompletion";
 
 // max delta (seconds) between consecutive ticks attributed to actual
 // watching — anything larger is a seek, not watch time. mirrors the
 // song orchestrator's MAX_DELTA_SECONDS.
 const MAX_DELTA_SECONDS = 5;
 
-// fraction of the video that must elapse to count as "completed".
-const COMPLETION_THRESHOLD = 0.9;
-
 let installed = false;
 let lastTimeForId: string | null = null;
 let lastTimeValue = 0;
 let lastVideoIndex = -1;
 let completionRecordedFor: string | null = null;
+let completion = new PlayCompletion();
 let lastSnapshot: {
   video: QueuedVideo;
   position: number;
@@ -78,6 +77,7 @@ export function installVideoPlaybackOrchestrator(): void {
       const queueVideos = videosOnly(state?.queue ?? []);
       const videoIdx = queueVideos.findIndex((v) => v.id === currentItemKey);
       const currentVideo = videoIdx >= 0 ? queueVideos[videoIdx] : null;
+      const previouslyPlaying = wasPlaying;
       if (
         lastSnapshot &&
         (lastSnapshot.video.id !== currentVideo?.id || (wasPlaying && !playing))
@@ -94,6 +94,7 @@ export function installVideoPlaybackOrchestrator(): void {
       if (!currentVideo) {
         lastSnapshot = null;
         lastTimeForId = null;
+        completion = new PlayCompletion();
         return;
       }
 
@@ -112,6 +113,8 @@ export function installVideoPlaybackOrchestrator(): void {
         lastTimeValue = ct;
         lastVideoIndex = videoIdx;
         completionRecordedFor = null;
+        completion = new PlayCompletion();
+        completion.observe(ct, dur, playing);
         lastSnapshot = null;
         startVideoRemoteSync();
         return;
@@ -126,19 +129,19 @@ export function installVideoPlaybackOrchestrator(): void {
       };
 
       // 1. watch-history progress accumulation, forward motion only.
-      if (playing && ct > lastTimeValue) {
+      if (playing && previouslyPlaying && ct > lastTimeValue) {
         const delta = ct - lastTimeValue;
         if (delta > 0 && delta < MAX_DELTA_SECONDS) {
           recordVideoTimeProgress(delta, videoIdx, ct, currentVideo);
         }
       }
       lastTimeValue = ct;
+      const qualified = completion.observe(ct, dur, playing);
 
       if (!Number.isFinite(dur) || dur <= 0) return;
 
       // 2. completion marker — fires once per video at the threshold.
-      const progress = ct / dur;
-      if (completionRecordedFor !== currentItemKey && progress >= COMPLETION_THRESHOLD) {
+      if (qualified) {
         completionRecordedFor = currentItemKey;
         void syncVideoProgress(currentVideo, ct, dur, lastSnapshot.sessionId);
         markVideoCompleted(videoIdx, currentVideo);
@@ -149,6 +152,7 @@ export function installVideoPlaybackOrchestrator(): void {
             media_blob_id: currentVideo.media_blob_id,
             video_id: currentVideo.id,
             target_remote_id: currentVideo.remote_server_id,
+            event_data: completion.eventData(dur),
           });
         }
       }

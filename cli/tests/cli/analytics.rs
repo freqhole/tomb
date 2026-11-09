@@ -42,6 +42,10 @@ fn test_analytics_record_play() {
         song_id,
         "--user-id",
         user_id,
+        "--played-seconds",
+        "91",
+        "--duration-seconds",
+        "100",
     ]);
 
     assert!(
@@ -340,7 +344,24 @@ fn test_play_count_increments_on_song_view() {
     ]);
     let user_id = user["data"]["id"].as_str().unwrap();
 
-    // record three plays
+    for played_seconds in ["0", "90"] {
+        let res = ctx.run_json(&[
+            "analytics",
+            "record-play",
+            "--song-id",
+            &song_id,
+            "--user-id",
+            user_id,
+            "--played-seconds",
+            played_seconds,
+            "--duration-seconds",
+            "100",
+        ]);
+        assert_eq!(res["success"], false);
+        assert_eq!(res["errors"][0]["error_type"], "insufficient_playback_time");
+    }
+
+    // record three qualified plays; the rejected attempts must not increase the count.
     for _ in 0..3 {
         let res = ctx.run_json(&[
             "analytics",
@@ -349,6 +370,10 @@ fn test_play_count_increments_on_song_view() {
             &song_id,
             "--user-id",
             user_id,
+            "--played-seconds",
+            "91",
+            "--duration-seconds",
+            "100",
         ]);
         assert!(
             res["success"].as_bool().unwrap(),

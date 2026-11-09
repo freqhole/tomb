@@ -183,6 +183,7 @@ export function coerceNowPlaying(raw: unknown): PublicNowPlaying | null {
           ? r.art.blob_id
           : null,
     waveform_blob_id: typeof r.waveform_blob_id === "string" ? r.waveform_blob_id : null,
+    audio_blob_id: typeof r.audio_blob_id === "string" ? r.audio_blob_id : null,
     duration_ms: typeof r.duration_ms === "number" ? r.duration_ms : null,
   };
   if (typeof r.start_offset_ms === "number" && r.start_offset_ms > 0) {

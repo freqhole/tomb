@@ -27,10 +27,9 @@ import { permissions } from "../../app/api/client";
 import type { UserRoleName } from "../../app/api/client";
 import { ALL_FEED_TYPES, FEED_TYPE_LABELS } from "../queries/analytics";
 import { toast } from "../../components/feedback/Toast";
-import { showImageCarousel } from "../hooks/modals";
+import { createFeedActions } from "../services/feed/feedActions";
 import { setHighlightedSongId } from "../state/highlightedSong";
 import { type Remote } from "../../app/services/storage/schemas/remote";
-import { routes } from "../utils/routing";
 import { RemotePicker } from "../../components/forms/RemotePicker";
 import { useTopNavSlots } from "../../app/shell/topNavSlots";
 import { CrossRemoteTopNavSearch } from "../../library/views/graph/CrossRemoteTopNavSearch";
@@ -66,6 +65,10 @@ function adaptFeedResponse(
       artist_id: item.artist_id ?? null,
       playlist_id: item.playlist_id ?? null,
       video_id: item.video_id ?? null,
+      video_content_type: item.video_content_type ?? null,
+      series_id: item.series_id ?? null,
+      season_number: item.season_number ?? null,
+      episode_number: item.episode_number ?? null,
       entity_id: item.entity_id ?? null,
       title: item.title,
       subtitle: item.subtitle ?? null,
@@ -553,31 +556,12 @@ export function AggregateFeedView() {
     );
   const listHeight = () => viewportHeight() - playerBarHeight();
 
-  // play handler
-  const handlePlayItem = async (item: FeedItem) => {
-    // radio sessions have no queue to resume — link to the station.
-    if (item.feed_type === "listen_session" && item.session_type === "radio" && item.entity_id) {
-      const hostRemote = getRemoteForItem(item);
-      navigate(routes.radioStation(item.entity_id, hostRemote?.peer_addr));
-      return;
-    }
-    // navigate to the remote context for playback
-    if (item.remote_id && item.album_id) {
-      navigate(`/${item.remote_id}/albums/${item.album_id}`);
-    } else if (item.remote_id && item.artist_id) {
-      navigate(`/${item.remote_id}/artists/${item.artist_id}`);
-    } else if (item.remote_id && item.playlist_id) {
-      navigate(`/${item.remote_id}/playlists/${item.playlist_id}`);
-    } else if (item.remote_id && item.video_id) {
-      navigate(`/${item.remote_id}/video/${item.video_id}`);
-    }
-  };
-
   // helper: get the remote object for a feed item
   const getRemoteForItem = (item: FeedItem): Remote | undefined => {
     if (!item.remote_id) return undefined;
     return (remotes() ?? []).find((r) => r.remote_id === item.remote_id);
   };
+  const feedActions = createFeedActions(getRemoteForItem, navigate);
 
   // delete a feed item and remove from local state
   const handleDeleteFeedItem = async (item: FeedItem) => {
@@ -625,6 +609,23 @@ export function AggregateFeedView() {
     if (!item) return [];
     const actions: MenuAction[] = [];
     const prefix = item.remote_id ? `/${item.remote_id}` : "";
+    actions.push({
+      label: "play",
+      icon: IconNames.play,
+      onClick: () => void feedActions.play(item),
+    });
+    if (item.session_type !== "radio") {
+      actions.push({
+        label: "add to queue",
+        icon: IconNames.queue,
+        onClick: () => void feedActions.play(item, true),
+      });
+    }
+    actions.push({
+      label: "go to details",
+      icon: IconNames.info,
+      onClick: () => void feedActions.navigateTo(item),
+    });
 
     // navigation actions
     if (item.album_id) {
@@ -762,21 +763,10 @@ export function AggregateFeedView() {
               scrollPaddingTop={
                 isNarrowViewport() ? getNavHeight() : (remotes() ?? []).length > 1 ? 150 : 100
               }
-              onItemClick={handlePlayItem}
+              onItemClick={(item) => void feedActions.navigateTo(item)}
               onScroll={handleScroll}
-              onImageClick={(item) => {
-                if (item.images && item.images.length > 0) {
-                  const urls = item.images
-                    .map((img) => img.remote_url ?? "")
-                    .filter((u) => u.length > 0);
-                  if (urls.length > 0) {
-                    showImageCarousel({ images: urls.map((url) => ({ url })) });
-                  }
-                }
-              }}
-              onAddToQueue={() => {
-                toast.info("navigate to the remote to add to queue");
-              }}
+              onImageClick={(item) => void feedActions.thumbnail(item)}
+              onAddToQueue={(item) => void feedActions.play(item, true)}
               getContextMenuActions={getContextMenuActions}
               onNearEnd={() => void loadMore()}
               onGenreClick={() => {
