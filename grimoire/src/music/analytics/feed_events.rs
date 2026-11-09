@@ -1469,18 +1469,15 @@ pub async fn upsert_video_feed_event(
 
 /// create or update a video watch feed event
 ///
-/// called once a video's playback progress crosses the "counts as watched"
-/// threshold. keyed on (video_id, created_by_user_id) via the
+/// called after a video play qualifies with >90% actual watch time,
+/// independently of resume position. keyed on (video_id, created_by_user_id) via the
 /// `idx_feed_eventz_video_watch` unique index, so rewatching the same video
 /// just bumps `updated_at` (moves it back to the top of the feed) instead of
 /// creating duplicate rows.
 ///
 /// unlike the other `create_*_feed_event` functions in this file, there's
-/// no `Caller` on hand at this call site (triggered from
-/// `playback_progress::upsert_playback_progress`'s background task, not
-/// an authenticated offal handler, so no `caller.username` to pass in for
-/// free) - this resolves its own username from `user_id` instead of
-/// taking one as a parameter.
+/// no `Caller` on hand in the analytics recorder - this resolves its own
+/// username from `user_id` instead of taking one as a parameter.
 pub async fn create_video_watch_feed_event(
     video_id: &str,
     user_id: &str,

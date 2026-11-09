@@ -77,7 +77,7 @@ export function useStreamFlyoutActions(props: UseStreamFlyoutActionsProps) {
     if (!station) return [];
     const actions: MenuAction[] = [
       {
-        label: `stream on "${station.name}"`,
+        label: `continue stream on "${station.name}"`,
         icon: "radioTower",
         onClick: () => void handleStream(() => props.resolveStreamItems()),
         disabled: busy(),

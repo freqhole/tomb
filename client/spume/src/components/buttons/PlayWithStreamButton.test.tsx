@@ -292,7 +292,7 @@ describe("PlayWithStreamButton", () => {
     expect(items.map((b) => b.textContent?.trim())).toEqual([
       "continue s1e3",
       "start over",
-      'stream on "test station"',
+      'continue stream on "test station"',
       'stream from the start on "test station"',
     ]);
     (items[3] as HTMLButtonElement).click();

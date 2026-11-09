@@ -56,6 +56,7 @@ const mocks = vi.hoisted(() => {
     timelineTime: 0,
     timelineDuration: 60,
     remote: null as { remote_id: string } | null,
+    analytics: vi.fn(),
   };
 });
 
@@ -93,6 +94,9 @@ vi.mock("../../../music/services/audio/player", () => ({
   duration: () => mocks.timelineDuration,
 }));
 vi.mock("./radioHistory", () => ({ recordHistoryEntry: async () => {} }));
+vi.mock("../../../music/services/analytics/analyticsQueue", () => ({
+  queueAnalyticsEvent: mocks.analytics,
+}));
 vi.mock("./radioListenSession", () => ({
   RadioListenSession: class {
     start() {}
@@ -122,6 +126,8 @@ import {
   radioNowPlaying,
   radioTrackPositionMs,
   radioElapsedMs,
+  applyTimelineNowPlaying,
+  markTimelinePlaybackStarted,
 } from "./radioService";
 import { getClientForRemote } from "../../api/client";
 
@@ -133,7 +139,13 @@ function nowPlaying(
   kind: "song" | "video" = "video",
   durationMs = 60_000
 ): PublicNowPlaying {
-  return { kind, song_id: id, title: id || "switching tracks…", duration_ms: durationMs };
+  return {
+    kind,
+    song_id: id,
+    title: id || "switching tracks…",
+    duration_ms: durationMs,
+    audio_blob_id: `${id}-blob`,
+  };
 }
 function meta(seq: number, id: string, kind: "song" | "video" = "video") {
   mocks.meta!(
@@ -167,7 +179,7 @@ async function tune(kind: "song" | "video" = "video", timeline = false) {
 
 beforeEach(() => {
   vi.useFakeTimers({
-    toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"],
+    toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date", "performance"],
   });
   vi.spyOn(console, "info").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -176,6 +188,7 @@ beforeEach(() => {
   mocks.timelineTime = 0;
   mocks.timelineDuration = 60;
   mocks.remote = null;
+  mocks.analytics.mockClear();
   audio = document.createElement("video");
   paused = true;
   Object.defineProperties(audio, {
@@ -345,6 +358,7 @@ describe("radio video resume progress", () => {
     await tick(70);
     leaveRadio();
     await settle();
+    expect(mocks.analytics).not.toHaveBeenCalled();
     expect(upsert).toHaveBeenLastCalledWith(
       expect.objectContaining({ entity_id: "second", position_seconds: 10 })
     );
@@ -379,4 +393,60 @@ describe("radio video resume progress", () => {
     await settle();
     expect(upsert).not.toHaveBeenCalled();
   });
+});
+
+describe("radio qualified play reporting", () => {
+  it("reports qualified timeline-mode listens with the resolved media blob", async () => {
+    mocks.remote = { remote_id: "station-library" };
+    await tune("song", true);
+    applyTimelineNowPlaying({
+      songId: "first",
+      audioBlobId: "timeline-blob",
+      title: "first",
+      durationMs: 60_000,
+    });
+    markTimelinePlaybackStarted();
+    await tick(0);
+    for (let position = 0.5; position <= 54.5; position += 0.5) {
+      if (position % 10 === 0) meta(10, "first", "song");
+      mocks.timelineTime = position;
+      await tick(0);
+    }
+    expect(mocks.analytics).toHaveBeenCalledTimes(1);
+    expect(mocks.analytics).toHaveBeenCalledWith(
+      "play_complete",
+      expect.objectContaining({ song_id: "first", target_remote_id: "station-library" })
+    );
+  });
+
+  it.each(["song", "video"] as const)(
+    "queues a %s play after >90% without using resume progress as evidence",
+    async (kind) => {
+      mocks.remote = { remote_id: "station-library" };
+      await tune(kind);
+      await tick(0);
+      for (let position = 0.5; position <= 54; position += 0.5) {
+        if (position % 10 === 0) meta(10, "first", kind);
+        await tick(position);
+      }
+      expect(mocks.analytics).not.toHaveBeenCalled();
+      await tick(54.5);
+      expect(mocks.analytics).toHaveBeenCalledTimes(1);
+      expect(mocks.analytics).toHaveBeenCalledWith(
+        kind === "video" ? "video_play_complete" : "play_complete",
+        expect.objectContaining({
+          media_blob_id: "first-blob",
+          ...(kind === "video" ? { video_id: "first" } : { song_id: "first" }),
+          target_remote_id: "station-library",
+          event_data: {
+            played_seconds: 54.5,
+            duration_seconds: 60,
+            radio_station_id: "station",
+          },
+        })
+      );
+      await tick(55);
+      expect(mocks.analytics).toHaveBeenCalledTimes(1);
+    }
+  );
 });

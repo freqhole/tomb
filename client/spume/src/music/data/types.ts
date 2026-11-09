@@ -539,6 +539,10 @@ export interface FeedItem {
   artist_id: string | null;
   playlist_id: string | null;
   video_id: string | null;
+  video_content_type?: string | null;
+  series_id?: string | null;
+  season_number?: number | null;
+  episode_number?: number | null;
   // generic entity id for session types with no dedicated FK column
   // above (genre, shuffle, radio) — see listen_sessionz.entity_id.
   entity_id: string | null;

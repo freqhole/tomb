@@ -13,7 +13,8 @@ pub struct RecordPlayRequest {
     pub song_id: String,
     /// session id for grouping plays
     pub session_id: Option<String>,
-    /// additional event data (position, progress, etc.)
+    /// requires played_seconds and duration_seconds; plays require a ratio >0.9.
+    /// optional radio_station_id attributes a qualified radio listen.
     pub event_data: Option<serde_json::Value>,
 }
 
@@ -28,7 +29,8 @@ pub struct RecordVideoPlayRequest {
     pub video_id: String,
     /// session id for grouping plays
     pub session_id: Option<String>,
-    /// additional event data (position, progress, etc.)
+    /// requires played_seconds and duration_seconds; plays require a ratio >0.9.
+    /// resume position is tracked independently and never qualifies a play.
     pub event_data: Option<serde_json::Value>,
 }
 

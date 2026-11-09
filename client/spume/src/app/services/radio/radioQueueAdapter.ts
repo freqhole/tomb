@@ -665,6 +665,7 @@ async function handleTrackTransition(
 
   applyTimelineNowPlaying({
     songId: playbackSong.id ?? null,
+    audioBlobId: playbackSong.media_blob_id ?? null,
     title: playbackSong.title,
     artist: playbackSong.artist_name ?? null,
     album: playbackSong.album_title ?? null,

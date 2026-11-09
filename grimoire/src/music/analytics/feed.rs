@@ -66,6 +66,10 @@ pub struct FeedItem {
     pub playlist_id: Option<String>,
     /// video id (if applicable)
     pub video_id: Option<String>,
+    pub video_content_type: Option<String>,
+    pub series_id: Option<String>,
+    pub season_number: Option<i64>,
+    pub episode_number: Option<i64>,
     /// main title (song title or album title)
     pub title: String,
     /// subtitle (artist name, album name, etc.)
@@ -213,6 +217,17 @@ pub async fn get_combined_feed(
         }
     };
 
+    get_combined_feed_from_pool(&pool, limit, offset, feed_types, user_id, viewer_user_id).await
+}
+
+async fn get_combined_feed_from_pool(
+    pool: &sqlx::SqlitePool,
+    limit: i64,
+    offset: i64,
+    feed_types: Option<&[FeedItemType]>,
+    user_id: Option<&str>,
+    viewer_user_id: Option<&str>,
+) -> GrimoireResponse<(Vec<FeedItem>, i64)> {
     let viewer_id = viewer_user_id.unwrap_or("");
 
     // build SQL with dynamic filters
@@ -226,6 +241,11 @@ pub async fn get_combined_feed(
             fe.artist_id,
             fe.playlist_id,
             fe.video_id,
+            CASE WHEN v.series_id IS NOT NULL THEN 'series' ELSE v.content_type END as video_content_type,
+            v.series_id,
+            vs.season_number,
+            v.episode_number,
+            series.title as series_title,
             fe.title,
             fe.subtitle,
             fe.images,
@@ -274,6 +294,9 @@ pub async fn get_combined_feed(
             fe.collage_images,
             fe.entity_id
         FROM feed_eventz fe
+        LEFT JOIN videoz v ON v.id = fe.video_id
+        LEFT JOIN video_seasonz vs ON vs.id = v.season_id
+        LEFT JOIN video_seriez series ON series.id = v.series_id
         WHERE 1=1
         "#,
     );
@@ -308,7 +331,7 @@ pub async fn get_combined_feed(
 
     let rows = match sqlx::query_as::<_, RawFeedRow>(&sql)
         .bind(viewer_id)
-        .fetch_all(&pool)
+        .fetch_all(pool)
         .await
     {
         Ok(r) => r,
@@ -337,6 +360,11 @@ struct RawFeedRow {
     artist_id: Option<String>,
     playlist_id: Option<String>,
     video_id: Option<String>,
+    video_content_type: Option<String>,
+    series_id: Option<String>,
+    season_number: Option<i64>,
+    episode_number: Option<i64>,
+    series_title: Option<String>,
     title: String,
     subtitle: Option<String>,
     images: Option<String>,
@@ -402,7 +430,11 @@ impl RawFeedRow {
             artist_id: self.artist_id,
             playlist_id: self.playlist_id,
             video_id: self.video_id,
-            title: self.title,
+            video_content_type: self.video_content_type,
+            series_id: self.series_id,
+            season_number: self.season_number,
+            episode_number: self.episode_number,
+            title: self.series_title.unwrap_or(self.title),
             subtitle: self.subtitle,
             images,
             created_at: self.created_at,
@@ -441,6 +473,92 @@ impl RawFeedRow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn feed_video_metadata_is_resolved_without_changing_other_events() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::raw_sql(
+            r#"
+            CREATE TABLE feed_eventz (
+                id TEXT, feed_type TEXT, song_id TEXT, album_id TEXT, artist_id TEXT,
+                playlist_id TEXT, video_id TEXT, title TEXT, subtitle TEXT, images TEXT,
+                updated_at INTEGER, created_at INTEGER, created_by_user_id TEXT,
+                created_by_username TEXT, rating INTEGER, session_id TEXT, session_type TEXT,
+                session_status TEXT, progress_percent REAL, songs_completed INTEGER,
+                total_songs INTEGER, artist_name TEXT, album_title TEXT, genres TEXT,
+                year INTEGER, song_count INTEGER, songs_added INTEGER, total_duration_ms INTEGER,
+                image_count INTEGER, urls TEXT, description TEXT, tags TEXT, collage_images TEXT,
+                entity_id TEXT
+            );
+            CREATE TABLE videoz (
+                id TEXT, content_type TEXT, series_id TEXT, season_id TEXT,
+                episode_number INTEGER, created_at INTEGER
+            );
+            CREATE TABLE video_seriez (id TEXT, title TEXT);
+            CREATE TABLE video_seasonz (id TEXT, season_number INTEGER);
+            CREATE TABLE taxonz (id TEXT, label TEXT);
+            CREATE TABLE user_favoritez (user_id TEXT, target_id TEXT);
+            CREATE TABLE playlistz (id TEXT, created_at INTEGER);
+            CREATE TABLE albumz (id TEXT, created_at INTEGER);
+            CREATE TABLE artistz (id TEXT, created_at INTEGER);
+            INSERT INTO video_seriez VALUES ('series', 'series title');
+            INSERT INTO video_seasonz VALUES ('season', 0);
+            INSERT INTO videoz VALUES
+                ('episode', 'movie', 'series', 'season', 3, 1),
+                ('movie', 'movie', NULL, NULL, NULL, 1),
+                ('orphan', 'series', 'missing', NULL, 4, 1);
+            INSERT INTO feed_eventz (id, feed_type, video_id, title, created_at, updated_at) VALUES
+                ('added', 'video', 'episode', 'episode title', 1, 1),
+                ('watched', 'video_watch', 'episode', 'old episode title', 1, 2),
+                ('favorited', 'favorite_video', 'episode', 'episode title', 1, 3),
+                ('rated', 'rating_video', 'episode', 'episode title', 1, 4),
+                ('movie', 'video', 'movie', 'movie title', 1, 5),
+                ('music', 'album', NULL, 'album title', 1, 6),
+                ('missing', 'video', 'deleted', 'deleted title', 1, 7),
+                ('orphan', 'video', 'orphan', 'orphan title', 1, 8);
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let response = get_combined_feed_from_pool(&pool, 20, 0, None, None, None).await;
+        assert!(response.success, "{response:?}");
+        let (items, _) = response.data.unwrap();
+        assert_eq!(items.len(), 8);
+        for id in ["added", "watched", "favorited", "rated"] {
+            let item = items.iter().find(|item| item.id == id).unwrap();
+            assert_eq!(item.title, "series title");
+            assert_eq!(item.video_content_type.as_deref(), Some("series"));
+            assert_eq!(item.series_id.as_deref(), Some("series"));
+            assert_eq!(item.season_number, Some(0));
+            assert_eq!(item.episode_number, Some(3));
+        }
+        let movie = items.iter().find(|item| item.id == "movie").unwrap();
+        assert_eq!(movie.title, "movie title");
+        assert_eq!(movie.video_content_type.as_deref(), Some("movie"));
+        assert_eq!(movie.series_id, None);
+        assert_eq!(movie.season_number, None);
+        assert_eq!(movie.episode_number, None);
+        for (id, title) in [
+            ("music", "album title"),
+            ("missing", "deleted title"),
+            ("orphan", "orphan title"),
+        ] {
+            assert_eq!(
+                items.iter().find(|item| item.id == id).unwrap().title,
+                title
+            );
+        }
+        let music = items.iter().find(|item| item.id == "music").unwrap();
+        assert_eq!(music.video_content_type, None);
+        assert_eq!(music.series_id, None);
+        pool.close().await;
+    }
 
     #[tokio::test]
     #[ignore] // requires database setup with test data

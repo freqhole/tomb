@@ -25,6 +25,12 @@ pub enum AnalyticsAction {
         /// Position in seconds where playback started
         #[arg(long)]
         position: Option<i64>,
+        /// actual playback time, excluding seeks and pauses
+        #[arg(long)]
+        played_seconds: f64,
+        /// full media duration in seconds
+        #[arg(long)]
+        duration_seconds: f64,
         /// Optional playlist ID if played from a playlist
         #[arg(long)]
         playlist_id: Option<String>,
@@ -117,6 +123,8 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
             user_id,
             session_id,
             position,
+            played_seconds,
+            duration_seconds,
             playlist_id,
         } => {
             // Get song details using query API
@@ -154,19 +162,12 @@ pub async fn handle_command(action: AnalyticsAction) -> CommandOutput<serde_json
                 return CommandOutput::failure(format!("Song not found: {}", song_id), vec![], ());
             };
 
-            // Create event data with position if provided
-            let event_data = if let Some(pos) = position {
-                Some(serde_json::json!({
-                    "position": pos,
-                    "playlist_id": playlist_id
-                }))
-            } else if playlist_id.is_some() {
-                Some(serde_json::json!({
-                    "playlist_id": playlist_id
-                }))
-            } else {
-                None
-            };
+            let event_data = Some(serde_json::json!({
+                "position": position,
+                "playlist_id": playlist_id,
+                "played_seconds": played_seconds,
+                "duration_seconds": duration_seconds,
+            }));
 
             // Create the play event using the correct signature
             let (media_event, mut music_event) = create_play_event(

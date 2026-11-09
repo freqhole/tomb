@@ -6,6 +6,7 @@
 
 use crate::analytics::{record_event_with_conn, MediaEvent, MediaEventType};
 use crate::database;
+use crate::error::ErrorDetail;
 use crate::GrimoireResponse;
 use sqlx::SqliteConnection;
 
@@ -22,6 +23,17 @@ pub async fn record_play_event(
     media_event: &MediaEvent,
     play_event: &PlayEvent,
 ) -> GrimoireResponse<(String, String)> {
+    if !qualifies_as_play(media_event.event_data.as_ref()) {
+        return GrimoireResponse::failure(
+            "play requires more than 90% actual playback time",
+            vec![ErrorDetail::new(
+                "insufficient_playback_time",
+                "play not qualified",
+                "event_data must include finite played_seconds and duration_seconds, with played_seconds / duration_seconds > 0.9",
+            )],
+        );
+    }
+
     let pool = match database::connect().await {
         Ok(p) => p,
         Err(e) => {
@@ -52,13 +64,42 @@ pub async fn record_play_event(
         return GrimoireResponse::failure("Failed to commit transaction", vec![e.into()]);
     }
 
-    // note: individual play events don't create feed events
-    // playback sessions (via playback_sessionz) handle feed visibility
+    // resume positions never qualify a watch; only an actual completed play does.
+    if play_event.entity_type.as_deref() == Some("video") {
+        if let (Some(video_id), Some(user_id)) = (&play_event.entity_id, &play_event.user_id) {
+            let response = super::feed_events::create_video_watch_feed_event(
+                video_id,
+                user_id,
+                play_event.session_id.as_deref(),
+            )
+            .await;
+            if !response.success {
+                tracing::warn!(message = %response.message, errors = ?response.errors, "failed to record video watch feed event");
+            }
+        }
+    }
 
     GrimoireResponse::success(
         "Play event recorded successfully",
         (media_event_id, play_event_id),
     )
+}
+
+fn qualifies_as_play(data: Option<&serde_json::Value>) -> bool {
+    let Some(data) = data else { return false };
+    let Some(played) = data
+        .get("played_seconds")
+        .and_then(serde_json::Value::as_f64)
+    else {
+        return false;
+    };
+    let Some(duration) = data
+        .get("duration_seconds")
+        .and_then(serde_json::Value::as_f64)
+    else {
+        return false;
+    };
+    played.is_finite() && duration.is_finite() && duration > 0.0 && played / duration > 0.9
 }
 
 /// Record a play event using an existing connection/transaction
@@ -96,53 +137,6 @@ async fn record_play_event_with_conn(
     .await?;
 
     Ok(result.id)
-}
-
-/// record N anonymous play rows for a song OR video broadcast on a radio
-/// station.
-///
-/// called from the broadcaster's track-end hook: every listener tuned in at
-/// track end gets credited with one row in `play_eventz`. these rows have
-/// no `media_event_id` (no per-listener device info) and no `user_id` (we don't
-/// track listener identity on the broadcaster side).
-///
-/// `entity_type` must be `"song"` or `"video"` (matches `play_eventz`'s
-/// existing entity_type CHECK constraint - already domain-agnostic from
-/// the video-domain rollout).
-///
-/// returns the number of rows inserted.
-pub async fn record_radio_plays(
-    entity_type: &str,
-    entity_id: &str,
-    station_id: &str,
-    listener_count: u32,
-) -> crate::GrimoireResult<u32> {
-    if listener_count == 0 {
-        return Ok(0);
-    }
-
-    let pool = database::connect().await?;
-
-    // single transaction, N inserts. for typical small listener counts this is
-    // fast enough; if it ever becomes hot we can switch to a single multi-row
-    // VALUES insert.
-    let mut tx = pool.begin().await?;
-    for _ in 0..listener_count {
-        sqlx::query!(
-            r#"
-            INSERT INTO play_eventz (entity_type, entity_id, radio_station_id)
-            VALUES (?, ?, ?)
-            "#,
-            entity_type,
-            entity_id,
-            station_id,
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-    tx.commit().await?;
-
-    Ok(listener_count)
 }
 
 /// record a "playlist initiated play" marker row.
@@ -204,6 +198,15 @@ pub fn create_play_event(
         play_event = play_event.with_session_id(sid);
     }
 
+    if let Some(station_id) = media_event
+        .event_data
+        .as_ref()
+        .and_then(|data| data.get("radio_station_id"))
+        .and_then(serde_json::Value::as_str)
+    {
+        play_event = play_event.with_radio_station_id(station_id);
+    }
+
     (media_event, play_event)
 }
 
@@ -240,6 +243,15 @@ pub fn create_video_play_event(
 
     if let Some(sid) = session_id {
         play_event = play_event.with_session_id(sid);
+    }
+
+    if let Some(station_id) = media_event
+        .event_data
+        .as_ref()
+        .and_then(|data| data.get("radio_station_id"))
+        .and_then(serde_json::Value::as_str)
+    {
+        play_event = play_event.with_radio_station_id(station_id);
     }
 
     (media_event, play_event)
@@ -288,6 +300,60 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn play_qualification_requires_strictly_more_than_ninety_percent() {
+        for played in [0.0, -1.0, 89.0, 90.0] {
+            assert!(!qualifies_as_play(Some(&json!({
+                "played_seconds": played, "duration_seconds": 100.0
+            }))));
+        }
+        assert!(qualifies_as_play(Some(&json!({
+            "played_seconds": 90.001, "duration_seconds": 100.0
+        }))));
+        for data in [
+            json!(null),
+            json!({"position": 100, "progress": 1}),
+            json!({"played_seconds": 100}),
+            json!({"played_seconds": "100", "duration_seconds": 100}),
+            json!({"played_seconds": 100, "duration_seconds": 0}),
+            json!({"played_seconds": 100, "duration_seconds": -1}),
+        ] {
+            assert!(!qualifies_as_play(Some(&data)));
+        }
+        assert!(!qualifies_as_play(None));
+    }
+
+    #[tokio::test]
+    async fn unqualified_song_and_video_plays_are_rejected_before_writing() {
+        for (media, play) in [
+            create_play_event("blob".into(), "song".into(), None, None, None),
+            create_video_play_event(
+                "blob".into(),
+                "video".into(),
+                None,
+                None,
+                Some(json!({
+                    "played_seconds": 90, "duration_seconds": 100
+                })),
+            ),
+        ] {
+            let response = record_play_event(&media, &play).await;
+            assert!(!response.success);
+            assert_eq!(response.errors[0].error_type, "insufficient_playback_time");
+        }
+    }
+
+    #[test]
+    fn qualified_radio_events_keep_station_attribution_for_both_domains() {
+        let data = Some(json!({
+            "played_seconds": 91, "duration_seconds": 100, "radio_station_id": "station"
+        }));
+        let (_, song) = create_play_event("blob".into(), "song".into(), None, None, data.clone());
+        let (_, video) = create_video_play_event("blob".into(), "video".into(), None, None, data);
+        assert_eq!(song.radio_station_id.as_deref(), Some("station"));
+        assert_eq!(video.radio_station_id.as_deref(), Some("station"));
+    }
+
+    #[test]
     fn test_create_play_event() {
         let (media_event, play_event) = create_play_event(
             "blob123".to_string(),
@@ -331,7 +397,7 @@ mod tests {
             "test_song".to_string(),
             Some("test_user".to_string()),
             Some("test_session".to_string()),
-            Some(json!({"position": 0})),
+            Some(json!({"played_seconds": 100, "duration_seconds": 100})),
         );
 
         let response = record_play_event(&media_event, &play_event).await;

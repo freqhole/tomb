@@ -19,6 +19,7 @@ import { createStore, reconcile } from "solid-js/store";
 import { entityColors } from "../../design-system/colors";
 import { getCurrentUser } from "../../music/data";
 import type { FeedItem, FeedItemType } from "../../music/data/types";
+import { feedEpisodeDetails, feedVideoLabel } from "../../music/services/feed/feedPresentation";
 import type { FavoriteTarget } from "../../music/queries/favorites";
 import { FavoriteToggle } from "../../utils/FavoriteToggle";
 import { formatLongDuration } from "../../utils/formatDuration";
@@ -68,10 +69,11 @@ function feedTypeInfo(type: FeedItemType): { color: string; icon: IconName } {
 
 // entity type label for action text
 function entityLabel(item: FeedItem): string {
+  const videoLabel = feedVideoLabel(item);
+  if (videoLabel) return videoLabel;
   if (item.playlist_id) return "a playlist";
   if (item.album_id && !item.song_id) return "an album";
   if (item.artist_id && !item.song_id && !item.album_id) return "an artist";
-  if (item.video_id) return "a video";
   if (item.song_id) return "a song";
   if (item.target_type === "artist") return "an artist";
   if (item.target_type === "album") return "an album";
@@ -419,7 +421,7 @@ function FeedRow(props: {
         }
       }
       case "recent_video":
-        return { user, verb: "added", entity: "a new video" };
+        return { user, verb: "added", entity: entity.replace(/^an? /, "a new ") };
       case "recent_rating":
         return { user, verb: "rated", entity: entity || "a song" };
       case "recent_playlist": {
@@ -456,6 +458,8 @@ function FeedRow(props: {
       return item.subtitle ?? "";
     }
     const parts: string[] = [];
+    const episodeDetails = feedEpisodeDetails(item);
+    if (episodeDetails) return episodeDetails;
     if (item.artist_name && item.artist_name !== item.title) parts.push(item.artist_name);
     if (
       item.album_title &&
@@ -771,7 +775,12 @@ function FeedRow(props: {
           <Show
             when={
               props.onAddToQueue &&
-              (props.item.song_id || props.item.album_id || props.item.playlist_id)
+              (props.item.song_id ||
+                props.item.album_id ||
+                props.item.playlist_id ||
+                props.item.artist_id ||
+                props.item.video_id ||
+                (props.item.session_id && props.item.session_type !== "radio"))
             }
           >
             <button
