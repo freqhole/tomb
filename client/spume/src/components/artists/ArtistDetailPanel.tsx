@@ -920,7 +920,7 @@ export function ArtistDetailPanel(props: ArtistDetailPanelProps): JSX.Element {
         </div>
 
         {/* albums list with songs */}
-        <div class="flex-1 px-4 wide:px-6 py-3 wide:py-4">
+        <div class="flex-1 px-2 wide:px-6 py-3 wide:py-4">
           <Show
             when={!props.isLoadingSongs}
             fallback={

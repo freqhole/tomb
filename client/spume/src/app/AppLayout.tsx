@@ -1488,6 +1488,7 @@ export function AppLayout(props: AppLayoutProps) {
           }));
         },
         streamLabel: () => `video "${entry.label}"`,
+        hasProgress: () => hasProgress,
         alreadyLocal: () => {
           const video = entry.videos[resumeIndex];
           return !!video && isVideoAlreadyLocal(video);
@@ -1660,19 +1661,36 @@ export function AppLayout(props: AppLayoutProps) {
           <Show when={bgConfig()}>
             {(config) => (
               <>
-                {/* background image */}
+                {/* background image - contrast pulls highlights (white covers)
+                    down toward gray far more than it darkens shadows */}
                 <div
                   class="fixed inset-0 bg-cover bg-center bg-no-repeat transition-opacity duration-500"
                   style={{
                     "background-image": `url(${config().imageUrl})`,
+                    filter: "brightness(0.8) contrast(0.75)",
                     "z-index": -2,
                   }}
                 />
-                {/* dark overlay for readability */}
+                {/* dark overlay for readability. narrow: flat (content spans
+                    the full width, there's no edge to spare). wide: darker
+                    behind the centered content, lighter toward the edges. */}
                 <div
-                  class="fixed inset-0 bg-black transition-opacity duration-500"
+                  class="wide:hidden fixed inset-0 bg-black transition-opacity duration-500"
                   style={{
-                    opacity: config().overlayOpacity ?? 0.7,
+                    opacity: Math.min((config().overlayOpacity ?? 0.7) + 0.05, 0.95),
+                    "z-index": -1,
+                  }}
+                />
+                <div
+                  class="hidden wide:block fixed inset-0 transition-opacity duration-500"
+                  style={{
+                    "background-image": `radial-gradient(ellipse at center, rgb(0 0 0 / ${Math.min(
+                      (config().overlayOpacity ?? 0.7) + 0.15,
+                      0.95
+                    )}) 0%, rgb(0 0 0 / ${Math.max(
+                      (config().overlayOpacity ?? 0.7) - 0.15,
+                      0
+                    )}) 100%)`,
                     "z-index": -1,
                   }}
                 />

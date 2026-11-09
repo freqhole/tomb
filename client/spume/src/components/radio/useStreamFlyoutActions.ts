@@ -44,6 +44,11 @@ export interface UseStreamFlyoutActionsProps {
    *  returns true. */
   resolveStartOverItems?: () => Promise<RequestQueueItem[] | null>;
   canStartOver?: () => boolean;
+  /** true when the stream entry would pick up from saved watch progress -
+   *  picks the "continue stream on X" label over "play on X". defaults to
+   *  `canStartOver` (a resumable collection with progress). callers that
+   *  can't know synchronously (bare context-menu rows) get "play on X". */
+  hasProgress?: () => boolean;
 }
 
 export function useStreamFlyoutActions(props: UseStreamFlyoutActionsProps) {
@@ -75,9 +80,10 @@ export function useStreamFlyoutActions(props: UseStreamFlyoutActionsProps) {
   const menuActions = createMemo((): MenuAction[] => {
     const station = streamStation();
     if (!station) return [];
+    const hasProgress = props.hasProgress?.() ?? props.canStartOver?.() ?? false;
     const actions: MenuAction[] = [
       {
-        label: `continue stream on "${station.name}"`,
+        label: hasProgress ? `continue stream on "${station.name}"` : `play on "${station.name}"`,
         icon: "radioTower",
         onClick: () => void handleStream(() => props.resolveStreamItems()),
         disabled: busy(),

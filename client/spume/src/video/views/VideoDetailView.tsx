@@ -512,6 +512,7 @@ export function VideoDetailView() {
     resolveStreamItems,
     streamLabel: () => `video "${videoQuery.data?.title ?? ""}"`,
     alreadyLocal: isAlreadyLocal,
+    hasProgress: () => resumePosition() != null,
   });
   const videoContextMenuActions = createMemo(() => {
     const video = videoQuery.data;
@@ -626,6 +627,7 @@ export function VideoDetailView() {
                             resolveStreamItems={resolveStreamItems}
                             streamLabel={`video "${video().title}"`}
                             alreadyLocal={isAlreadyLocal}
+                            hasProgress={() => resumePosition() != null}
                           />
                           <FavoriteHeart isFavorite={isFavorite()} onToggle={handleFavoriteToggle} />
                         </>
@@ -684,6 +686,7 @@ export function VideoDetailView() {
                       resolveStreamItems={resolveStreamItems}
                       streamLabel={`video "${video().title}"`}
                       alreadyLocal={isAlreadyLocal}
+                      hasProgress={() => resumePosition() != null}
                     />
                     <Button
                       variant="ghost"

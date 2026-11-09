@@ -1,5 +1,6 @@
 import { Show } from "solid-js";
 import { FavoriteIcon, FavoriteStrokeIcon } from "../icons/registry";
+import { hasBackgroundImage } from "../../app/services/backgroundImage";
 
 export interface FavoriteHeartProps {
   /** whether item is favorited */
@@ -38,7 +39,12 @@ export function FavoriteHeart(props: FavoriteHeartProps) {
   };
 
   const getHeartClass = () => {
-    const baseClass = "transition-all duration-200";
+    // over a background image the heart can land on anything from black to
+    // white: a crisp unblurred dark edge keeps it legible on light art
+    // without making it read heavier on dark art
+    const baseClass = `transition-all duration-200 ${
+      hasBackgroundImage() ? "[filter:drop-shadow(0_0_0.5px_rgb(0_0_0/0.6))]" : ""
+    }`;
 
     if (disabled()) {
       return `${baseClass} text-[var(--color-text-disabled)] cursor-not-allowed`;
@@ -53,7 +59,9 @@ export function FavoriteHeart(props: FavoriteHeartProps) {
     return `${baseClass} cursor-pointer hover:scale-110 ${
       isFavorite()
         ? "text-[var(--color-accent-500)] hover:text-[var(--color-accent-400)]"
-        : "text-[var(--color-text-muted)] hover:text-[var(--color-accent-500)]"
+        : `${
+            hasBackgroundImage() ? "text-white/75" : "text-[var(--color-text-muted)]"
+          } hover:text-[var(--color-accent-500)]`
     }`;
   };
 
@@ -88,7 +96,7 @@ export function FavoriteHeart(props: FavoriteHeartProps) {
         when={isFavorite()}
         fallback={
           <span class={getHeartClass()}>
-            <FavoriteStrokeIcon size={getIconSize()} />
+            <FavoriteStrokeIcon size={getIconSize()} strokeWidth={2.5} />
           </span>
         }
       >

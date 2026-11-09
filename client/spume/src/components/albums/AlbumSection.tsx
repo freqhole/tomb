@@ -7,7 +7,7 @@ import { formatDuration, formatHumanDuration } from "../../utils/formatDuration"
 import { ContextMenu, type MenuAction } from "../overlays/ContextMenu";
 import { FavoriteHeart } from "../ratings/FavoriteHeart";
 import { Rating } from "../ratings/Rating";
-import { SongRow } from "../songs/SongRow";
+import { SongRow, trackNumberColumnStyle } from "../songs/SongRow";
 import { hasBackgroundImage } from "../../app/services/backgroundImage";
 import { MarqueeText } from "../text/MarqueeText";
 import MediaImage from "../media/MediaImage";
@@ -324,7 +324,14 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
       </div>
 
       {/* album songs */}
-      <div class="space-y-1 pl-4">
+      <div
+        class="space-y-1 wide:pl-4"
+        style={trackNumberColumnStyle(
+          props.songs.map((song) =>
+            song.disc_number > 1 ? `${song.disc_number}-${song.track_number}` : song.track_number
+          )
+        )}
+      >
         <For each={props.songs}>
           {(song) => {
             const trackDisplay =
@@ -342,6 +349,7 @@ export function AlbumSection(props: AlbumSectionProps): JSX.Element {
                 isOffline={song.is_offline}
                 trackNumber={trackDisplay}
                 duration={formatDuration(song.duration_seconds)}
+                playCount={song.play_count ?? null}
                 isPlaying={props.playingSongId === song.id}
                 onDoubleClick={() => props.onSongDoubleClick?.(song)}
                 showPlayOnHover={true}
