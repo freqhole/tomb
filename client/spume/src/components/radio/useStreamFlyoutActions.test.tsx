@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/solid-query";
 import { render } from "solid-js/web";
+import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useStreamFlyoutActions } from "./useStreamFlyoutActions";
 import type { PublicStation } from "@freqhole/api-client";
@@ -59,6 +60,12 @@ function mountFlyout(props: Parameters<typeof useStreamFlyoutActions>[0]) {
       <div>
         <span data-testid="caret">{String(flyout.showCaret())}</span>
         <span data-testid="actions">{flyout.menuActions().length}</span>
+        <span data-testid="first-label">
+          {(() => {
+            const first = flyout.menuActions()[0];
+            return first && "label" in first ? first.label : "";
+          })()}
+        </span>
       </div>
     );
   }
@@ -146,5 +153,23 @@ describe("useStreamFlyoutActions", () => {
     await vi.waitFor(() => expect(radioStationsFull).toHaveBeenCalled());
     await new Promise((r) => setTimeout(r, 10));
     expect(host!.querySelector('[data-testid="caret"]')!.textContent).toBe("false");
+  });
+
+  it("labels the stream entry 'play on' without progress and 'continue stream on' with it", async () => {
+    radioStationsFull.mockResolvedValue({
+      success: true,
+      data: { enabled: true, stations: [station()] },
+    });
+    const [hasProgress, setHasProgress] = createSignal(false);
+    mountFlyout({
+      remote: () => remote,
+      resolveStreamItems: resolveToNull,
+      streamLabel: () => "series",
+      hasProgress,
+    });
+    const label = () => host!.querySelector('[data-testid="first-label"]')!.textContent;
+    await vi.waitFor(() => expect(label()).toBe('play on "test station"'));
+    setHasProgress(true);
+    expect(label()).toBe('continue stream on "test station"');
   });
 });

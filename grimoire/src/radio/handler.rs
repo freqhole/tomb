@@ -18,7 +18,7 @@ use crate::radio::broadcaster::{
 use crate::radio::chunk::Chunk;
 use crate::radio::messages::{
     ChunkReadyMessage, ControlMessage, GoodbyeMessage, HelloMessage, LagMessage, MetaMessage,
-    SkipMessage, RADIO_CODEC,
+    SkipMessage, WarmupMessage, RADIO_CODEC,
 };
 use crate::radio::protocol::{read_control_message, write_chunk, write_control_message};
 use crate::radio::stations::get_station;
@@ -394,6 +394,12 @@ async fn forward_meta(
         match rx.recv().await {
             Ok(MetaUpdate::SkipFlush) => {
                 let msg = ControlMessage::Skip(SkipMessage {});
+                if ctrl_tx.send(msg).await.is_err() {
+                    return Ok(SessionEnd::Finished);
+                }
+            }
+            Ok(MetaUpdate::Warmup { percent }) => {
+                let msg = ControlMessage::Warmup(WarmupMessage { percent });
                 if ctrl_tx.send(msg).await.is_err() {
                     return Ok(SessionEnd::Finished);
                 }

@@ -62,11 +62,36 @@ export interface SongRowProps {
   playCount?: number | null;
 }
 
+/** style for a song list container: sizes every row's track number cell to
+ *  the longest label in the list (e.g. "9" -> 1ch, "2-15" -> 4ch), so the
+ *  column stays aligned without reserving room for numbers that never appear. */
+export function trackNumberColumnStyle(
+  labels: Array<string | number | null | undefined>
+): JSX.CSSProperties {
+  const longest = labels.reduce<number>(
+    (max, label) => Math.max(max, String(label ?? "").length),
+    1
+  );
+  return { "--track-num-width": `${longest}ch` };
+}
+
 export function SongRow(props: SongRowProps): JSX.Element {
+  const hasPlayCount = () => props.playCount != null && props.playCount > 0;
+  // over a background image the theme's gray meta text disappears into light
+  // art, so lift it toward white (but keep it a step below the title)
+  const metaTextClass = () =>
+    hasBackgroundImage() ? "text-white/75" : "text-[var(--color-text-tertiary)]";
+  const playCountTextClass = () =>
+    hasBackgroundImage() ? "text-white/65" : "text-[var(--color-text-muted)]";
+
+  // narrow layout: everything is top-aligned to a shared 24px first line so
+  // the title can wrap onto a second line, and the play count tucks under
+  // the duration (which never moves, with or without plays). wide layout:
+  // unchanged single-line row.
   const rowContent = (
     <div
       {...tapOrDblClick(() => props.onDoubleClick?.())}
-      class={`flex items-center gap-3 p-2 rounded transition-colors cursor-pointer group ${
+      class={`flex items-start wide:items-center gap-2 wide:gap-3 px-1 py-1.5 wide:p-2 rounded transition-colors cursor-pointer group ${
         props.isHighlighted
           ? "bg-[var(--color-accent-primary)]/15 ring-1 ring-[var(--color-accent-primary)]/30"
           : props.isPlaying
@@ -84,7 +109,11 @@ export function SongRow(props: SongRowProps): JSX.Element {
       <Show
         when={props.thumbnailUrl !== undefined}
         fallback={
-          <div class="w-8 text-sm text-[var(--color-text-tertiary)] text-right flex-shrink-0">
+          // narrow: width comes from the list's --track-num-width (see
+          // trackNumberColumnStyle), never under 1rem so the play/pause icon fits
+          <div
+            class={`w-[max(var(--track-num-width,2ch),1rem)] wide:w-8 tabular-nums text-sm leading-6 wide:leading-normal ${metaTextClass()} text-right flex-shrink-0`}
+          >
             {props.showPlayOnHover && !props.isPlaying ? (
               <>
                 <span class="group-hover:hidden">{props.trackNumber ?? ""}</span>
@@ -113,7 +142,8 @@ export function SongRow(props: SongRowProps): JSX.Element {
       {/* song title (with optional artist prefix for compilations) */}
       <div class="flex-1 min-w-0">
         <div class={getPlayingTextClasses(!!props.isPlaying)}>
-          <MarqueeText text={props.title} hoverOnly={true} />
+          <span class="wide:hidden text-sm leading-6 line-clamp-2 break-words">{props.title}</span>
+          <MarqueeText text={props.title} hoverOnly={true} class="hidden wide:block" />
         </div>
         <Show when={props.artist}>
           <MarqueeText
@@ -126,10 +156,10 @@ export function SongRow(props: SongRowProps): JSX.Element {
 
       <OfflineBadge isOffline={props.isOffline} />
 
-      {/* play count (before action buttons) */}
-      <Show when={props.playCount != null && props.playCount > 0}>
+      {/* wide: play count inline before the action buttons */}
+      <Show when={hasPlayCount()}>
         <div
-          class="text-xs text-[var(--color-text-muted)] flex-shrink-0 w-10 text-right"
+          class={`hidden wide:block text-xs ${playCountTextClass()} flex-shrink-0 w-10 text-right`}
           title={`${props.playCount} plays`}
         >
           {props.playCount}×
@@ -138,7 +168,7 @@ export function SongRow(props: SongRowProps): JSX.Element {
 
       {/* favorite indicator/toggle */}
       <Show when={props.isFavorite !== undefined && props.songId}>
-        <div class="flex-shrink-0">
+        <div class="flex-shrink-0 h-6 wide:h-auto flex items-center">
           <FavoriteHeart
             isFavorite={props.isFavorite ?? false}
             onToggle={props.onFavoriteToggle}
@@ -148,15 +178,27 @@ export function SongRow(props: SongRowProps): JSX.Element {
         </div>
       </Show>
 
-      {/* rating */}
+      {/* rating (wide only, narrow rows give the room to the title) */}
       <Show when={props.onRatingChange && props.songId}>
-        <div class="flex-shrink-0">
+        <div class="hidden wide:block flex-shrink-0">
           <Rating rating={props.rating ?? 0} size="sm" onRatingChange={props.onRatingChange} />
         </div>
       </Show>
 
-      {/* duration */}
-      <div class="text-sm text-[var(--color-text-tertiary)] flex-shrink-0">{props.duration}</div>
+      {/* duration, with the narrow-layout play count stacked underneath */}
+      <div class="flex flex-col items-end min-w-[2.5rem] wide:min-w-0 flex-shrink-0">
+        <div class={`text-sm leading-6 wide:leading-normal ${metaTextClass()}`}>
+          {props.duration}
+        </div>
+        <Show when={hasPlayCount()}>
+          <div
+            class={`wide:hidden text-xs leading-4 ${playCountTextClass()}`}
+            title={`${props.playCount} plays`}
+          >
+            {props.playCount}×
+          </div>
+        </Show>
+      </div>
     </div>
   );
 

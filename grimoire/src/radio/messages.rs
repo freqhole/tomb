@@ -50,6 +50,10 @@ pub enum ControlMessage {
     /// chunk seq. listeners may compare against their own `lastSeenSeq`
     /// and reconnect if the gap grows beyond a threshold.
     ChunkReady(ChunkReadyMessage),
+    /// server → client, sent about once a second while a freshly-started
+    /// station is preparing its first track (no media published yet), so
+    /// a tuning listener can show real progress instead of a silent wait.
+    Warmup(WarmupMessage),
     /// server → client, final control message before the session closes.
     Goodbye(GoodbyeMessage),
 }
@@ -75,6 +79,13 @@ pub struct LagMessage {
 /// to know the next track's init seq until it actually starts).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SkipMessage {}
+
+/// server → client warm-up progress. see [`ControlMessage::Warmup`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WarmupMessage {
+    /// how much of the station's pre-publish buffer is ready, 0-100.
+    pub percent: u8,
+}
 
 /// server → client heartbeat. see [`ControlMessage::ChunkReady`].
 #[derive(Debug, Clone, Serialize, Deserialize)]

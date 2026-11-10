@@ -15,7 +15,7 @@ import { MediaImage } from "../../components/media/MediaImage";
 import { ContextMenu } from "../../components/overlays/ContextMenu";
 import { FavoriteHeart } from "../../components/ratings/FavoriteHeart";
 import { Rating } from "../../components/ratings/Rating";
-import { SongRow } from "../../components/songs/SongRow";
+import { SongRow, trackNumberColumnStyle } from "../../components/songs/SongRow";
 import { formatDuration, formatLongDuration } from "../../utils/formatDuration";
 import { canUpdateAlbum } from "../data/permissions";
 import {
@@ -776,7 +776,16 @@ export function AlbumDetailView() {
 
               {/* songs list */}
               <div classList={{ "flex-1 min-h-0 overflow-auto": useSplitLayout() }}>
-                <div class="px-4 wide:px-6 py-2 wide:py-4 space-y-1">
+                <div
+                  class="px-2 wide:px-6 py-2 wide:py-4 space-y-1"
+                  style={trackNumberColumnStyle(
+                    songs().map((song) =>
+                      song.disc_number > 1
+                        ? `${song.disc_number}-${song.track_number}`
+                        : song.track_number
+                    )
+                  )}
+                >
                   <For each={songs()}>
                     {(song) => {
                       const trackDisplay =

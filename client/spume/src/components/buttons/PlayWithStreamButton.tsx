@@ -53,6 +53,9 @@ export interface PlayWithStreamButtonProps {
   onStartOver?: () => void;
   canStartOver?: () => boolean;
   resolveStartOverStreamItems?: () => Promise<RequestQueueItem[] | null>;
+  /** true when "play" here resumes saved progress (picks the "continue
+   *  stream on X" flyout label). defaults to `canStartOver`. */
+  hasProgress?: () => boolean;
 }
 
 export function PlayWithStreamButton(props: PlayWithStreamButtonProps) {
@@ -65,6 +68,7 @@ export function PlayWithStreamButton(props: PlayWithStreamButtonProps) {
       ? () => props.resolveStartOverStreamItems!()
       : undefined,
     canStartOver: () => !!props.onStartOver && (props.canStartOver?.() ?? false),
+    hasProgress: () => props.hasProgress?.() ?? props.canStartOver?.() ?? false,
   });
 
   const startOverAvailable = () => !!props.onStartOver && (props.canStartOver?.() ?? false);

@@ -39,9 +39,27 @@ pub fn boundary_warmup_budget(
         .min(full_timeout)
 }
 
+/// warm-up progress shown to tuning listeners, 0-99. never reports 100
+/// while still warming - the track being published is the real "done".
+pub fn progress_percent(ready_chunks: u64, target_chunks: u64) -> u8 {
+    if target_chunks == 0 {
+        return 0;
+    }
+    (ready_chunks.saturating_mul(100) / target_chunks).min(99) as u8
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn progress_percent_is_capped_below_100() {
+        assert_eq!(progress_percent(0, 20), 0);
+        assert_eq!(progress_percent(5, 20), 25);
+        assert_eq!(progress_percent(20, 20), 99);
+        assert_eq!(progress_percent(40, 20), 99);
+        assert_eq!(progress_percent(3, 0), 0);
+    }
 
     #[test]
     fn first_track_or_no_listeners_gets_the_full_timeout() {

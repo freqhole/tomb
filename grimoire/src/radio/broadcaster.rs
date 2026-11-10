@@ -155,7 +155,13 @@ pub enum MetaUpdate {
     /// instead of letting it play out - a `NowPlaying` change follows
     /// separately once the next track actually starts.
     SkipFlush,
+    /// a fresh start (nobody mid-stream) is still filling its warm-up
+    /// buffer before publishing the track. `percent` is 0-100.
+    Warmup { percent: u8 },
 }
+
+/// how often warm-up progress is pushed to tuning listeners.
+const WARMUP_PROGRESS_INTERVAL: Duration = Duration::from_secs(1);
 
 struct State {
     current_init: Option<Arc<Chunk>>,
@@ -1188,6 +1194,7 @@ impl Broadcaster {
         }
 
         let encoder_setup_started = Instant::now();
+        let _ = self.meta_tx.send(MetaUpdate::Warmup { percent: 0 });
         let mut encoder = {
             // content_mode-aware: a video-capable station with no
             // per-station encode_args override must NOT fall back to the
@@ -1307,11 +1314,18 @@ impl Broadcaster {
         // before giving up on ever reaching 20 chunks). `is_finished()`
         // means the encoder has hit clean EOF/error and nothing more is
         // coming, so whatever's ready right now is genuinely final.
+        let mut last_progress_at = warmup_started;
         while (encoder.queued_chunks() as u64) < warmup_target_chunks
             && Instant::now() < warmup_deadline
             && !encoder.is_finished()
         {
             tokio::time::sleep(ENCODER_WARMUP_POLL_INTERVAL).await;
+            if last_progress_at.elapsed() >= WARMUP_PROGRESS_INTERVAL {
+                last_progress_at = Instant::now();
+                let percent =
+                    warmup::progress_percent(encoder.queued_chunks() as u64, warmup_target_chunks);
+                let _ = self.meta_tx.send(MetaUpdate::Warmup { percent });
+            }
         }
         let warmup_elapsed = warmup_started.elapsed();
         if let Some(cushion) = listener_cushion {

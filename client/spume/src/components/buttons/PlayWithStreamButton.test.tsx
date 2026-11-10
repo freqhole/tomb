@@ -177,7 +177,7 @@ describe("PlayWithStreamButton", () => {
     await vi.waitFor(() => expect(document.querySelector('[role="menu"]')).not.toBeNull());
     const menuButtons = Array.from(document.querySelectorAll('[role="menuitem"]'));
     expect(menuButtons.some((b) => b.textContent?.includes("play"))).toBe(true);
-    const streamItem = menuButtons.find((b) => b.textContent?.includes("stream on"));
+    const streamItem = menuButtons.find((b) => b.textContent?.trim() === 'play on "test station"');
     expect(streamItem).toBeTruthy();
     (streamItem as HTMLButtonElement).click();
 
@@ -226,7 +226,7 @@ describe("PlayWithStreamButton", () => {
     trigger.click();
     await vi.waitFor(() => expect(document.querySelector('[role="menu"]')).not.toBeNull());
     const streamItem = Array.from(document.querySelectorAll('[role="menuitem"]')).find((b) =>
-      b.textContent?.includes("stream on")
+      b.textContent?.includes('on "test station"')
     );
     (streamItem as HTMLButtonElement).click();
 
