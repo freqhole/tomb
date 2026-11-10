@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -16,7 +17,11 @@ vi.mock("../../app/services/charnel/commands", () => ({
 vi.mock("../../app/services/charnel/mode", () => ({ isCharnelMode: () => false }));
 vi.mock("../../utils/isMobile", () => ({ isTouchDevice: () => false }));
 
-import { collapseVideoMiniPlayer, VideoMiniPlayer } from "./VideoMiniPlayer";
+import {
+  collapseVideoMiniPlayer,
+  VideoMiniPlayer,
+  videoMiniPlayerExpanded,
+} from "./VideoMiniPlayer";
 
 let dispose: (() => void) | undefined;
 let host: HTMLDivElement;
@@ -72,9 +77,7 @@ describe("VideoMiniPlayer expanded idle", () => {
 });
 
 describe("VideoMiniPlayer close while expanded", () => {
-  it("stops reporting expanded once the panel is hidden, and stays collapsed", async () => {
-    const { createSignal } = await import("solid-js");
-    const { videoMiniPlayerExpanded } = await import("./VideoMiniPlayer");
+  it("stops reporting expanded once the panel is hidden, and stays collapsed", () => {
     dispose?.();
     host.innerHTML = "";
     const [hidden, setHidden] = createSignal(false);
@@ -100,8 +103,7 @@ describe("VideoMiniPlayer close while expanded", () => {
     expect(host.querySelector('button[title="expand"]')).not.toBeNull();
   });
 
-  it("stops reporting expanded once the panel unmounts", async () => {
-    const { videoMiniPlayerExpanded } = await import("./VideoMiniPlayer");
+  it("stops reporting expanded once the panel unmounts", () => {
     expand();
     expect(videoMiniPlayerExpanded()).toBe(true);
     dispose?.();
