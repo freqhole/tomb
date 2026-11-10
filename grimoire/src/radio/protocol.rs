@@ -152,10 +152,24 @@ pub async fn write_control_message(
 }
 
 /// read one length-prefixed JSON control message off a stream. returns
-/// `Ok(None)` on a clean EOF between messages.
+/// `Ok(None)` on a clean EOF between messages. messages this build
+/// doesn't recognize (a newer peer's additions) are skipped rather than
+/// failing the read - framing is length-prefixed, so the stream stays in
+/// sync, and erroring here would tear down an otherwise healthy session.
 pub async fn read_control_message(
     stream: &mut RecvStream,
 ) -> GrimoireResult<Option<ControlMessage>> {
+    loop {
+        let Some(body) = read_control_body(stream).await? else {
+            return Ok(None);
+        };
+        if let Some(msg) = parse_control_body(&body)? {
+            return Ok(Some(msg));
+        }
+    }
+}
+
+async fn read_control_body(stream: &mut RecvStream) -> GrimoireResult<Option<Vec<u8>>> {
     let mut header = [0u8; 4];
     match stream.read_exact(&mut header).await {
         Ok(_) => {}
@@ -184,8 +198,52 @@ pub async fn read_control_message(
         .map_err(|e| GrimoireError::FederationApiError {
             message: format!("radio: failed to read control body ({len} bytes): {e}"),
         })?;
-    let msg = serde_json::from_slice(&body).map_err(|e| GrimoireError::ProcessingFailed {
-        message: format!("radio: failed to parse control message: {e}"),
-    })?;
-    Ok(Some(msg))
+    Ok(Some(body))
+}
+
+/// `Ok(None)` = a well-formed message of a type this build doesn't know
+/// (skip it). anything that isn't a typed JSON object is still an error.
+fn parse_control_body(body: &[u8]) -> GrimoireResult<Option<ControlMessage>> {
+    match serde_json::from_slice::<ControlMessage>(body) {
+        Ok(msg) => Ok(Some(msg)),
+        Err(e) => {
+            let msg_type = serde_json::from_slice::<serde_json::Value>(body)
+                .ok()
+                .and_then(|v| v.get("type").and_then(|t| t.as_str()).map(str::to_owned));
+            match msg_type {
+                Some(t) => {
+                    tracing::debug!(
+                        "[radio-protocol] skipping unrecognized control message '{t}': {e}"
+                    );
+                    Ok(None)
+                }
+                None => Err(GrimoireError::ProcessingFailed {
+                    message: format!("radio: failed to parse control message: {e}"),
+                }),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn known_control_message_parses() {
+        let msg = parse_control_body(br#"{"type":"skip"}"#).unwrap();
+        assert!(matches!(msg, Some(ControlMessage::Skip(_))));
+    }
+
+    #[test]
+    fn unrecognized_control_message_is_skipped_not_fatal() {
+        let msg = parse_control_body(br#"{"type":"from_the_future","x":1}"#).unwrap();
+        assert!(msg.is_none());
+    }
+
+    #[test]
+    fn untyped_garbage_is_still_an_error() {
+        assert!(parse_control_body(b"not json").is_err());
+        assert!(parse_control_body(br#"{"no_type":true}"#).is_err());
+    }
 }

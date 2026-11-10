@@ -251,6 +251,23 @@ const [currentRemoteServerId, setCurrentRemoteServerId] = createSignal<string | 
 // label with no further detail reads as stuck even when it's progressing
 // normally - see `drain()`/`tuneIntoRadio` for where this gets updated).
 const [connectPhase, setConnectPhase] = createSignal<string>("");
+// detailed phases only show once a start has been slow for a moment -
+// a quick start shows one generic "tuning…" label instead of flickering
+// through several phases that are each on screen for a split second.
+const CONNECT_DETAIL_DELAY_MS = 1500;
+const [connectDetailVisible, setConnectDetailVisible] = createSignal(false);
+let connectDetailTimer: ReturnType<typeof setTimeout> | null = null;
+function resetConnectDetailDelay(restart: boolean) {
+  if (connectDetailTimer !== null) clearTimeout(connectDetailTimer);
+  connectDetailTimer = null;
+  setConnectDetailVisible(false);
+  if (restart) {
+    connectDetailTimer = setTimeout(() => {
+      connectDetailTimer = null;
+      setConnectDetailVisible(true);
+    }, CONNECT_DETAIL_DELAY_MS);
+  }
+}
 // favorite state for the currently-playing radio track. mirrors the
 // remote's `is_favorite` for the broadcasting peer + currently-logged-in
 // user; reset on every track transition. null = unknown / not yet
@@ -423,7 +440,7 @@ export const radioCurrentPeerAddr = currentPeerAddr;
 export const radioCurrentStationId = currentStationId;
 export const radioCurrentIsLocal = currentIsLocal;
 export const radioCurrentRemoteServerId = currentRemoteServerId;
-export const radioConnectPhase = connectPhase;
+export const radioConnectPhase = () => (connectDetailVisible() ? connectPhase() : "");
 export const radioCurrentFavorite = currentFavorite;
 export const radioElapsedMs = elapsedMs;
 export const radioTrackPositionMs = () =>
@@ -870,6 +887,7 @@ export function leaveRadio(): void {
     setCurrentRemoteServerId(null);
     setCurrentFavorite(null);
     setConnectPhase("");
+    resetConnectDetailDelay(false);
     setModeCapabilities([]);
     setTimelineSeedActive(false);
     setTimelineSnapshot(null);
@@ -1052,6 +1070,7 @@ export async function tuneIntoRadio(
   const tuneAttemptId = bumpTuneAttemptId();
   const isActiveTune = () => tuneAttemptId === activeTuneAttemptId;
   setConnectPhase("connecting to peer\u2026");
+  resetConnectDetailDelay(true);
 
   const guarded = (fn: () => void) => {
     if (!isActiveTune()) return;
@@ -1614,7 +1633,8 @@ export async function tuneIntoRadio(
       const end = sb.buffered.end(sb.buffered.length - 1);
       const targetS = minReadyToStartMs() / 1000;
       const bufferedS = end - start;
-      setConnectPhase(`buffering ${bufferedS.toFixed(1)}s / ${targetS.toFixed(1)}s`);
+      const bufferedPct = targetS > 0 ? Math.min(99, Math.floor((bufferedS / targetS) * 100)) : 0;
+      setConnectPhase(`buffering ${bufferedPct}%`);
       const ready = bufferedS >= targetS;
       if (ready) {
         const target =
@@ -2487,6 +2507,16 @@ export async function tuneIntoRadio(
       flushForAdminSkip();
       return true;
     }
+    if (msg.type === "warmup") {
+      // only meaningful while first tuning in - a running session also
+      // sees these at every track boundary, where they'd just be noise.
+      const percent = (msg as { percent?: unknown }).percent;
+      lastWarmupAtMs = Date.now();
+      if (status() === "connecting" && !sawFirstChunk && typeof percent === "number") {
+        setConnectPhase(`station warming up ${percent}%`);
+      }
+      return true;
+    }
     if (msg.type === "chunk_ready") {
       const beat = msg as { listener_count?: unknown };
       if (typeof beat.listener_count === "number") {
@@ -2638,6 +2668,8 @@ export async function tuneIntoRadio(
   // track whether we have received real media data on the chunk stream.
   // keeps the player status in "connecting" until bytes actually arrive.
   let sawFirstChunk = false;
+  // last time the station reported warm-up progress (0 = never).
+  let lastWarmupAtMs = 0;
   // the init chunk landing over the network says nothing about when the
   // listener actually *hears* that track — the SourceBuffer can still
   // hold many seconds of the outgoing track's tail waiting to play out.
@@ -2823,6 +2855,15 @@ export async function tuneIntoRadio(
         stopElapsedTicker();
         setStatus("connecting");
       }
+      // an idle station has to pick + encode a track before any media
+      // exists (warm-up progress follows); a live one sends media now.
+      const joiningLive =
+        typeof msg?.current_track_elapsed_ms === "number" && msg.current_track_elapsed_ms > 0;
+      setConnectPhase(
+        joiningLive
+          ? "connected \u2013 joining live\u2026"
+          : "connected \u2013 station starting\u2026"
+      );
       // periodic session-summary logging - flip RADIO_DIAGNOSTICS_ENABLED
       // to true when actively chasing a buffering issue; noisy in normal
       // use, so off by default (a `const` here, not a commented-out call,
@@ -2842,6 +2883,9 @@ export async function tuneIntoRadio(
       // updates, they're recovery / heartbeat signals routed through
       // the same json callback.
       if (applyControlSpecial(msg)) return;
+      // anything else that isn't a meta update is a message type this
+      // build doesn't know yet (a newer server's addition) - ignore it.
+      if (typeof msg?.type === "string" && msg.type !== "meta") return;
       const initSeq = msg?.init_seq;
       const np = coerceNowPlaying(msg?.now_playing);
       // the encoder can finish well ahead of the listener's buffered tail.
@@ -2998,6 +3042,7 @@ export async function tuneIntoRadio(
     markControlActivity();
     if (!sawFirstChunk) {
       sawFirstChunk = true;
+      setConnectPhase(`receiving ${radioHasVideoCapability() ? "video" : "audio"}\u2026`);
       if (!useTimelineMode() && !isInit) {
         tryStartChunkPlayback("first chunk");
       }
@@ -3048,7 +3093,7 @@ export async function tuneIntoRadio(
   let timelineBootstrapTimer: number | null = null;
   let chunkBootstrapTimer: number | null = null;
   const tuneCallStartedAtMs = Date.now();
-  setConnectPhase("connecting to broadcaster\u2026");
+  setConnectPhase("connecting to station\u2026");
   console.info(
     "[radio] calling tune_radio now — mode:",
     useLocal ? "charnel-local" : useCharnel ? "charnel" : "midden-wasm",
@@ -3087,7 +3132,11 @@ export async function tuneIntoRadio(
             onChunk
           );
     console.info(`[radio] tune_radio resolved after ${Date.now() - tuneCallStartedAtMs}ms`);
-    setConnectPhase("waiting for stream data\u2026");
+    // hello (which arrives mid-call) normally already set a more
+    // specific phase - only fall back when it didn't.
+    if (connectPhase() === "connecting to station\u2026") {
+      setConnectPhase("waiting for stream data\u2026");
+    }
     if (!isActiveTune()) {
       try {
         handle.leave();
@@ -3188,16 +3237,25 @@ export async function tuneIntoRadio(
       });
     }, 12_000);
   } else if (ms) {
-    chunkBootstrapTimer = window.setTimeout(() => {
-      if (!isActiveTune()) return;
-      if (useTimelineMode()) return;
-      if (sawFirstChunk) return;
-      console.warn("[radio] chunk bootstrap timeout: no audio chunks received after 12s");
-      batch(() => {
-        setStatus("error");
-        setError("radio audio stream did not start: no chunks received from broadcaster");
-      });
-    }, 12_000);
+    // a station still reporting warm-up progress is alive, just slow -
+    // keep waiting rather than failing a start that's genuinely underway.
+    const armChunkBootstrapTimer = () => {
+      chunkBootstrapTimer = window.setTimeout(() => {
+        if (!isActiveTune()) return;
+        if (useTimelineMode()) return;
+        if (sawFirstChunk) return;
+        if (Date.now() - lastWarmupAtMs < 12_000) {
+          armChunkBootstrapTimer();
+          return;
+        }
+        console.warn("[radio] chunk bootstrap timeout: no audio chunks received after 12s");
+        batch(() => {
+          setStatus("error");
+          setError("radio audio stream did not start: no chunks received from broadcaster");
+        });
+      }, 12_000);
+    };
+    armChunkBootstrapTimer();
   }
 
   // persist the current radio station for resume on page reload

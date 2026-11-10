@@ -225,24 +225,30 @@ pub async fn radio_tune(
         serde_json::to_string(&ControlMessage::Hello(hello)).map_err(|e| e.to_string())?;
     let _ = events.send(RadioEvent::Hello { json: hello_json });
 
-    // accept the audio uni stream the server opens after Hello.
-    let mut audio_recv = conn
-        .accept_uni()
-        .await
-        .map_err(|e| format!("accept_uni: {e}"))?;
-
-    let mpv_sink = maybe_spawn_mpv_sink(&app, &codec).await;
-
     let session_id = next_session_id();
     let cancel = CancellationToken::new();
 
-    // audio loop
+    // audio loop. the audio uni stream is accepted in here, not before
+    // returning: a freshly-started station only opens it once its
+    // warm-up finishes, and the meta loop below must already be reading
+    // so warm-up progress reaches spume in the meantime.
     {
         let cancel = cancel.clone();
         let events = events.clone();
         let session_id = session_id.clone();
+        let conn = conn.clone();
         tokio::spawn(async move {
-            let reason = run_audio_loop(&mut audio_recv, &events, &cancel, mpv_sink).await;
+            let accepted = tokio::select! {
+                _ = cancel.cancelled() => Err("cancelled".to_string()),
+                res = conn.accept_uni() => res.map_err(|e| format!("accept_uni: {e}")),
+            };
+            let reason = match accepted {
+                Ok(mut audio_recv) => {
+                    let mpv_sink = maybe_spawn_mpv_sink(&app, &codec).await;
+                    run_audio_loop(&mut audio_recv, &events, &cancel, mpv_sink).await
+                }
+                Err(reason) => reason,
+            };
             let _ = events.send(RadioEvent::Closed {
                 reason: reason.clone(),
             });
@@ -559,7 +565,7 @@ async fn run_local_meta_loop(
     bc: std::sync::Arc<grimoire::radio::broadcaster::Broadcaster>,
 ) -> String {
     use grimoire::radio::broadcaster::MetaUpdate;
-    use grimoire::radio::messages::{ControlMessage, MetaMessage, SkipMessage};
+    use grimoire::radio::messages::{ControlMessage, MetaMessage, SkipMessage, WarmupMessage};
     use tokio::sync::broadcast::error::RecvError;
     loop {
         tokio::select! {
@@ -575,6 +581,14 @@ async fn run_local_meta_loop(
                         }
                         Err(e) => {
                             tracing::warn!(error = %e, "[radio-charnel-local] skip serialize failed");
+                        }
+                    }
+                }
+                Ok(MetaUpdate::Warmup { percent }) => {
+                    let msg = ControlMessage::Warmup(WarmupMessage { percent });
+                    if let Ok(json) = serde_json::to_string(&msg) {
+                        if events.send(RadioEvent::Meta { json }).is_err() {
+                            return "channel closed".into();
                         }
                     }
                 }
@@ -711,6 +725,7 @@ async fn run_meta_loop(
                                     ControlMessage::Lag(_) => RadioEvent::Lag { json },
                                     ControlMessage::ChunkReady(_) => RadioEvent::ChunkReady { json },
                                     ControlMessage::Skip(_) => RadioEvent::Skip { json },
+                                    ControlMessage::Warmup(_) => RadioEvent::Meta { json },
                                     ControlMessage::Goodbye(_) => RadioEvent::Meta { json },
                                     ControlMessage::Tune(_) => continue,
                                 };
