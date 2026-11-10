@@ -36,7 +36,8 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-const controls = () => host.querySelector('[data-testid="video-mini-player-controls"]') as HTMLElement;
+const controls = () =>
+  host.querySelector('[data-testid="video-mini-player-controls"]') as HTMLElement;
 const panel = () => controls().parentElement as HTMLElement;
 const expand = () => (host.querySelector('button[title="expand"]') as HTMLButtonElement).click();
 
@@ -67,5 +68,44 @@ describe("VideoMiniPlayer expanded idle", () => {
     collapseVideoMiniPlayer();
     expect(controls().className).toContain("group-hover:opacity-100");
     expect(panel().classList.contains("player-cursor-idle")).toBe(false);
+  });
+});
+
+describe("VideoMiniPlayer close while expanded", () => {
+  it("stops reporting expanded once the panel is hidden, and stays collapsed", async () => {
+    const { createSignal } = await import("solid-js");
+    const { videoMiniPlayerExpanded } = await import("./VideoMiniPlayer");
+    dispose?.();
+    host.innerHTML = "";
+    const [hidden, setHidden] = createSignal(false);
+    dispose = render(
+      () => (
+        <VideoMiniPlayer
+          videoElement={document.createElement("video")}
+          hidden={hidden()}
+          onClose={() => setHidden(true)}
+        />
+      ),
+      host
+    );
+
+    expand();
+    expect(videoMiniPlayerExpanded()).toBe(true);
+
+    (host.querySelector('button[title="close"]') as HTMLButtonElement).click();
+    expect(videoMiniPlayerExpanded()).toBe(false);
+
+    setHidden(false);
+    expect(videoMiniPlayerExpanded()).toBe(false);
+    expect(host.querySelector('button[title="expand"]')).not.toBeNull();
+  });
+
+  it("stops reporting expanded once the panel unmounts", async () => {
+    const { videoMiniPlayerExpanded } = await import("./VideoMiniPlayer");
+    expand();
+    expect(videoMiniPlayerExpanded()).toBe(true);
+    dispose?.();
+    dispose = undefined;
+    expect(videoMiniPlayerExpanded()).toBe(false);
   });
 });
