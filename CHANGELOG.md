@@ -1,5 +1,18 @@
 # freqhole-release
 
+## 0.3.27
+
+### Patch Changes
+
+- a5725d7: fix bug where closing maximized video (not fullscreen) would leave in-app toolbar in wrong state and on top of clickable elementz
+- 3ab3de2: try to fix some bug where image blob urlz get revoked (like when leaving queue) and so detail viewz will show broken image
+- ce8e869: fix bug where explore graph viz view remotes are stale after adding or removing remotez
+- 5243f96: fix bug with blob store shutdown after app upgrade (so unable to get media blobz from a remote after upgrade until app is restarted)
+- 6f3434d: generate waveform image on-demand (async, music + video) when adding to local library (if remote doesn't have them);
+- 4b3e777: add some more granular text ui updatez when tuning into a radio stream so it's clear thingz are happening
+- 1123ac1: try to improve layout for artist + album detail view on narrow-width (mobile) viewz so more of the title is shown and also fiddle with the background image and other text to increase contrast
+- bedc2ba: add sn#ep# and video type to feed eventz; make sure play counts have >90% watch/listen time; try to finally fix feed view linkz and queue (img) clickz
+
 ## 0.3.26
 
 ### Patch Changes
