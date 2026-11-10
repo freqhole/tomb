@@ -22,7 +22,13 @@ const CLICK_VS_DBLCLICK_DELAY_MS = 220;
 // TitleBarStrip.tsx) and so the expanded/collapsed state survives an
 // incidental remount of this component.
 const [expanded, setExpanded] = createSignal(false);
-export const videoMiniPlayerExpanded = expanded;
+// whether a floating panel is actually on screen (mounted and not
+// hidden). `expanded` alone can outlive the visible panel (closed via x,
+// auto-dismissed by a modal, or unmounted), and anything reacting to
+// "expanded" - e.g. TitleBarStrip raising itself above the panel - must
+// not keep doing so for a panel nobody can see.
+const [floatingVisible, setFloatingVisible] = createSignal(false);
+export const videoMiniPlayerExpanded = () => expanded() && floatingVisible();
 
 /** collapses an expanded mini player from outside this component - used
  * by the player bar's queue toggle on touch devices, where the queue
@@ -90,15 +96,27 @@ export function VideoMiniPlayer(props: VideoMiniPlayerProps) {
   const doTogglePlayback = () => void (props.onTogglePlayback ?? musicTogglePlayback)();
   const doPause = () => (props.onPause ?? musicPause)();
 
+  // a hidden panel is never left expanded - reopening it later should
+  // come back as the normal mini player, not a surprise full-viewport one.
+  createEffect(() => {
+    if (isInline()) return;
+    const visible = !props.hidden;
+    setFloatingVisible(visible);
+    if (!visible) setExpanded(false);
+  });
+  onCleanup(() => {
+    if (!isInline()) setFloatingVisible(false);
+  });
+
   // hide the chromeless title-bar strip's stoplight buttons (show on
   // hover only) while this panel is expanded to fill the screen - an
   // expanded floating player is the one case that visually competes with
   // them; "inline" (kiosk) usage never expands, so it never suppresses.
-  useChromeSuppression("video-mini-player", () => !isInline() && expanded());
+  useChromeSuppression("video-mini-player", () => !isInline() && videoMiniPlayerExpanded());
 
   // expanded fills the viewport, so the pointer always "hovers" it - fade
   // the controls + hide the cursor on idle instead of relying on hover.
-  const fillsViewport = () => !isInline() && expanded();
+  const fillsViewport = () => !isInline() && videoMiniPlayerExpanded();
   const { pointerActive, cursorHidden } = usePlayerPointerActivity(fillsViewport);
 
   onCleanup(() => props.onElementDetach?.(videoEl));
