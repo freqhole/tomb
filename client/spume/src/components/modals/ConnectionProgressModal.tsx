@@ -4,6 +4,7 @@
 import { createEffect, onMount, Show } from "solid-js";
 import { Icon } from "../icons";
 import { DIALOG_RESET_STYLE, registerDialogPolyfill } from "../overlays/dialogSupport";
+import { useVisualViewportStyle } from "../overlays/visualViewport";
 
 export interface ConnectionProgressState {
   isConnecting: boolean;
@@ -18,6 +19,7 @@ export interface ConnectionProgressModalProps {
 }
 
 export function ConnectionProgressModal(props: ConnectionProgressModalProps) {
+  const viewportStyle = useVisualViewportStyle();
   let dialogRef: HTMLDialogElement | undefined;
 
   // same requirement as Modal.tsx's own <dialog> - must run before the
@@ -48,10 +50,17 @@ export function ConnectionProgressModal(props: ConnectionProgressModalProps) {
     <dialog
       ref={dialogRef}
       onCancel={handleCancel}
-      style={DIALOG_RESET_STYLE}
+      style={{
+        ...DIALOG_RESET_STYLE,
+        ...viewportStyle(),
+        display: props.state.isConnecting && props.state.showAfterDelay ? "flex" : "none",
+        "align-items": "center",
+        "justify-content": "center",
+      }}
       class="backdrop:bg-black/60"
     >
       <div
+        style={{ "max-height": "100%", "overflow-y": "auto" }}
         class="
           max-w-sm
           w-full

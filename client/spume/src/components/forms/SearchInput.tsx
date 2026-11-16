@@ -1,6 +1,7 @@
 // search input with dropdown suggestions
 // plain input + custom dropdown — no kobalte, no pointer-drift bugs
 import { createEffect, createSignal, For, on, onCleanup, onMount, Show, type JSX } from "solid-js";
+import { constrainToVisualViewport } from "../overlays/visualViewport";
 import { Portal } from "solid-js/web";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { MediaImage } from "../media/MediaImage";
@@ -259,6 +260,7 @@ export function SearchInput(props: SearchInputProps) {
           {/* hint text below input */}
           <Show when={props.hintMessage}>
             <div
+              ref={constrainToVisualViewport}
               class="text-xs text-[var(--color-text-secondary)] bg-[var(--color-bg-elevated)] px-2 py-0.5 cursor-pointer hover:text-[var(--color-text-primary)] transition-colors truncate whitespace-nowrap"
               style={{
                 position: "fixed",
@@ -276,6 +278,7 @@ export function SearchInput(props: SearchInputProps) {
           {/* suggestions flyout */}
           <Show when={isOpen() && (suggestions().length > 0 || props.loading)}>
             <div
+              ref={constrainToVisualViewport}
               class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded shadow-lg overflow-hidden"
               style={{
                 position: "fixed",

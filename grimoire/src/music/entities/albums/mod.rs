@@ -6,6 +6,7 @@ pub mod metadata;
 mod models;
 mod repository;
 pub mod taxon_proposals;
+pub mod transfer;
 mod update;
 
 // re-export public types

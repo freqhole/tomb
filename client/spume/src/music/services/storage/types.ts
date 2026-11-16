@@ -46,6 +46,7 @@ export interface Album {
   year: number | null;
   images?: ImageMetadata[]; // album images (artwork, etc)
   urls?: Array<{ id?: string; name?: string; url: string }>; // entity URLs
+  metadata?: string | null; // raw album metadata JSON
   created_at: number;
   updated_at: number;
   // user-specific fields (from query views)

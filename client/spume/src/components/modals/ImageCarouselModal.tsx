@@ -3,6 +3,7 @@ import { createEffect, createSignal, Show, For, onCleanup, onMount } from "solid
 import { Icon, IconNames } from "../icons/registry";
 import { pushModal, popModal, type CarouselSlide } from "../../music/hooks/modals";
 import { toast } from "../feedback/Toast";
+import { useVisualViewportStyle } from "../overlays/visualViewport";
 
 // the thumbnail strip used to point every `<img>` straight at the same
 // full-resolution url as the main viewer. that's fine for one image at
@@ -83,6 +84,7 @@ export interface ImageCarouselModalProps {
 }
 
 export function ImageCarouselModal(props: ImageCarouselModalProps) {
+  const viewportStyle = useVisualViewportStyle();
   const images = () => props.images;
 
   // slides that resolved to a url just fine but then failed to actually
@@ -186,7 +188,7 @@ export function ImageCarouselModal(props: ImageCarouselModalProps) {
     <div
       ref={containerRef}
       class="flex items-center justify-center bg-black/90 outline-none"
-      style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, "z-index": 1100 }}
+      style={{ ...viewportStyle(), "z-index": 1100 }}
       onClick={props.onClose}
       onKeyDown={handleKeyDown}
       tabIndex={-1}

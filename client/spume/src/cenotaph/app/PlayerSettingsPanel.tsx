@@ -44,12 +44,14 @@ import {
   charnelRegeneratePin,
   charnelSetSessionMode,
 } from "../adapters/charnelAcceptBridge";
+import { useVisualViewportStyle } from "../../components/overlays/visualViewport";
 
 export function PlayerSettingsPanel(props: {
   onClose: () => void;
   onBack: () => void;
   nodeId?: string;
 }) {
+  const viewportStyle = useVisualViewportStyle();
   const [nameInput, setNameInput] = createSignal(getLocalLibraryName());
   const [controllers, { refetch: refetchControllers }] = createResource(
     spumeTrustStore.listTrustedControllers
@@ -157,13 +159,14 @@ export function PlayerSettingsPanel(props: {
       // its content when it overflows (a well-known flexbox gotcha) -
       // `m-auto` on the child below gives the same centered look when
       // content fits, without clipping when it doesn't.
-      class="fixed inset-0 z-[1800] flex overflow-y-auto bg-black/90 p-6"
+      class="z-[1800] flex overflow-y-auto bg-black/90 p-6"
       // adds the chromeless title-bar strip's height (0 when inactive) and
       // --safe-area-top (android/ios status bar inset, 0 on desktop) on
       // top of the usual p-6 top padding, so the back/close header row
       // clears either one instead of rendering underneath it - mutually
       // exclusive in practice, so adding both is safe.
       style={{
+        ...viewportStyle(),
         "padding-top": "calc(1.5rem + var(--chrome-top-inset, 0px) + var(--safe-area-top, 0px))",
       }}
       data-testid="settings-panel"

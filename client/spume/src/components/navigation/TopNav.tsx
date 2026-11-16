@@ -37,6 +37,8 @@ import { Modal } from "../overlays/Modal";
 import { Button } from "../buttons/Button";
 import { type MenuAction } from "../overlays/ContextMenu";
 import { ViewSelector, type ViewOption } from "./ViewSelector";
+import { constrainToVisualViewport } from "../overlays/visualViewport";
+import { currentMenuViewport } from "../overlays/dropdownPosition";
 
 // sentinel id used by the shared rename modal to distinguish the local
 // library row from real remote records (which have uuid-shaped ids).
@@ -96,16 +98,22 @@ type FlyoutPos = { left: number; top?: number; bottom?: number; maxHeight: numbe
 // off by the scrollable remotes list it lives inside - mirrors
 // `ClickDropdownMenu`'s spaceBelow/spaceAbove flip logic in ContextMenu.tsx.
 function computeFlyoutPos(rowRect: DOMRect): FlyoutPos {
+  const viewport = currentMenuViewport();
   const gutter = 4;
   const pad = 8;
   const flyoutWidth = 180;
-  const left = Math.min(rowRect.right + gutter, window.innerWidth - flyoutWidth - pad);
-  const spaceBelow = window.innerHeight - rowRect.top - pad;
-  const spaceAbove = rowRect.bottom - pad;
+  const left = Math.max(viewport.left + pad,
+    Math.min(rowRect.right + gutter, viewport.left + viewport.width - flyoutWidth - pad));
+  const top = Math.max(viewport.top + pad,
+    Math.min(rowRect.top, viewport.top + viewport.height - pad));
+  const bottom = Math.max(viewport.top + pad,
+    Math.min(rowRect.bottom, viewport.top + viewport.height - pad));
+  const spaceBelow = viewport.top + viewport.height - top - pad;
+  const spaceAbove = bottom - viewport.top - pad;
   if (spaceBelow >= spaceAbove) {
-    return { left, top: rowRect.top, maxHeight: spaceBelow };
+    return { left, top, maxHeight: spaceBelow };
   }
-  return { left, bottom: window.innerHeight - rowRect.bottom, maxHeight: spaceAbove };
+  return { left, bottom: window.innerHeight - bottom, maxHeight: spaceAbove };
 }
 
 export interface NavMenuItem {
@@ -417,7 +425,10 @@ function RowActionsMenu(props: {
       </button>
       <Show when={props.isOpen}>
         <div
-          ref={menuRef}
+          ref={(element) => {
+            menuRef = element;
+            constrainToVisualViewport(element);
+          }}
           class="absolute right-0 top-full mt-1 z-[1300] min-w-[10rem] bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-2xl overflow-hidden py-1"
           onClick={(e) => e.stopPropagation()}
         >
@@ -1313,6 +1324,7 @@ export function TopNav(props: TopNavProps) {
                 <KobalteNav.Content
                   class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] data-[expanded]:animate-in data-[closed]:animate-out"
                   ref={(el: HTMLElement) => {
+                    constrainToVisualViewport(el);
                     // intercept pointerleave in capture phase before Kobalte sees it.
                     // Kobalte's NavigationMenu.Content calls startLeaveTimer() on
                     // pointerleave without checking pointerType, so touch scrolling
@@ -1332,7 +1344,7 @@ export function TopNav(props: TopNavProps) {
                   }}
                 >
                   <div
-                    class="flex flex-col wide:grid wide:grid-cols-2 gap-4 wide:gap-6 min-w-[280px] wide:min-w-[560px]"
+                    class="flex flex-col wide:grid wide:grid-cols-2 gap-4 wide:gap-6 w-[280px] wide:w-[560px] max-w-full"
                     style={{
                       "max-height": "70vh",
                       "overflow-y": "auto",
@@ -1613,7 +1625,10 @@ export function TopNav(props: TopNavProps) {
                                     {(pos) => (
                                       <Portal mount={document.body}>
                                         <div
-                                          ref={(el) => remoteFlyoutContentRefs.set(id, el)}
+                                          ref={(el) => {
+                                            remoteFlyoutContentRefs.set(id, el);
+                                            constrainToVisualViewport(el);
+                                          }}
                                           data-kb-top-layer=""
                                           class="fixed w-[180px] bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1002] py-1 overflow-y-auto"
                                           style={{
@@ -1856,9 +1871,10 @@ export function TopNav(props: TopNavProps) {
                                         {(pos) => (
                                           <Portal mount={document.body}>
                                             <div
-                                              ref={(el) =>
-                                                remoteFlyoutContentRefs.set(remote.id, el)
-                                              }
+                                              ref={(el) => {
+                                                remoteFlyoutContentRefs.set(remote.id, el);
+                                                constrainToVisualViewport(el);
+                                              }}
                                               data-kb-top-layer=""
                                               class="fixed w-[180px] bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1002] py-1 overflow-y-auto"
                                               style={{
@@ -2219,7 +2235,7 @@ export function TopNav(props: TopNavProps) {
                   <Icon name="filter" size={iconBtnSize()} color="currentColor" />
                 </button>
                 <Show when={toolsOpen()}>
-                  <div class="absolute top-full right-0 mt-1 w-64 max-h-[min(70vh,28rem)] overflow-y-auto bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] p-2 space-y-3">
+                  <div ref={constrainToVisualViewport} class="absolute top-full right-0 mt-1 w-64 max-h-[min(70vh,28rem)] overflow-y-auto bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] p-2 space-y-3">
                     <Show when={info().sortFields?.length}>
                       <div class="space-y-1">
                         <div class="px-1 text-xs text-[var(--color-text-tertiary)]">sort</div>
@@ -2372,7 +2388,7 @@ export function TopNav(props: TopNavProps) {
                   <Icon name="sort" size={iconBtnSize()} />
                 </button>
                 <Show when={isDesktopFlyoutOpen("sort")}>
-                  <div class="absolute top-full right-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] p-2 flex gap-1">
+                  <div ref={constrainToVisualViewport} class="absolute top-full right-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] p-2 flex gap-1">
                     <select
                       value={info().sortBy || ""}
                       onChange={(e) => {
@@ -2468,7 +2484,7 @@ export function TopNav(props: TopNavProps) {
                   <Icon name={info().availableTags?.length ? "tag" : "filter"} size={iconBtnSize()} />
                 </button>
                 <Show when={isDesktopFlyoutOpen("tag")}>
-                  <div class="absolute top-full right-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[200px] max-w-[320px]">
+                  <div ref={constrainToVisualViewport} class="absolute top-full right-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[200px] max-w-[320px]">
                     <div class="p-2">
                       <Show
                         when={
@@ -2590,7 +2606,7 @@ export function TopNav(props: TopNavProps) {
                   <Icon name="filter" size={iconBtnSize()} />
                 </button>
                 <Show when={isDesktopFlyoutOpen("feedFilter")}>
-                  <div class="absolute top-full left-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[180px]">
+                  <div ref={constrainToVisualViewport} class="absolute top-full left-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[180px]">
                     <div class="p-2">
                       <Show when={hasActiveFeedFilters()}>
                         <div class="border-b border-[var(--color-border-subtle)] pb-2 mb-2">
@@ -2682,7 +2698,7 @@ export function TopNav(props: TopNavProps) {
                   <Icon name="filter" size={iconBtnSize()} />
                 </button>
                 <Show when={isDesktopFlyoutOpen("status")}>
-                  <div class="absolute top-full right-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[200px] max-w-[320px]">
+                  <div ref={constrainToVisualViewport} class="absolute top-full right-0 mt-1 bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] min-w-[200px] max-w-[320px]">
                     <div class="p-2">
                       <Show
                         when={

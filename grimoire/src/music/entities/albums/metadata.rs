@@ -666,6 +666,38 @@ pub fn merge_patch(
     Ok(merged)
 }
 
+/// merge transferred metadata without round-tripping through the typed model,
+/// which would discard fields added by a newer sender.
+pub fn merge_transfer(
+    base: Option<&str>,
+    incoming: Option<&str>,
+    release_id: Option<&str>,
+    release_group_id: Option<&str>,
+) -> Result<Option<String>, serde_json::Error> {
+    if incoming.is_none() && release_id.is_none() && release_group_id.is_none() {
+        return Ok(None);
+    }
+    let mut value: JsonValue = match base {
+        Some(raw) if !raw.trim().is_empty() => serde_json::from_str(raw)?,
+        _ => json!({}),
+    };
+    if let Some(raw) = incoming {
+        let patch: serde_json::Map<String, JsonValue> = serde_json::from_str(raw)?;
+        deep_merge(&mut value, &JsonValue::Object(patch));
+    }
+    let mut mb = serde_json::Map::new();
+    if let Some(id) = release_id {
+        mb.insert("release_id".into(), json!(id));
+    }
+    if let Some(id) = release_group_id {
+        mb.insert("release_group_id".into(), json!(id));
+    }
+    if !mb.is_empty() {
+        deep_merge(&mut value, &json!({ "musicbrainz": mb }));
+    }
+    serde_json::to_string(&value).map(Some)
+}
+
 /// convenience: build a json patch that updates the musicbrainz sub-tree's
 /// candidates list and last_query.
 pub fn patch_mb_search_result(candidates: &[MbCandidate], last_query: &MbLastQuery) -> JsonValue {
@@ -772,6 +804,35 @@ fn deep_merge(dst: &mut JsonValue, src: &JsonValue) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transfer_merge_preserves_unknown_fields_and_destination_metadata() {
+        let merged = merge_transfer(
+            Some(r#"{"destination_only":42,"musicbrainz":{"release_id":"old","other":"keep"}}"#),
+            Some(r#"{"future_field":{"nested":[1,2]},"musicbrainz":{"release_id":"new"}}"#),
+            None,
+            Some("group"),
+        )
+        .unwrap()
+        .unwrap();
+        let value: JsonValue = serde_json::from_str(&merged).unwrap();
+        assert_eq!(value["destination_only"], 42);
+        assert_eq!(value["future_field"]["nested"], json!([1, 2]));
+        assert_eq!(value["musicbrainz"]["release_id"], "new");
+        assert_eq!(value["musicbrainz"]["release_group_id"], "group");
+        assert_eq!(value["musicbrainz"]["other"], "keep");
+        assert_eq!(
+            merge_transfer(Some(&merged), None, None, None).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn transfer_merge_rejects_non_object_metadata() {
+        for incoming in ["not json", "[]", "null", "42"] {
+            assert!(merge_transfer(None, Some(incoming), None, None).is_err());
+        }
+    }
 
     #[test]
     fn parse_empty_yields_default() {

@@ -65,6 +65,7 @@ export interface TaxonProposal {
 export interface AlbumTaxonsEditorHandle {
   apply: () => Promise<void>;
   reset: () => void;
+  refresh: () => Promise<void>;
   isDirty: () => boolean;
 }
 
@@ -425,7 +426,7 @@ export function AlbumTaxonsEditor(props: AlbumTaxonsEditorProps) {
   };
 
   onMount(() => {
-    props.ref?.({ apply, reset, isDirty });
+    props.ref?.({ apply, reset, isDirty, refresh: async () => { await refetchLinks(); } });
   });
 
   return (

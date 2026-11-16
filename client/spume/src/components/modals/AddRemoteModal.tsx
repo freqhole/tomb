@@ -48,6 +48,7 @@ import {
 import { refreshPlayerStatus } from "../../app/services/remotes/remoteHealth";
 import { adminLocalRawDispatch, getLocalAdminClient } from "../../app/api/adminClient";
 import { spumeTrustStore } from "../../cenotaph/adapters/trustStoreAdapter";
+import { useVisualViewportStyle } from "../overlays/visualViewport";
 import { resolveBlobUrl } from "../../music/services/storage/blobResolver";
 import { debug, error } from "../../utils/logger";
 import { CENOTAPH_QUEUE_TRACE } from "../../cenotaph/queueTrace";
@@ -119,6 +120,7 @@ async function resolveServerImageUrl(
 let nextAddRemoteModalId = 0;
 
 export function AddRemoteModal(props: AddRemoteModalProps) {
+  const viewportStyle = useVisualViewportStyle();
   const flow: AddPeerFlow = createAddPeerFlow(addPeerFlowDeps);
   const [state, setState] = createSignal<AddPeerState>(flow.state());
 
@@ -902,14 +904,11 @@ export function AddRemoteModal(props: AddRemoteModalProps) {
       <div
         class="bg-black/50 flex items-center justify-center p-0 wide:p-4"
         style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
+          ...viewportStyle(),
           "z-index": 1050,
-          "margin-top": "var(--safe-area-top, 0px)",
-          height: "calc(100% - var(--safe-area-top, 0px))",
+          "padding-top": "var(--safe-area-top, 0px)",
+          "padding-bottom": "var(--safe-area-bottom, 0px)",
+          "box-sizing": "border-box",
         }}
       >
         {/* modal */}

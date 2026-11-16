@@ -42,6 +42,8 @@ import type {
   SyncPlaylistResponse,
   SyncSongByBlake3Request,
   Transport,
+  EntityUrl,
+  TaxonRef,
 } from "@freqhole/api-client";
 const {
   HasBlobsResponseSchema,
@@ -75,6 +77,7 @@ import {
 } from "./buildSyncRequests";
 import { uploadImagesToDest, createImageBlobCache } from "./uploadImagesToDest";
 import type { InlineImageCache } from "../sync/syncImages";
+import { loadAlbumSendMetadata } from "./albumSendMetadata";
 
 const TAG = "sendToRemote";
 
@@ -121,6 +124,13 @@ export interface SendAlbumPayload {
   releaseDate?: string | null;
   label?: string | null;
   genres?: string[];
+  taxons?: TaxonRef[];
+  metadata?: string | null;
+  entityUrls?: EntityUrl[];
+  urls?: string[];
+  tags?: string[];
+  mbReleaseId?: string | null;
+  mbReleaseGroupId?: string | null;
   /** album-level images. pushed to dest via /api/upload/image. */
   images?: ImageMetadata[];
   songs: RemoteSong[];
@@ -437,19 +447,32 @@ export async function sendToRemote(
     emit();
 
     const expected = eligibleSongs.map((s) => s.blake3 as string);
+    // every album entry point (bulk, share, reviewed imports) uses this
+    // authoritative read. do not silently fall back to a partial song projection.
+    const albumMetadata = await loadAlbumSendMetadata(payload.albumId, source, sourceTransport);
     const albumOpts: BuildSyncAlbumOptions = {
       remoteName,
       sourceRemoteId,
       sourceNodeId,
       albumId: payload.albumId,
-      title: payload.title,
+      title: albumMetadata.title,
       artistName: payload.artistName,
-      albumType: payload.albumType,
-      releaseDate: payload.releaseDate,
-      label: payload.label,
-      genres: payload.genres,
+      albumType: albumMetadata.albumType,
+      releaseDate: albumMetadata.releaseDate,
+      label: albumMetadata.label,
+      genres: albumMetadata.genres,
+      taxons: albumMetadata.taxons,
+      metadata: albumMetadata.metadata,
+      entityUrls: albumMetadata.entityUrls,
+      urls: payload.urls,
+      tags: [
+        ...(albumMetadata.tags ?? songs.flatMap((song) => song.album_tags ?? [])),
+        ...(payload.tags ?? []),
+      ],
+      mbReleaseId: payload.mbReleaseId,
+      mbReleaseGroupId: payload.mbReleaseGroupId,
       expectedSongBlake3s: expected,
-      images: payload.images,
+      images: albumMetadata.images,
       sourceTransport,
       imageCache: inlineImageCache,
     };

@@ -1,5 +1,5 @@
 // song editor modal - edit single song metadata
-import { createEffect, createMemo, createSignal, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, Show, untrack } from "solid-js";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import { getDataSource, getCurrentRemote } from "../../music/data";
@@ -25,6 +25,7 @@ import { MetadataDisplay } from "../layout/MetadataDisplay";
 import { Modal } from "./Modal";
 import { formatDateTime } from "../../utils/dateTime";
 import { error as errorLog } from "../../utils/logger";
+import { mergeEditorData } from "./editorData";
 
 interface SongEditorModalProps {
   songId: string;
@@ -105,7 +106,8 @@ export function SongEditorModal(props: SongEditorModalProps) {
   createEffect(() => {
     const song = songQuery.data;
     // reinitialize if this is a different song or first load
-    if (song && loadedSongId() !== props.songId) {
+    if (song) untrack(() => {
+      const changedSong = loadedSongId() !== props.songId;
       const data: FormData = {
         title: song.title,
         track_number: song.track_number,
@@ -116,22 +118,24 @@ export function SongEditorModal(props: SongEditorModalProps) {
         album_title: song.album_title,
         track_artist: song.track_artist || "",
       };
-      setFormData(data);
+      setFormData(mergeEditorData(formData(), changedSong ? null : initialData(), data));
       setInitialData(data);
-      setArtistId(song.artist_id);
-      setAlbumId(song.album_id);
+      if (changedSong || artistId() === initialArtistId()) setArtistId(song.artist_id);
+      if (changedSong || albumId() === initialAlbumId()) setAlbumId(song.album_id);
       setInitialArtistId(song.artist_id);
       setInitialAlbumId(song.album_id);
       setLoadedSongId(props.songId);
 
       // initialize entity URLs from song data
-      const urls = (song.urls || []).map((u) => ({
-        id: u.id,
-        name: u.name || "",
-        url: u.url,
-      }));
-      setEntityUrls(urls);
-      setInitialEntityUrls(urls.map((u) => ({ ...u }))); // deep copy for comparison
+      if (changedSong || !urlsChanged()) {
+        const urls = (song.urls || []).map((u) => ({
+          id: u.id,
+          name: u.name || "",
+          url: u.url,
+        }));
+        setEntityUrls(urls);
+        setInitialEntityUrls(urls.map((u) => ({ ...u })));
+      }
 
       // auto-expand lyrics if song has lyrics
       if (song.lyrics && song.lyrics.trim().length > 0) {
@@ -139,16 +143,9 @@ export function SongEditorModal(props: SongEditorModalProps) {
       }
 
       // initialize images
-      if (song.images) {
-        setSongImages(song.images);
-      }
-    }
+      setSongImages(song.images ?? []);
+    });
   });
-
-  // note: song images are intentionally NOT synced on every refetch here.
-  // they are initialized inside the guarded loadedSongId effect above
-  // to prevent refetchOnWindowFocus from wiping unsaved state.
-  // images are refreshed explicitly after upload/delete operations.
 
   // helper to check if entity URLs have changed
   const urlsChanged = () => {

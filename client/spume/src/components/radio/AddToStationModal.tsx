@@ -28,6 +28,7 @@ import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import type { RemoteRef } from "../../app/services/storage/types";
 import { getVideoDataSource } from "../../video/data";
 import { toast } from "../feedback/Toast";
+import { useVisualViewportStyle } from "../overlays/visualViewport";
 import {
   closeStationSelector,
   stationSelectorState,
@@ -229,6 +230,7 @@ async function resolveRequestItems(
 }
 
 export function AddToStationModal() {
+  const viewportStyle = useVisualViewportStyle();
   const state = stationSelectorState;
 
   const [busy, setBusy] = createSignal(false);
@@ -470,12 +472,13 @@ export function AddToStationModal() {
     <Show when={state().isOpen}>
       {/* backdrop */}
       <div
-        class="fixed inset-0 z-[2000] bg-black/60 flex items-center justify-center p-4"
+        class="z-[2000] bg-black/60 flex items-center justify-center p-4"
+        style={viewportStyle()}
         onClick={(e) => {
           if (e.target === e.currentTarget) closeStationSelector();
         }}
       >
-        <div class="bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg w-full max-w-md shadow-2xl">
+        <div class="bg-[var(--color-bg-secondary)] border border-[var(--color-border-subtle)] rounded-lg w-full max-w-md max-h-full overflow-y-auto shadow-2xl">
           {/* header */}
           <div class="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border-subtle)]">
             <h2 class="text-sm font-semibold text-[var(--color-text-primary)]">

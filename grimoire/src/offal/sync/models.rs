@@ -183,7 +183,6 @@ pub struct SyncPlaylistResponse {
 
 // ============================================================================
 // sync_album: receive an album shell with metadata + cover images.
-// see docs/SEND_TO_REMOTE_PLAN.md.
 // ============================================================================
 
 /// hash-addressed image payload used by the new send-to-remote pipeline.
@@ -242,13 +241,22 @@ pub struct SyncAlbumRequest {
     /// genre names. resolved/created by name on the destination.
     #[serde(default)]
     pub genres: Vec<String>,
-    /// external urls (e.g. bandcamp/discogs/musicbrainz). currently informational only.
+    /// all categorical taxons. source ids are ignored; kind/label are resolved locally.
+    #[serde(default)]
+    pub taxons: Vec<crate::music::entities::taxonomy::TaxonRef>,
+    /// raw album metadata JSON, merged without dropping unknown fields.
+    #[serde(default)]
+    pub metadata: Option<String>,
+    /// external urls from older senders, imported without a display name.
     #[serde(default)]
     pub urls: Vec<String>,
-    /// musicbrainz release id (informational only — not persisted yet)
+    /// named external urls. source ids are ignored.
+    #[serde(default)]
+    pub entity_urls: Vec<crate::music::EntityUrl>,
+    /// musicbrainz release id, merged into album metadata
     #[serde(default)]
     pub mb_release_id: Option<String>,
-    /// musicbrainz release-group id (informational only — not persisted yet)
+    /// musicbrainz release-group id, merged into album metadata
     #[serde(default)]
     pub mb_release_group_id: Option<String>,
     /// tag names to attach to the album on the destination
