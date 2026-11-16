@@ -1344,7 +1344,7 @@ export function TopNav(props: TopNavProps) {
                   }}
                 >
                   <div
-                    class="flex flex-col wide:grid wide:grid-cols-2 gap-4 wide:gap-6 w-[280px] wide:w-[560px] max-w-full"
+                    class="flex flex-col wide:grid wide:grid-cols-2 gap-4 wide:gap-6 w-max min-w-[min(280px,100%)] wide:min-w-[min(560px,100%)] max-w-full"
                     style={{
                       "max-height": "70vh",
                       "overflow-y": "auto",
