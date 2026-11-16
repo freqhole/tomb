@@ -79,9 +79,9 @@ export function constrainToVisualViewport(element: HTMLElement) {
     };
     update();
     const frame = requestAnimationFrame(update);
-    const observer = new ResizeObserver(update);
-    observer.observe(element);
-    if (element.parentElement) observer.observe(element.parentElement);
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(update) : undefined;
+    observer?.observe(element);
+    if (element.parentElement) observer?.observe(element.parentElement);
     const positionObserver = new MutationObserver(update);
     if (element.parentElement) {
       positionObserver.observe(element.parentElement, {
@@ -95,7 +95,7 @@ export function constrainToVisualViewport(element: HTMLElement) {
     window.visualViewport?.addEventListener("scroll", update);
     onCleanup(() => {
       cancelAnimationFrame(frame);
-      observer.disconnect();
+      observer?.disconnect();
       positionObserver.disconnect();
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { createRoot } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { useVisualViewportStyle } from "./visualViewport";
+import { constrainToVisualViewport, useVisualViewportStyle } from "./visualViewport";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -13,6 +13,7 @@ describe("visual viewport modal bounds", () => {
       offsetLeft: 0,
       offsetTop: 0,
     });
+
     vi.stubGlobal("visualViewport", viewport);
     const remove = vi.spyOn(viewport, "removeEventListener");
     let dispose!: () => void;
@@ -51,4 +52,61 @@ describe("visual viewport modal bounds", () => {
     });
     dispose();
   });
+});
+
+describe("flyout viewport observers", () => {
+  it.each([false, true])(
+    "keeps viewport updates and cleanup working with ResizeObserver available=%s",
+    (available) => {
+      const observe = vi.fn();
+      const disconnect = vi.fn();
+      vi.stubGlobal(
+        "ResizeObserver",
+        available
+          ? class {
+              observe = observe;
+              disconnect = disconnect;
+            }
+          : undefined
+      );
+      const viewport = Object.assign(new EventTarget(), {
+        width: 320,
+        height: 200,
+        offsetLeft: 0,
+        offsetTop: 0,
+      });
+      vi.stubGlobal("visualViewport", viewport);
+      const remove = vi.spyOn(viewport, "removeEventListener");
+      const parent = document.createElement("div");
+      const element = document.createElement("div");
+      element.style.cssText = "min-width: 200px; max-width: none; max-height: none";
+      parent.append(element);
+      document.body.append(parent);
+      let dispose!: () => void;
+      try {
+        createRoot((cleanup) => {
+          dispose = cleanup;
+          constrainToVisualViewport(element);
+        });
+        expect(element.style.maxWidth).toBe("304px");
+        expect(element.style.maxHeight).toBe("184px");
+        viewport.width = 240;
+        viewport.height = 160;
+        viewport.dispatchEvent(new Event("resize"));
+        expect(element.style.maxWidth).toBe("224px");
+        expect(element.style.maxHeight).toBe("144px");
+        viewport.offsetLeft = 20;
+        viewport.offsetTop = 50;
+        viewport.dispatchEvent(new Event("scroll"));
+        expect(element.style.left).toBe("28px");
+        expect(element.style.top).toBe("58px");
+        expect(observe.mock.calls).toEqual(available ? [[element], [parent]] : []);
+      } finally {
+        dispose?.();
+        parent.remove();
+      }
+      expect(disconnect).toHaveBeenCalledTimes(available ? 1 : 0);
+      expect(remove.mock.calls.map(([event]) => event)).toEqual(["resize", "scroll"]);
+    }
+  );
 });
