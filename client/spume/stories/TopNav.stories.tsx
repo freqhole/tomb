@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
+import { expect, userEvent, waitFor } from "storybook/test";
 import {
   TopNav,
   type NavMenuSection,
@@ -88,6 +89,53 @@ const mockRecentPlaylists: RecentPlaylist[] = mockPlaylists.slice(0, 5).map((pla
   updatedAt: Date.now() - index * 3600000, // stagger by 1 hour each
   onClick: () => console.log("open playlist:", playlist.name),
 }));
+
+export const RemoteNameSizing: Story = {
+  args: {
+    mainNavSections: [],
+    hideSearch: true,
+    remotes: [
+      {
+        id: "offline-library",
+        name: "remote library name",
+        url: "",
+        peerAddr: "test",
+        isOffline: true,
+      },
+      { id: "online-library", name: "online library name", url: "" },
+    ],
+    onDeleteRemote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    await userEvent.hover(canvasElement.querySelector('[aria-label="menu"]')!);
+    await waitFor(() => {
+      const name = Array.from(document.querySelectorAll("span")).find(
+        (element) => element.textContent === "remote library name"
+      );
+      expect(name).toBeDefined();
+      const menu = name!.closest<HTMLElement>("[data-expanded]")!;
+      const bounds = menu.getBoundingClientRect();
+      const viewport = window.visualViewport;
+      const left = viewport?.offsetLeft ?? 0;
+      const top = viewport?.offsetTop ?? 0;
+      const width = viewport?.width ?? window.innerWidth;
+      const height = viewport?.height ?? window.innerHeight;
+      expect(bounds.width).toBeGreaterThan(0);
+      expect(bounds.left).toBeGreaterThanOrEqual(left + 7);
+      expect(bounds.top).toBeGreaterThanOrEqual(top + 7);
+      expect(bounds.right).toBeLessThanOrEqual(left + width - 7);
+      expect(bounds.bottom).toBeLessThanOrEqual(top + height - 7);
+      if (width >= 390) {
+        for (const label of ["remote library name", "online library name"]) {
+          const text = Array.from(menu.querySelectorAll("span")).find(
+            (element) => element.textContent === label
+          )!;
+          expect(text.clientWidth).toBeGreaterThanOrEqual(text.scrollWidth);
+        }
+      }
+    });
+  },
+};
 
 // interactive example with full layout
 export const Interactive: Story = {
