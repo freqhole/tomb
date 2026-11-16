@@ -172,6 +172,10 @@ export function confirmedMbReleaseId(meta: AlbumMetadata): string | null {
   return meta.musicbrainz?.release_id ?? null;
 }
 
+export function confirmedMbReleaseGroupId(meta: AlbumMetadata): string | null {
+  return meta.musicbrainz?.release_group_id ?? null;
+}
+
 /** convenience: candidate count. */
 export function mbCandidateCount(meta: AlbumMetadata): number {
   return meta.musicbrainz?.candidates?.length ?? 0;

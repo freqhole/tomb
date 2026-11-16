@@ -39,6 +39,7 @@ import {
   setSyncQueueToLocal,
 } from "../../app/services/storage/db";
 import { truncateMiddle } from "../../utils/truncate";
+import { useVisualViewportStyle } from "../../components/overlays/visualViewport";
 
 // confirmation dialog component
 function ConfirmDialog(props: {
@@ -50,10 +51,11 @@ function ConfirmDialog(props: {
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const viewportStyle = useVisualViewportStyle();
   return (
     <Show when={props.isOpen}>
-      <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-        <div class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+      <div style={viewportStyle()} class="z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg p-6 max-w-md w-full mx-4 shadow-xl max-h-full overflow-y-auto">
           <h3 class="text-lg font-semibold text-[var(--color-text-primary)] mb-2">{props.title}</h3>
           <p class="text-sm text-[var(--color-text-secondary)] mb-6">{props.message}</p>
           <div class="flex gap-3 justify-end">

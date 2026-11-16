@@ -1,5 +1,4 @@
 //! album sync: receive an album shell with metadata + cover images.
-//! see docs/SEND_TO_REMOTE_PLAN.md.
 
 use serde_json::Value as JsonValue;
 
@@ -18,7 +17,9 @@ pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
         find_or_create_album_for_artist, find_or_create_artist,
     };
     use crate::music::crud::{AlbumImportRequest, ArtistImportRequest};
-    use crate::music::entities::taxonomy::find_or_create_taxon;
+    use crate::music::entities::albums::transfer::{
+        merge_transferred_metadata, TransferredAlbumMetadata,
+    };
 
     let req: SyncAlbumRequest = match serde_json::from_value(body) {
         Ok(r) => r,
@@ -34,6 +35,22 @@ pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
             );
         }
     };
+
+    if let Err(e) = crate::music::entities::albums::metadata::merge_transfer(
+        None,
+        req.metadata.as_deref(),
+        req.mb_release_id.as_deref(),
+        req.mb_release_group_id.as_deref(),
+    ) {
+        return GrimoireResponse::failure(
+            "invalid album metadata",
+            vec![ErrorDetail::new(
+                "bad_request",
+                "bad request",
+                e.to_string(),
+            )],
+        );
+    }
 
     tracing::info!(
         "sync_album: START from {} -- title=\"{}\" artist=\"{}\" remote_album_id={} expected_songs={} images={}",
@@ -68,38 +85,14 @@ pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
         }
     };
 
-    // 2. resolve genre names → taxon ids (best-effort; skip any that fail)
-    let mut genre_ids: Vec<String> = Vec::new();
-    for name in &req.genres {
-        let trimmed = name.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let resp = find_or_create_taxon("genre", trimmed).await;
-        if let Some(taxon) = resp.data {
-            genre_ids.push(taxon.id);
-        } else {
-            tracing::warn!(
-                "sync_album: failed to resolve genre {}: {}",
-                trimmed,
-                resp.message
-            );
-        }
-    }
-    let genre_ids_opt = if genre_ids.is_empty() {
-        None
-    } else {
-        Some(genre_ids)
-    };
-
-    // 3. dedupe / create album by (artist_id, lower(title)).
-    //    find_or_create_album_for_artist also auto-updates album_type if it differs.
+    // 2. dedupe / create album by (artist_id, lower(title)).
+    //    find_or_create_album_for_artist upgrades generic album types only.
     let album_req = AlbumImportRequest {
         title: req.title.clone(),
         album_type: req.album_type.clone(),
-        release_date: req.release_date.clone(),
-        label: req.label.clone(),
-        genre_ids: genre_ids_opt,
+        release_date: None,
+        label: None,
+        genre_ids: None,
         created_by: Some(caller.user_id.clone()),
     };
     let (album, was_created) = match find_or_create_album_for_artist(album_req, &artist.id).await {
@@ -110,10 +103,26 @@ pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
     };
     let existing = !was_created;
 
-    // TODO: when existing=true, merge missing fields (release_date, label, urls)
-    // into the existing row. for now we leave existing rows untouched to keep
-    // step 3 small. mb_release_id / mb_release_group_id / urls aren't persisted
-    // on the album row at all yet.
+    // 3. merge the complete metadata envelope even when songs created a shell
+    // previously. source-local taxon/url ids must never cross this boundary.
+    let metadata_result = merge_transferred_metadata(
+        &album.id,
+        TransferredAlbumMetadata {
+            taxons: &req.taxons,
+            genres: &req.genres,
+            release_date: req.release_date.as_deref(),
+            label: req.label.as_deref(),
+            urls: &req.urls,
+            entity_urls: &req.entity_urls,
+            metadata: req.metadata.as_deref(),
+            mb_release_id: req.mb_release_id.as_deref(),
+            mb_release_group_id: req.mb_release_group_id.as_deref(),
+        },
+    )
+    .await;
+    if !metadata_result.success {
+        return metadata_result.map(|_| JsonValue::Null);
+    }
 
     // 4. import album cover images. each ref carries a blake3 hash - pulled
     //    from source_node_id if not already local. missing/unpullable
@@ -217,4 +226,124 @@ pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
         },
         serde_json::to_value(response).unwrap_or_default(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // uses the real database singleton; run this alone with --ignored --exact.
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singleton"]
+    async fn sync_album_preserves_metadata_and_all_taxons_on_create_and_retry() {
+        let fixture = tempfile::Builder::new()
+            .prefix(".album-transfer-test-")
+            .tempdir_in(".")
+            .expect("fixture directory");
+        let data_dir = fixture.path().canonicalize().unwrap();
+        let config_path = data_dir.join("freqhole-config.toml");
+        std::fs::write(
+            &config_path,
+            format!(
+                "data_dir = {:?}\n[database]\nfilename = \"grimoire.db\"\n[musicbrainz]\nenabled = false\n",
+                data_dir.to_str().unwrap()
+            ),
+        )
+        .unwrap();
+        std::fs::write(data_dir.join("grimoire.db"), b"").unwrap();
+        crate::config::init_config(Some(config_path)).unwrap();
+        crate::database::run_migrations().await.unwrap();
+        let pool = crate::database::connect().await.unwrap();
+        sqlx::query(
+            "INSERT INTO user_accountz (id, username, role) VALUES ('sender', 'sender', 'root')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let caller = Caller::new("sender", "sender", crate::users::UserRole::Root);
+        let body = json!({
+            "remote_album_id": "source-album",
+            "title": "a transferred album",
+            "artist_name": "a transferred artist",
+            "remote_name": "source",
+            "release_date": "2024",
+            "label": "projection must not replace full labels",
+            "genres": ["ambient"],
+            "taxons": [
+                {"id": "source-date", "kind_slug": "release_date", "label": "2024-06-15"},
+                {"id": "source-label-1", "kind_slug": "label", "label": "first label"},
+                {"id": "source-label-2", "kind_slug": "label", "label": "second label"},
+                {"id": "source-mood", "kind_slug": "mood", "label": "dreamy"},
+                {"id": "source-custom", "kind_slug": "custom-transfer-kind", "label": "custom value"}
+            ],
+            "metadata": r#"{"musicbrainz":{"release_id":"release"},"future_field":{"nested":[1,2]}}"#,
+            "mb_release_group_id": "release-group",
+            "entity_urls": [{"id":"source-url","name":"bandcamp","url":"https://example.com/album"}],
+            "urls": ["https://example.com/album"]
+        });
+        let created = sync_album(&caller, body.clone()).await;
+        assert!(created.success, "{}: {:?}", created.message, created.errors);
+        let result = created.data.unwrap();
+        assert_eq!(result["existing"], false);
+        let album_id = result["album_id"].as_str().unwrap();
+        let read_taxons = || {
+            sqlx::query_as::<_, (String, String, String)>(
+                "SELECT t.id, k.slug, t.label FROM album_taxonz a
+                 JOIN taxonz t ON t.id = a.taxon_id JOIN taxon_kindz k ON k.id = t.kind_id
+                 WHERE a.album_id = ? ORDER BY k.slug, t.label",
+            )
+            .bind(album_id)
+            .fetch_all(&pool)
+        };
+        let before = read_taxons().await.unwrap();
+        assert_eq!(before.len(), 6);
+        assert!(before.iter().all(|(id, _, _)| !id.starts_with("source-")));
+        assert!(before
+            .iter()
+            .any(|(_, kind, label)| kind == "release_date" && label == "2024-06-15"));
+        assert_eq!(
+            before.iter().filter(|(_, kind, _)| kind == "label").count(),
+            2
+        );
+        sqlx::query("UPDATE albumz SET metadata = json_set(metadata, '$.destination_only', 42) WHERE id = ?")
+            .bind(album_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let retried = sync_album(&caller, body).await;
+        assert!(retried.success, "{}: {:?}", retried.message, retried.errors);
+        assert_eq!(retried.data.unwrap()["album_id"], album_id);
+        assert_eq!(read_taxons().await.unwrap(), before);
+        let metadata: String = sqlx::query_scalar("SELECT metadata FROM albumz WHERE id = ?")
+            .bind(album_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let metadata: JsonValue = serde_json::from_str(&metadata).unwrap();
+        assert_eq!(metadata["future_field"]["nested"], json!([1, 2]));
+        assert_eq!(metadata["musicbrainz"]["release_id"], "release");
+        assert_eq!(metadata["musicbrainz"]["release_group_id"], "release-group");
+        assert_eq!(metadata["destination_only"], 42);
+        let urls: Vec<(String, Option<String>)> = sqlx::query_as(
+            "SELECT url, name FROM entity_urlz WHERE entity_type = 'album' AND entity_id = ?",
+        )
+        .bind(album_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            urls,
+            vec![("https://example.com/album".into(), Some("bandcamp".into()))]
+        );
+        let legacy = json!({
+            "remote_album_id": "source-album", "title": "a transferred album",
+            "artist_name": "a transferred artist", "remote_name": "source",
+            "release_date": "2025", "label": "legacy label", "genres": ["jazz"]
+        });
+        assert!(sync_album(&caller, legacy).await.success);
+        let after = read_taxons().await.unwrap();
+        assert_eq!(after.len(), before.len() + 3);
+        assert!(before.iter().all(|taxon| after.contains(taxon)));
+    }
 }

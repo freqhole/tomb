@@ -1,6 +1,7 @@
 import { createEffect, createSignal, JSX, onCleanup, onMount, Show } from "solid-js";
 import { DIALOG_RESET_STYLE, registerDialogPolyfill } from "./dialogSupport";
 import { IconButton } from "../buttons/IconButton";
+import { useVisualViewportStyle } from "./visualViewport";
 
 export interface ModalProps {
   isOpen: boolean;
@@ -16,6 +17,7 @@ export interface ModalProps {
 // modal component using the browser's built-in <dialog> element
 // supports backdrop click and escape key to close
 export function Modal(props: ModalProps) {
+  const viewportStyle = useVisualViewportStyle();
   let dialogRef: HTMLDialogElement | undefined;
 
   const size = () => props.size || "md";
@@ -61,16 +63,7 @@ export function Modal(props: ModalProps) {
 
   // handle backdrop click
   const handleBackdropClick = (e: MouseEvent) => {
-    if (!closeOnBackdrop() || !dialogRef) return;
-
-    const rect = dialogRef.getBoundingClientRect();
-    const clickedOutside =
-      e.clientX < rect.left ||
-      e.clientX > rect.right ||
-      e.clientY < rect.top ||
-      e.clientY > rect.bottom;
-
-    if (clickedOutside) {
+    if (closeOnBackdrop() && e.target === e.currentTarget) {
       props.onClose();
     }
   };
@@ -95,7 +88,13 @@ export function Modal(props: ModalProps) {
       ref={dialogRef}
       onClick={handleBackdropClick}
       onCancel={handleCancel}
-      style={DIALOG_RESET_STYLE}
+      style={{
+        ...DIALOG_RESET_STYLE,
+        ...viewportStyle(),
+        display: props.isOpen ? "flex" : "none",
+        "align-items": "center",
+        "justify-content": "center",
+      }}
       class="backdrop:bg-black/60 backdrop:backdrop-blur-sm"
     >
       <div
@@ -114,7 +113,7 @@ export function Modal(props: ModalProps) {
         `}
         style={{
           "margin-top": "var(--safe-area-top, 0px)",
-          "max-height": "calc(100dvh - var(--safe-area-top, 0px))",
+          "max-height": "calc(100% - var(--safe-area-top, 0px) - var(--safe-area-bottom, 0px))",
         }}
         onClick={(e) => e.stopPropagation()}
       >

@@ -140,6 +140,19 @@ fn with_jni<R>(f: impl FnOnce(&mut JNIEnv, &JObject) -> jni::errors::Result<R>) 
         Ok(value) => Some(value),
         Err(err) => {
             tracing::warn!("augur: android jni call failed: {err}");
+            // a JavaException leaves the thread with a pending exception.
+            // clear it before detaching or making another JNI call.
+            match env.exception_check() {
+                Ok(true) => {
+                    if let Err(clear_err) = env.exception_clear() {
+                        tracing::warn!("augur: failed to clear android jni exception: {clear_err}");
+                    }
+                }
+                Ok(false) => {}
+                Err(check_err) => {
+                    tracing::warn!("augur: failed to check android jni exception: {check_err}");
+                }
+            }
             None
         }
     }

@@ -19,6 +19,13 @@
 //
 // (see charnel's own `app/build.gradle.kts` for a real, working example
 // of this wiring.)
+// release builds using R8 must also keep this class and its members:
+// `-keep class net.freqhole.augur.NsdBridge { *; }`. rust resolves these
+// methods by name, which the shrinker cannot see.
+// charnel's android instrumentation contract test should also be run
+// against a signed minified release using
+// `./gradlew -PcharnelTestBuildType=release connectedArm64ReleaseAndroidTest`
+// (or the matching flavor for the connected device).
 //
 // manifest requirements: `android.permission.INTERNET` and
 // `android.permission.ACCESS_WIFI_STATE` (nsdmanager needs both to

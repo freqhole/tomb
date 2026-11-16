@@ -14,6 +14,7 @@ import { Show, createEffect, onCleanup, type JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { Icon } from "../icons/registry";
 import { pushModal, popModal } from "../../music/hooks/modals";
+import { useVisualViewportStyle } from "../overlays/visualViewport";
 
 // per-instance modal id — used by the shared modal stack in
 // `music/hooks/modals.ts` so escape closes the topmost open modal.
@@ -65,6 +66,7 @@ export interface ModalProps {
 }
 
 export function Modal(props: ModalProps) {
+  const viewportStyle = useVisualViewportStyle();
   const handleBackdrop = (e: MouseEvent) => {
     if (props.disableBackdropClose) return;
     // only close when the backdrop itself is clicked, not bubbled events
@@ -89,11 +91,7 @@ export function Modal(props: ModalProps) {
         <div
           class="bg-black/50 flex items-center justify-center p-0 wide:p-8"
           style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
+            ...viewportStyle(),
             "z-index": props.zIndex ?? (props.elevated ? 1060 : 1050),
           }}
           onClick={handleBackdrop}

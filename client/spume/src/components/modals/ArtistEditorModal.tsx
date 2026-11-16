@@ -1,5 +1,5 @@
 // artist editor modal - edit artist metadata
-import { createEffect, createMemo, createSignal, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, Show, untrack } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { ImageMetadata } from "../../music/services/storage/types";
 import { getDataSource, getCurrentRemote } from "../../music/data";
@@ -19,6 +19,7 @@ import { EntityImages } from "../layout/EntityImages";
 import { Modal } from "./Modal";
 import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
 import { error as errorLog } from "../../utils/logger";
+import { mergeEditorData } from "./editorData";
 
 interface ArtistEditorModalProps {
   artistId: string;
@@ -69,28 +70,26 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
   // data source, which only supports uploading image bytes, not a file path
   const currentRemote = () => props.remote ?? getCurrentRemote();
 
-  // initialize form data, images, and entity URLs when artist loads or when artistId changes
-  // guarded by loadedArtistId to prevent refetchOnWindowFocus from wiping unsaved edits
+  // refresh persisted data while preserving unsaved form and URL edits.
   createEffect(() => {
     const artist = artistQuery.data;
     // reinitialize if this is a different artist or first load
-    if (artist && loadedArtistId() !== props.artistId) {
+    if (artist) untrack(() => {
+      const changedArtist = loadedArtistId() !== props.artistId;
       const data: FormData = {
         name: artist.name,
         bio: artist.bio || "",
         uploaded_blob_id: null,
       };
-      setFormData(data);
+      setFormData(mergeEditorData(formData(), changedArtist ? null : initialData(), data));
       setInitialData(data);
 
       // sync images
-      if (artist.images) {
-        setImages(artist.images);
-      }
+      setImages(artist.images ?? []);
 
       // sync entity URLs
-      if (artist.urls) {
-        const mapped = artist.urls.map((u) => ({
+      if (changedArtist || !urlsChanged()) {
+        const mapped = (artist.urls ?? []).map((u) => ({
           id: u.id ?? undefined,
           name: u.name ?? "",
           url: u.url,
@@ -100,7 +99,7 @@ export function ArtistEditorModal(props: ArtistEditorModalProps) {
       }
 
       setLoadedArtistId(props.artistId);
-    }
+    });
   });
 
   // helper to check if entity URLs have changed

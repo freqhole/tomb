@@ -13,7 +13,14 @@ import type {
   SyncPlaylistRequest,
   SyncSongByBlake3Request,
   Transport,
+  EntityUrl,
+  TaxonRef,
 } from "@freqhole/api-client";
+import {
+  confirmedMbReleaseId,
+  confirmedMbReleaseGroupId,
+  parseAlbumMetadata,
+} from "../../../library/data/albumMetadata";
 import type { ImageMetadata } from "../storage/types";
 import type { RemoteSong } from "../../data/remote/adapters";
 import { inlineImagesForSync, toInlinableImages, type InlineImageCache } from "../sync/syncImages";
@@ -145,6 +152,11 @@ export interface BuildSyncAlbumOptions extends SendCommonContext {
   releaseDate?: string | null;
   label?: string | null;
   genres?: string[];
+  taxons?: TaxonRef[];
+  metadata?: string | null;
+  entityUrls?: EntityUrl[];
+  mbReleaseId?: string | null;
+  mbReleaseGroupId?: string | null;
   urls?: string[];
   tags?: string[];
   /** blake3s of every song expected to follow in `sync_song_by_blake3` calls. */
@@ -155,15 +167,24 @@ export interface BuildSyncAlbumOptions extends SendCommonContext {
   imageCache: InlineImageCache;
 }
 
+// compatible extension until the API client is regenerated from the Rust registry.
+// transport.request sends this object directly, without an older schema stripping fields.
+export type SyncAlbumTransferRequest = SyncAlbumRequest & {
+  taxons: TaxonRef[];
+  metadata: string | null;
+  entity_urls: EntityUrl[];
+};
+
 export async function buildSyncAlbumRequest(
   opts: BuildSyncAlbumOptions
-): Promise<SyncAlbumRequest> {
+): Promise<SyncAlbumTransferRequest> {
   const images = await inlineImagesForSync(
     toInlinableImages(opts.images),
     opts.sourceTransport,
     opts.imageCache,
     `[album "${opts.title}"]`
   );
+  const metadata = parseAlbumMetadata(opts.metadata);
   return {
     source_remote_id: opts.sourceRemoteId ?? null,
     source_node_id: opts.sourceNodeId,
@@ -174,9 +195,12 @@ export async function buildSyncAlbumRequest(
     release_date: opts.releaseDate ?? null,
     label: opts.label ?? null,
     genres: opts.genres ?? [],
+    taxons: opts.taxons ?? [],
+    metadata: opts.metadata ?? null,
+    entity_urls: (opts.entityUrls ?? []).map((url) => ({ ...url, id: null })),
     urls: opts.urls ?? [],
-    mb_release_id: null,
-    mb_release_group_id: null,
+    mb_release_id: opts.mbReleaseId ?? confirmedMbReleaseId(metadata),
+    mb_release_group_id: opts.mbReleaseGroupId ?? confirmedMbReleaseGroupId(metadata),
     tags: opts.tags ?? [],
     images,
     expected_song_blake3s: opts.expectedSongBlake3s,

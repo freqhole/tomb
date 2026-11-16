@@ -1,5 +1,5 @@
 // album editor modal - edit album metadata
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack } from "solid-js";
 import { useQueryClient } from "@tanstack/solid-query";
 import type { ImageMetadata, Song } from "../../music/services/storage/types";
 import type { Remote } from "../../app/services/storage/schemas/remote";
@@ -37,6 +37,7 @@ import { AlbumTaxonsEditor, type AlbumTaxonsEditorHandle } from "./AlbumTaxonsEd
 import { EntityUrlz, type EntityUrlFormItem } from "../forms/EntityUrlz";
 import { formatDuration } from "../../utils/formatDuration";
 import { formatDateTime } from "../../utils/dateTime";
+import { mergeEditorData } from "./editorData";
 
 interface AlbumEditorModalProps {
   albumId: string;
@@ -246,12 +247,13 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       album_type: album.album_type || "album",
       uploaded_blob_id: null,
     };
-    setFormData(data);
+    setFormData(untrack(() =>
+      mergeEditorData(formData(), loadedAlbumId() === props.albumId ? initialData() : null, data)
+    ));
     setInitialData(data);
   };
 
-  // initialize form data, images, and entity URLs when album loads or when albumId changes
-  // guarded by loadedAlbumId to prevent refetchOnWindowFocus from wiping unsaved edits
+  // refresh persisted data while preserving unsaved form and URL edits.
   createEffect(() => {
     const album = albumQuery.data;
     const songs = songsQuery.data?.items ?? [];
@@ -270,7 +272,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
     // we no longer wait for songs.length > 0 - albums with zero songs
     // (or while the songs query is still in flight) used to leave the
     // modal stuck on "loading..." indefinitely.
-    if (album && loadedAlbumId() !== props.albumId) {
+    if (album) untrack(() => {
       // TEMP DEBUG
       debug("AlbumEditorModal", "syncing initialData", {
         albumId: props.albumId,
@@ -279,13 +281,12 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       syncFormFromData(album, songs);
 
       // sync images
-      if (album.images) {
-        setImages(album.images);
-      }
+      setImages(album.images ?? []);
 
       // sync entity URLs
-      if (album.urls) {
-        const mapped = album.urls.map((u) => ({
+      const changedAlbum = loadedAlbumId() !== props.albumId;
+      if (changedAlbum || !urlsChanged()) {
+        const mapped = (album.urls ?? []).map((u) => ({
           id: u.id ?? undefined,
           name: u.name ?? "",
           url: u.url,
@@ -295,8 +296,8 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
       }
 
       setLoadedAlbumId(props.albumId);
-      setMergeTargetAlbumId(undefined);
-    }
+      if (changedAlbum) setMergeTargetAlbumId(undefined);
+    });
   });
 
   // helper to check if entity URLs have changed
@@ -1267,9 +1268,10 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                   const [albumResult, songsResult] = await Promise.all([
                     albumQuery.refetch(),
                     songsQuery.refetch(),
+                    taxonsHandle?.refresh(),
                   ]);
-                  if (albumResult.data && songsResult.data?.items?.length) {
-                    syncFormFromData(albumResult.data, songsResult.data.items);
+                  if (albumResult.data) {
+                    syncFormFromData(albumResult.data, songsResult.data?.items ?? []);
                   }
                 }}
               />
@@ -1295,7 +1297,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                   isAdmin={isRemoteAdmin()}
                   onApplied={async () => {
                     queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
-                    await albumQuery.refetch();
+                    await Promise.all([albumQuery.refetch(), taxonsHandle?.refresh()]);
                   }}
                 />
                 <div class="pt-2 border-t border-[var(--color-border-default)]">
@@ -1331,7 +1333,7 @@ export function AlbumEditorModal(props: AlbumEditorModalProps) {
                   isAdmin={isRemoteAdmin()}
                   onApplied={async () => {
                     queryClient.invalidateQueries({ queryKey: queryKeys.albums.all() });
-                    await albumQuery.refetch();
+                    await Promise.all([albumQuery.refetch(), taxonsHandle?.refresh()]);
                   }}
                 />
                 <div class="pt-2 border-t border-[var(--color-border-default)]">
