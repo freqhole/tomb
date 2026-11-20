@@ -5449,7 +5449,7 @@ dependencies = [
 
 [[package]]
 name = "midden"
-version = "0.3.28"
+version = "0.3.29"
 dependencies = [
  "anyhow",
  "bao-tree",
