@@ -1,4 +1,4 @@
-//! native tests for the storage-generic store actor — the payoff of the
+//! host tests for the storage-generic store actor — the payoff of the
 //! BlobDir abstraction: full protocol coverage with plain `cargo test`,
 //! no browser, no OPFS. adversarial cases (partial-write-then-reload, gc
 //! vs tags/protection, deletion) included.
@@ -7,7 +7,7 @@ use std::{sync::Arc, time::Duration};
 
 use bao_tree::ChunkRanges;
 use bytes::Bytes;
-use iroh_blobs::{api::blobs::BlobStatus, protocol::ChunkRangesExt};
+use iroh_blobs::{api::blobs::BlobStatus, protocol::ChunkRangesExt, Hash};
 use n0_future::StreamExt;
 
 use super::{
@@ -154,6 +154,13 @@ fn blobs_and_tags_survive_reload() {
                 .await
                 .unwrap();
             hash = tag.hash();
+            {
+                let batch = store.blobs().batch().await.unwrap();
+                let _listed_tag = batch.temp_tag(hash).await.unwrap();
+                let mut temp_tags = store.tags().list_temp_tags().await.unwrap();
+                assert_eq!(temp_tags.next().await.unwrap().unwrap().hash, hash);
+                assert!(temp_tags.next().await.is_none());
+            }
             store
                 .tags()
                 .set(iroh_blobs::api::Tag::from("keep"), hash)
@@ -171,6 +178,10 @@ fn blobs_and_tags_survive_reload() {
         );
         let back = store.blobs().get_bytes(hash).await.unwrap();
         assert_eq!(back, data);
+        assert_eq!(
+            store.blobs().list().hashes().await.unwrap(),
+            vec![Hash::EMPTY, hash]
+        );
 
         let mut tags = store.tags().list().await.unwrap();
         let mut found = false;
