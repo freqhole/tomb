@@ -19,6 +19,7 @@
 		BD5014312BF056B8AD9F1E27 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AF44CE97DF35E0B5CA862CE1 /* Security.framework */; };
 		C9C04EE347BF7BF6A0184A49 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 248E63DEB5442A2DBF80A24E /* Assets.xcassets */; };
 		D4359D8C548CF6D9C9E30421 /* SystemConfiguration.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 42F3B9085E0E7580579F758A /* SystemConfiguration.framework */; };
+		FC7D85BE4E430478A1475937 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 3F8A4C3B5614A0FCD5E4A97C /* libresolv.tbd */; };
 		FD49D1A22A500272746FA122 /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = D040309F5D0F814E01D9D5BD /* libapp.a */; };
 /* End PBXBuildFile section */
 
@@ -37,6 +38,7 @@
 		356AA4FC5D790F336FA34550 /* p2p_state.rs */ = {isa = PBXFileReference; path = p2p_state.rs; sourceTree = "<group>"; };
 		3649D98AD42A559C0A7CE610 /* charnel_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = charnel_iOS.entitlements; sourceTree = "<group>"; };
 		38C977AE86C033ABC6DBCB0E /* backend.rs */ = {isa = PBXFileReference; path = backend.rs; sourceTree = "<group>"; };
+		3F8A4C3B5614A0FCD5E4A97C /* libresolv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libresolv.tbd; path = usr/lib/libresolv.tbd; sourceTree = SDKROOT; };
 		42F3B9085E0E7580579F758A /* SystemConfiguration.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SystemConfiguration.framework; path = System/Library/Frameworks/SystemConfiguration.framework; sourceTree = SDKROOT; };
 		47E161D6639E003F08A6A3F2 /* jobs_events_commands.rs */ = {isa = PBXFileReference; path = jobs_events_commands.rs; sourceTree = "<group>"; };
 		4BA31FBBFCE3499E9C2B3376 /* tray.rs */ = {isa = PBXFileReference; path = tray.rs; sourceTree = "<group>"; };
@@ -89,6 +91,7 @@
 				8D7C3897E7F2A279D7D798D5 /* UIKit.framework in Frameworks */,
 				23DF364852AF91FC986BFF07 /* WebKit.framework in Frameworks */,
 				D4359D8C548CF6D9C9E30421 /* SystemConfiguration.framework in Frameworks */,
+				FC7D85BE4E430478A1475937 /* libresolv.tbd in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -140,6 +143,7 @@
 			children = (
 				B72001096685509BED2457F8 /* CoreGraphics.framework */,
 				D040309F5D0F814E01D9D5BD /* libapp.a */,
+				3F8A4C3B5614A0FCD5E4A97C /* libresolv.tbd */,
 				70D65C4397E353BAB0B06CA6 /* Metal.framework */,
 				63708413F76262C51EFCEBAD /* MetalKit.framework */,
 				CAD42EADC0BF99EAB035D4D0 /* QuartzCore.framework */,
