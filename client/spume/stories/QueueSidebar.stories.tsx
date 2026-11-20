@@ -2,6 +2,7 @@ import { createSignal } from "solid-js";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 import type { MenuAction } from "../src/components/overlays/ContextMenu";
 import { QueueSidebar } from "../src/components/player/QueueSidebar";
+import type { RadioRequestRow } from "../src/components/radio/useRadioRequestQueue";
 import type { Song } from "../src/music/data/types";
 import { songToMediaItem, type MediaItem } from "../src/app/services/storage/mediaItem";
 import { generateBulkSongs } from "./mockData";
@@ -17,6 +18,56 @@ type Story = StoryObj<typeof meta>;
 
 // generate mock songs - long queue for realistic testing
 const mockQueueSongs: Song[] = generateBulkSongs(50);
+
+export const LongStationQueue: Story = {
+  render: () => {
+    const [rows, setRows] = createSignal<RadioRequestRow[]>(
+      Array.from({ length: 40 }, (_, i) => ({
+        id: `request-${i + 1}`,
+        kind: "song",
+        itemId: `song-${i + 1}`,
+        title: `request ${i + 1}`,
+        requestedBy: "listener",
+        requestedByUsername: "listener",
+        artist: "artist",
+        album: null,
+        durationMs: null,
+        artBlobId: null,
+      }))
+    );
+    return (
+      <QueueSidebar
+        isOpen
+        items={[]}
+        currentIndex={-1}
+        historyEntries={[]}
+        onClose={() => {}}
+        onItemClick={() => {}}
+        onRemoveItem={() => {}}
+        onClearAll={() => {}}
+        radioRequestQueue={{
+          stationName: "request radio",
+          rows,
+          loading: () => false,
+          thumbUrls: () => ({}),
+          hasNowPlaying: () => false,
+          onRemove: (id) => setRows((current) => current.filter((row) => row.id !== id)),
+          onClear: () => setRows([]),
+          onReorder: (id, index) => {
+            setRows((current) => {
+              const moved = current.find((row) => row.id === id);
+              if (!moved) return current;
+              const next = current.filter((row) => row.id !== id);
+              next.splice(index, 0, moved);
+              return next;
+            });
+          },
+          onClearRange: () => {},
+        }}
+      />
+    );
+  },
+};
 
 // single interactive story with all features
 export const Interactive: Story = {

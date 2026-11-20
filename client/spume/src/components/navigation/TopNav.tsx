@@ -1,6 +1,6 @@
 import { NavigationMenu as KobalteNav } from "@kobalte/core/navigation-menu";
-import { createEffect, createSignal, For, on, onCleanup, onMount, Show, type JSX } from "solid-js";
-import { Portal } from "solid-js/web";
+import { createEffect, createSignal, createUniqueId, For, on, onCleanup, onMount, Show, type JSX } from "solid-js";
+import { Dynamic, Portal } from "solid-js/web";
 import { permissions, type UserRoleName } from "@freqhole/api-client";
 import {
   getLocalNodeId,
@@ -97,13 +97,18 @@ type FlyoutPos = { left: number; top?: number; bottom?: number; maxHeight: numbe
 // rect, fixed/viewport-clamped (rendered via a Portal) so it can't get cut
 // off by the scrollable remotes list it lives inside - mirrors
 // `ClickDropdownMenu`'s spaceBelow/spaceAbove flip logic in ContextMenu.tsx.
-function computeFlyoutPos(rowRect: DOMRect): FlyoutPos {
+function computeFlyoutPos(rowRect: DOMRect, narrow: boolean): FlyoutPos {
   const viewport = currentMenuViewport();
   const gutter = 4;
   const pad = 8;
   const flyoutWidth = 180;
-  const left = Math.max(viewport.left + pad,
-    Math.min(rowRect.right + gutter, viewport.left + viewport.width - flyoutWidth - pad));
+  const preferredLeft = narrow
+    ? rowRect.left + (rowRect.width - flyoutWidth) / 2
+    : rowRect.right + gutter;
+  const left = Math.max(
+    viewport.left + pad,
+    Math.min(preferredLeft, viewport.left + viewport.width - flyoutWidth - pad)
+  );
   const top = Math.max(viewport.top + pad,
     Math.min(rowRect.top, viewport.top + viewport.height - pad));
   const bottom = Math.max(viewport.top + pad,
@@ -484,8 +489,8 @@ export function TopNav(props: TopNavProps) {
   // ref to the <nav> element so a ResizeObserver can publish its
   // actual rendered height into `--nav-height` (see onMount below).
   let navEl: HTMLElement | undefined;
-  let menuTriggerEl: HTMLButtonElement | undefined;
-  let mainMenuOpenedAt = 0;
+  let mobileMenuTrigger: HTMLButtonElement | undefined;
+  const mobileMenuId = createUniqueId();
 
   // narrow viewport gets bigger touch-friendly icon buttons
   const iconBtnPad = () => (isNarrow() ? "p-2.5" : "p-1.5");
@@ -503,7 +508,11 @@ export function TopNav(props: TopNavProps) {
   const [desktopFlyoutLockedFor, setDesktopFlyoutLockedFor] =
     createSignal<DesktopFlyoutName | null>(null);
   const [navHoverSuppressed, setNavHoverSuppressed] = createSignal(false);
-  const [isMainMenuOpen, setIsMainMenuOpen] = createSignal(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = createSignal(false);
+  const [desktopMenuOpen, setDesktopMenuOpen] = createSignal(false);
+  const isMainMenuOpen = () => (isNarrow() ? mobileMenuOpen() : desktopMenuOpen());
+  let mainMenuOpenedAt = 0;
+  let focusMobileMenu = false;
   // ids of remotes whose view-switcher flyout is currently open/hovered
   // (portaled outside KobalteNav.Content, so a real viewport-relative
   // `position: fixed` works even though Content's animate-in/out classes
@@ -523,6 +532,7 @@ export function TopNav(props: TopNavProps) {
   // keying by `remote.id` (stable across those re-renders, same trick
   // `openMenuFor`/`RowActionsMenu` below already relies on) survives it.
   const [activeRemoteFlyouts, setActiveRemoteFlyouts] = createSignal<Set<string>>(new Set());
+  const [openMenuFor, setOpenMenuFor] = createSignal<string | null>(null);
   const remoteFlyoutActive = () => activeRemoteFlyouts().size > 0;
   const [remoteFlyoutPosById, setRemoteFlyoutPosById] = createSignal<Record<string, FlyoutPos>>({});
   const remoteRowRefs = new Map<string, HTMLDivElement>();
@@ -530,11 +540,12 @@ export function TopNav(props: TopNavProps) {
   const remoteFlyoutHovered = new Set<string>();
   const remoteFlyoutCloseTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
   const openRemoteFlyout = (id: string) => {
+    if (openMenuFor() !== null) return;
     remoteFlyoutHovered.add(id);
     clearTimeout(remoteFlyoutCloseTimeouts.get(id));
     const row = remoteRowRefs.get(id);
     if (row) {
-      const pos = computeFlyoutPos(row.getBoundingClientRect());
+      const pos = computeFlyoutPos(row.getBoundingClientRect(), isNarrow());
       setRemoteFlyoutPosById((prev) => ({ ...prev, [id]: pos }));
     }
     setActiveRemoteFlyouts((prev) => new Set(prev).add(id));
@@ -572,8 +583,18 @@ export function TopNav(props: TopNavProps) {
     });
   };
 
+  const toggleRowActions = (id: string) => {
+    if (openMenuFor() === id) {
+      setOpenMenuFor(null);
+      return false;
+    }
+    setOpenMenuFor(id);
+    for (const openId of activeRemoteFlyouts()) closeRemoteFlyoutNow(openId);
+    return true;
+  };
+
   // touch devices have no real hover, so the flyout is opened via long-press
-  // (the native contextmenu event, which mobile browsers already dispatch on
+  // (the contextmenu event, which mobile browsers already dispatch on
   // long-press for free) instead, and closed on any tap outside the row/
   // flyout since there's no mouseleave to close it on.
   const handleRemoteFlyoutOutsideTap = (e: PointerEvent) => {
@@ -639,31 +660,16 @@ export function TopNav(props: TopNavProps) {
   } | null>(null);
   const [renameValue, setRenameValue] = createSignal("");
   const [renaming, setRenaming] = createSignal(false);
-  // which remote row currently has its actions menu open (id, or null)
-  const [openMenuFor, setOpenMenuFor] = createSignal<string | null>(null);
-
   // close top-nav overlays after mobile navigation/actions.
   const closeTopNavMenu = () => {
     setOpenMenuFor(null);
-    setIsMainMenuOpen(false);
-    if (!isNarrow()) return;
-    const active = document.activeElement as HTMLElement | null;
-    active?.blur();
-    document.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "Escape",
-        code: "Escape",
-        bubbles: true,
-      })
-    );
+    setMobileMenuOpen(false);
   };
 
-  // force the main menu closed even on wide/desktop. normal menu items rely
-  // on Kobalte's own hover-based dismiss (mouse naturally leaves Content after
-  // clicking), but the per-remote flyout's items are portaled + still under
-  // the pointer after click, so nothing re-triggers that - dispatch the same
-  // escape-close closeTopNavMenu() already uses for narrow, unconditionally.
+  // portaled remote links don't trigger Kobalte's desktop hover dismissal.
   const forceCloseTopNavMenu = () => {
+    closeTopNavMenu();
+    if (isNarrow()) return;
     const active = document.activeElement as HTMLElement | null;
     active?.blur();
     document.dispatchEvent(
@@ -951,35 +957,12 @@ export function TopNav(props: TopNavProps) {
 
   onMount(() => {
     const handleResize = () => {
-      setIsNarrow(isNarrowViewport());
+      const narrow = isNarrowViewport();
+      if (narrow !== isNarrow()) setDesktopMenuOpen(false);
+      setIsNarrow(narrow);
     };
     window.addEventListener("resize", handleResize);
     onCleanup(() => window.removeEventListener("resize", handleResize));
-
-    // keep a local open-state mirror from Kobalte trigger aria-expanded.
-    // this lets us suppress secondary rows while the mobile menu is open,
-    // which avoids cross-stack rendering oddities on some mobile browsers.
-    const syncMainMenuState = () => {
-      const nowOpen = menuTriggerEl?.getAttribute("aria-expanded") === "true";
-      if (nowOpen && !isMainMenuOpen()) mainMenuOpenedAt = Date.now();
-      setIsMainMenuOpen(nowOpen);
-    };
-    syncMainMenuState();
-    const mo =
-      typeof MutationObserver !== "undefined"
-        ? new MutationObserver(() => syncMainMenuState())
-        : null;
-    if (mo && menuTriggerEl) {
-      mo.observe(menuTriggerEl, {
-        attributes: true,
-        attributeFilter: ["aria-expanded"],
-      });
-    }
-    document.addEventListener("click", syncMainMenuState, true);
-    onCleanup(() => {
-      mo?.disconnect();
-      document.removeEventListener("click", syncMainMenuState, true);
-    });
 
     // Narrow menus are click/touch toggled. A capture listener gives them a
     // real backdrop-dismiss behaviour without adding a visual overlay above
@@ -991,75 +974,6 @@ export function TopNav(props: TopNavProps) {
     };
     document.addEventListener("pointerdown", dismissNarrowFlyouts, true);
     onCleanup(() => document.removeEventListener("pointerdown", dismissNarrowFlyouts, true));
-
-    // Kobalte's trigger toggles the flyout closed on pointerdown whenever
-    // it's already open, whether that open came from hover or a prior
-    // click - annoying when the flyout just opened from a hover-intent
-    // delay and the user's click was incidental. swallow the trigger's
-    // pointerdown (before Kobalte's own listener sees it) only within a
-    // short grace window after opening; a click after that window still
-    // closes it normally.
-    const onTriggerPointerDown = (e: PointerEvent) => {
-      if (e.pointerType === "touch") return;
-      if (menuTriggerEl?.getAttribute("aria-expanded") !== "true") return;
-      if (Date.now() - mainMenuOpenedAt < MAIN_MENU_CLICK_CLOSE_GRACE_MS) {
-        e.stopImmediatePropagation();
-      }
-    };
-    menuTriggerEl?.addEventListener("pointerdown", onTriggerPointerDown, { capture: true });
-    onCleanup(() => {
-      menuTriggerEl?.removeEventListener("pointerdown", onTriggerPointerDown, { capture: true });
-    });
-
-    // touch: kobalte's own trigger deliberately waits for a native `click`
-    // to open on touch (vs. opening immediately on pointerdown for mouse)
-    // - standard, correct "tap to activate" mobile ux so a touch that
-    // turns into a scroll/drag doesn't accidentally activate the button.
-    // but ios safari (and sometimes android) has a well-documented quirk:
-    // if some OTHER element (e.g. the search box) currently has focus when
-    // the user taps this button, that first tap is consumed purely to
-    // blur/dismiss the keyboard - no click is ever delivered to this
-    // button for that tap at all, so kobalte's click-driven open silently
-    // doesn't happen until a confusing, unexplained second tap.
-    //
-    // calling preventDefault() in a non-passive touchend handler reliably
-    // suppresses that browser-synthesized click on current ios/android
-    // (confirmed, not just old-version folklore), so we take over click
-    // delivery for touch entirely: manually fire a real click ourselves,
-    // every time, deterministically, instead of depending on whether the
-    // browser decides one is warranted. dispatching via .click() (not
-    // reaching into kobalte's internals at all) replays through kobalte's
-    // own existing onClick handler unchanged - by the time touchend fires,
-    // kobalte's own pointerdown handler has already stamped
-    // dataset.pointerType = "touch" (same gesture, pointerdown always
-    // precedes touchend), which is exactly what that onClick handler
-    // checks to decide whether to open/toggle. no race with a real click
-    // ever firing too (preventDefault reliably stops it), so no risk of a
-    // double-toggle open-then-close.
-    //
-    // the bounds check below replicates the "release must still be over
-    // the target to count as a tap" semantics a real click already gives
-    // us for free - without it, dragging a finger away from the button
-    // before lifting (the standard way to cancel a tap) would still
-    // force-open the menu, since touchend always fires on the original
-    // touchstart target regardless of where the finger ended up.
-    const onTriggerTouchEnd = (e: TouchEvent) => {
-      const touch = e.changedTouches[0];
-      if (!touch || !menuTriggerEl) return;
-      const rect = menuTriggerEl.getBoundingClientRect();
-      const stillOverButton =
-        touch.clientX >= rect.left &&
-        touch.clientX <= rect.right &&
-        touch.clientY >= rect.top &&
-        touch.clientY <= rect.bottom;
-      if (!stillOverButton) return;
-      e.preventDefault();
-      menuTriggerEl.click();
-    };
-    menuTriggerEl?.addEventListener("touchend", onTriggerTouchEnd, { passive: false });
-    onCleanup(() => {
-      menuTriggerEl?.removeEventListener("touchend", onTriggerTouchEnd);
-    });
 
     // publish actual nav height to `--nav-height` whenever the nav
     // resizes (e.g. when extra rows like selected-tag badges appear on
@@ -1178,6 +1092,119 @@ export function TopNav(props: TopNavProps) {
     props.onSwitchToRemote?.(remote.id);
   };
 
+  const setupDesktopMenuTrigger = (el: HTMLButtonElement) => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.pointerType === "touch" || !desktopMenuOpen()) return;
+      if (Date.now() - mainMenuOpenedAt < MAIN_MENU_CLICK_CLOSE_GRACE_MS) {
+        event.stopImmediatePropagation();
+      }
+    };
+    el.addEventListener("pointerdown", handlePointerDown, true);
+    onCleanup(() => el.removeEventListener("pointerdown", handlePointerDown, true));
+  };
+
+  const setupMobileMenuPanel = (panel: HTMLElement) => {
+    const place = () => {
+      const viewport = currentMenuViewport();
+      const anchor = mobileMenuTrigger?.getBoundingClientRect();
+      // leave room for the trigger's focus outline above the portaled panel.
+      const top = anchor ? Math.max(viewport.top, anchor.bottom + 3) : viewport.top;
+      panel.style.left = `${viewport.left}px`;
+      panel.style.top = `${top}px`;
+      panel.style.width = `${viewport.width}px`;
+      panel.style.maxHeight = `${Math.max(0, viewport.top + viewport.height - top)}px`;
+    };
+    const dismissOutside = (event: PointerEvent) => {
+      if (!(event.target instanceof Node)) return;
+      const target = event.target;
+      if (panel.contains(target) || mobileMenuTrigger?.contains(target)) return;
+      if ([...remoteFlyoutContentRefs.values()].some((flyout) => flyout.contains(target))) return;
+      closeTopNavMenu();
+    };
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      closeTopNavMenu();
+      mobileMenuTrigger?.focus({ preventScroll: true });
+    };
+    onMount(() => {
+      place();
+      if (focusMobileMenu) panel.focus({ preventScroll: true });
+      window.addEventListener("resize", place);
+      window.visualViewport?.addEventListener("resize", place);
+      window.visualViewport?.addEventListener("scroll", place);
+      document.addEventListener("pointerdown", dismissOutside, true);
+      document.addEventListener("keydown", dismissOnEscape);
+      onCleanup(() => {
+        window.removeEventListener("resize", place);
+        window.visualViewport?.removeEventListener("resize", place);
+        window.visualViewport?.removeEventListener("scroll", place);
+        document.removeEventListener("pointerdown", dismissOutside, true);
+        document.removeEventListener("keydown", dismissOnEscape);
+        for (const id of activeRemoteFlyouts()) closeRemoteFlyoutNow(id);
+      });
+    });
+  };
+
+  const MobileMenuRoot = (menu: { children: JSX.Element }) => {
+    onCleanup(closeTopNavMenu);
+    return menu.children;
+  };
+
+  const MainMenuRoot = (menu: { children: JSX.Element }) => (
+    <Show
+      when={isNarrow()}
+      fallback={
+        <KobalteNav onValueChange={(value) => {
+          if (value) mainMenuOpenedAt = Date.now();
+          setDesktopMenuOpen(!!value);
+        }}>
+          <KobalteNav.Menu>{menu.children}</KobalteNav.Menu>
+          <KobalteNav.Viewport />
+        </KobalteNav>
+      }
+    >
+      <MobileMenuRoot>{menu.children}</MobileMenuRoot>
+    </Show>
+  );
+
+  const MainMenuPanel = (menu: { children: JSX.Element }) => (
+    <Show
+      when={isNarrow()}
+      fallback={
+        <KobalteNav.Portal>
+          <KobalteNav.Content
+            class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] data-[expanded]:animate-in data-[closed]:animate-out"
+            ref={(el: HTMLElement) => {
+              constrainToVisualViewport(el);
+              el.addEventListener("pointerleave", (event) => {
+                if (event.pointerType === "touch" || remoteFlyoutActive()) {
+                  event.stopImmediatePropagation();
+                }
+              }, true);
+            }}
+          >
+            {menu.children}
+          </KobalteNav.Content>
+        </KobalteNav.Portal>
+      }
+    >
+      <Show when={mobileMenuOpen()}>
+        <Portal>
+          <nav
+            id={mobileMenuId}
+            aria-label="main navigation"
+            tabIndex={-1}
+            ref={setupMobileMenuPanel}
+            class="fixed z-[1001] box-border overflow-x-hidden overflow-y-auto overscroll-contain touch-pan-y bg-[var(--color-bg-elevated)] border-y border-[var(--color-border-default)] shadow-xl"
+            style={{ "padding-bottom": "var(--safe-area-bottom)" }}
+          >
+            {menu.children}
+          </nav>
+        </Portal>
+      </Show>
+    </Show>
+  );
+
   return (
     <>
       <nav
@@ -1273,10 +1300,26 @@ export function TopNav(props: TopNavProps) {
           }}
         >
           {/* menu trigger */}
-          <KobalteNav>
-            <KobalteNav.Menu>
-              <KobalteNav.Trigger
-                ref={menuTriggerEl}
+          <MainMenuRoot>
+              <Dynamic
+                component={isNarrow() ? "button" : KobalteNav.Trigger}
+                ref={(el: HTMLButtonElement) => {
+                  if (isNarrow()) mobileMenuTrigger = el;
+                  else setupDesktopMenuTrigger(el);
+                }}
+                type="button"
+                {...(isNarrow() ? {
+                  "aria-expanded": mobileMenuOpen(),
+                  "aria-controls": mobileMenuOpen() ? mobileMenuId : undefined,
+                  onClick: (event: MouseEvent) => {
+                    if (mobileMenuOpen()) {
+                      closeTopNavMenu();
+                    } else {
+                      focusMobileMenu = event.detail === 0;
+                      setMobileMenuOpen(true);
+                    }
+                  },
+                } : {})}
                 class="p-1 rounded-lg text-white hover:bg-white/10 transition-colors border-none bg-transparent cursor-pointer flex items-center justify-center"
                 style={{
                   "min-width": isNarrow() ? "44px" : "36px",
@@ -1318,50 +1361,12 @@ export function TopNav(props: TopNavProps) {
                     />
                   )}
                 </Show>
-              </KobalteNav.Trigger>
+              </Dynamic>
 
-              <KobalteNav.Portal>
-                <KobalteNav.Content
-                  class="bg-[var(--color-bg-elevated)] border border-[var(--color-border-default)] rounded-lg shadow-xl z-[1001] data-[expanded]:animate-in data-[closed]:animate-out"
-                  ref={(el: HTMLElement) => {
-                    constrainToVisualViewport(el);
-                    // intercept pointerleave in capture phase before Kobalte sees it.
-                    // Kobalte's NavigationMenu.Content calls startLeaveTimer() on
-                    // pointerleave without checking pointerType, so touch scrolling
-                    // closes the menu on Android. we swallow the event for touch,
-                    // and also whenever a per-remote view-switcher flyout is active -
-                    // that flyout is portaled to <body> (see below), so moving the
-                    // pointer onto it looks like "left Content" to Kobalte otherwise.
-                    el.addEventListener(
-                      "pointerleave",
-                      (e) => {
-                        if (e.pointerType === "touch" || remoteFlyoutActive()) {
-                          e.stopImmediatePropagation();
-                        }
-                      },
-                      { capture: true }
-                    );
-                  }}
-                >
+              <MainMenuPanel>
                   <div
-                    class="flex flex-col wide:grid wide:grid-cols-2 gap-4 wide:gap-6 w-max min-w-[min(280px,100%)] wide:min-w-[min(560px,100%)] max-w-full"
-                    style={{
-                      "max-height": "70vh",
-                      "overflow-y": "auto",
-                      "-webkit-overflow-scrolling": "touch",
-                      "touch-action": "pan-y",
-                      "overscroll-behavior": "contain",
-                    }}
-                    ref={(el) => {
-                      // prevent touchmove from being eaten by parent/Kobalte handlers
-                      el.addEventListener(
-                        "touchmove",
-                        (e) => {
-                          e.stopPropagation();
-                        },
-                        { passive: true }
-                      );
-                    }}
+                    class="flex flex-col wide:grid wide:grid-cols-2 gap-4 wide:gap-6"
+                    classList={{ "w-max min-w-[min(560px,100%)] max-w-full max-h-[70vh] overflow-y-auto overscroll-contain": !isNarrow() }}
                   >
                     {/* column 1: brand info + source management */}
                     <div class="flex flex-col p-4 wide:p-6">
@@ -1416,7 +1421,10 @@ export function TopNav(props: TopNavProps) {
                           <button
                             class="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)] rounded transition-colors border-none bg-transparent cursor-pointer flex items-center justify-center"
                             title="player mode"
-                            onClick={() => props.onNavigate?.("/player")}
+                            onClick={() => {
+                              closeTopNavMenu();
+                              props.onNavigate?.("/player");
+                            }}
                           >
                             <Icon name="tv" size={16} />
                           </button>
@@ -1614,10 +1622,7 @@ export function TopNav(props: TopNavProps) {
                                         },
                                       ]}
                                       isOpen={openMenuFor() === LOCAL_LIBRARY_RENAME_ID}
-                                      onToggle={() => {
-                                        const opening = openMenuFor() !== LOCAL_LIBRARY_RENAME_ID;
-                                        setOpenMenuFor(opening ? LOCAL_LIBRARY_RENAME_ID : null);
-                                      }}
+                                      onToggle={() => toggleRowActions(LOCAL_LIBRARY_RENAME_ID)}
                                       onClose={() => setOpenMenuFor(null)}
                                     />
                                   </Show>
@@ -1839,9 +1844,7 @@ export function TopNav(props: TopNavProps) {
                                           actions={remoteContextActions(remote)}
                                           isOpen={openMenuFor() === remote.id}
                                           onToggle={() => {
-                                            const opening = openMenuFor() !== remote.id;
-                                            setOpenMenuFor(opening ? remote.id : null);
-                                            if (!opening) return;
+                                            if (!toggleRowActions(remote.id)) return;
                                             if (getAuthInfo(remote.id) !== undefined) return;
                                             void (async () => {
                                               const fullRemote = await getRemoteById(remote.id);
@@ -1985,7 +1988,10 @@ export function TopNav(props: TopNavProps) {
                         <Show when={!isCharnelMode()}>
                           <button
                             class="w-full flex items-center gap-2 px-3 py-2 mb-4 rounded transition-colors border-none bg-transparent text-sm cursor-pointer text-[var(--color-accent-500)] bg-[var(--color-accent-500)]/10 text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-hover)]"
-                            onClick={() => props.onNavigate?.(routes.settingsStorage())}
+                            onClick={() => {
+                              closeTopNavMenu();
+                              props.onNavigate?.(routes.settingsStorage());
+                            }}
                           >
                             <Icon name="settings" size={16} /> settings
                           </button>
@@ -1998,19 +2004,23 @@ export function TopNav(props: TopNavProps) {
                       <h4 class="text-xs text-[var(--color-text-muted)] uppercase tracking-wide font-medium m-0 mb-3">
                         recent playlists
                       </h4>
-                      <KobalteNav.Group>
-                        <div class="flex-1 space-y-0.5 overflow-y-auto min-h-0">
+                      <Dynamic component={isNarrow() ? "div" : KobalteNav.Group}>
+                        <div class="flex-1 space-y-0.5 min-h-0 wide:overflow-y-auto">
                           <Show when={props.recentPlaylists?.length}>
                             <For each={props.recentPlaylists}>
-                              {(playlist) => (
-                                <KobalteNav.Item
-                                  class="w-full hover:bg-[var(--color-accent-500)]/10 rounded transition-colors cursor-pointer data-[highlighted]:bg-[var(--color-accent-500)]/10 flex items-center gap-2 px-2 py-1"
+                              {(playlist) => {
+                                const selectPlaylist = () => {
+                                  closeTopNavMenu();
+                                  playlist.onClick();
+                                };
+                                return (
+                                <Dynamic
+                                  component={isNarrow() ? "button" : KobalteNav.Item}
+                                  class="w-full border-none bg-transparent text-left hover:bg-[var(--color-accent-500)]/10 rounded transition-colors cursor-pointer data-[highlighted]:bg-[var(--color-accent-500)]/10 flex items-center gap-2 px-2 py-1"
                                   style={{ "min-height": "0", height: "auto" }}
-                                  closeOnSelect={true}
-                                  onSelect={() => {
-                                    closeTopNavMenu();
-                                    playlist.onClick();
-                                  }}
+                                  {...(isNarrow()
+                                    ? { type: "button", onClick: selectPlaylist }
+                                    : { closeOnSelect: true, onSelect: selectPlaylist })}
                                 >
                                   <MediaImage
                                     images={playlist.images}
@@ -2029,8 +2039,9 @@ export function TopNav(props: TopNavProps) {
                                       {formatRelativeTime(playlist.updatedAt)}
                                     </div>
                                   </div>
-                                </KobalteNav.Item>
-                              )}
+                                </Dynamic>
+                                );
+                              }}
                             </For>
                           </Show>
                           <Show when={!props.recentPlaylists?.length}>
@@ -2039,7 +2050,7 @@ export function TopNav(props: TopNavProps) {
                             </div>
                           </Show>
                         </div>
-                      </KobalteNav.Group>
+                      </Dynamic>
 
                       <div class="flex gap-2 pt-3 mt-3 border-t border-[var(--color-border-subtle)]">
                         <button
@@ -2065,12 +2076,8 @@ export function TopNav(props: TopNavProps) {
                       </div>
                     </div>
                   </div>
-                </KobalteNav.Content>
-              </KobalteNav.Portal>
-            </KobalteNav.Menu>
-
-            <KobalteNav.Viewport />
-          </KobalteNav>
+              </MainMenuPanel>
+          </MainMenuRoot>
 
           {/* view selector flyout - hidden when search is expanded on small screens, hidden on aggregate feed and radio */}
           <Show

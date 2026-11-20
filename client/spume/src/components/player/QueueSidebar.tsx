@@ -19,7 +19,8 @@ import { RadioRequestQueueRow } from "./RadioRequestQueueRow";
 import { QueuePlayerTargetRow } from "./QueuePlayerTargetRow";
 import type { HistoryDisplayEntry, RadioStationRef } from "../../app/services/storage/types";
 import type { ImageMetadata } from "../../music/services/storage/types";
-import { isMobile } from "../../utils/isMobile";
+import { isMobile, isTouchDevice } from "../../utils/isMobile";
+import { isNarrowViewport } from "../../config/breakpoints";
 import { tapOrDblClick } from "../../utils/tapOrDblClick";
 import { isCharnelMode } from "../../app/services/charnel";
 import {
@@ -225,7 +226,9 @@ export interface QueueSidebarProps {
 export function QueueSidebar(props: QueueSidebarProps) {
   let scrollElementRef: HTMLDivElement | undefined;
   let historyScrollRef: HTMLDivElement | undefined;
-  let radioSectionRef: HTMLDivElement | undefined;
+  let radioRowsRef: HTMLDivElement | undefined;
+  const [narrowRadioQueue, setNarrowRadioQueue] = createSignal(isNarrowViewport());
+  const radioUsesPointerHandle = () => isCharnelMode() || narrowRadioQueue() || isTouchDevice();
 
   // track which item we've scrolled to (plain var, not reactive)
   let lastScrolledItemKey: string | null = null;
@@ -288,6 +291,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
   const [remotePointerDragIndex, setRemotePointerDragIndex] = createSignal<number | null>(null);
   // same, for the radio request queue's own row list.
   const [radioPointerDragIndex, setRadioPointerDragIndex] = createSignal<number | null>(null);
+  let radioDrag: { pointerId: number; requestId: string } | undefined;
   // pending pointer drag - waiting for movement threshold before activating.
   // `list` picks which signals/reorder-callback activation targets once the
   // threshold is crossed (see handlePointerMove/handlePointerUp below).
@@ -325,11 +329,22 @@ export function QueueSidebar(props: QueueSidebarProps) {
     onCleanup(stop);
   });
 
-  // pointer-based drag for Tauri (HTML5 drag API doesn't work in WKWebView)
+  // pointer drag for radio handles and the existing Tauri queue fallback
   onMount(() => {
-    if (!isCharnelMode()) return;
+    const syncWidth = () => setNarrowRadioQueue(isNarrowViewport());
+    window.addEventListener("resize", syncWidth);
+    onCleanup(() => window.removeEventListener("resize", syncWidth));
+
+    const resetRadioDrag = () => {
+      if (pendingPointerDrag?.list === "radio") pendingPointerDrag = null;
+      radioDrag = undefined;
+      setRadioPointerDragIndex(null);
+      setRadioDropTargetIndex(null);
+    };
 
     const handlePointerMove = (e: PointerEvent) => {
+      if (radioDrag && e.pointerId !== radioDrag.pointerId) return;
+      if (!radioDrag && !isCharnelMode()) return;
       // check if we have a pending drag that should activate
       if (pendingPointerDrag !== null) {
         const deltaY = Math.abs(e.clientY - pendingPointerDrag.startY);
@@ -356,11 +371,11 @@ export function QueueSidebar(props: QueueSidebarProps) {
         // scroll container, so reusing scrollEl's rect would need to
         // subtract the radio section's own height first; anchoring to
         // its own container sidesteps that entirely.
-        const sectionEl = radioSectionRef;
+        const sectionEl = radioRowsRef;
         if (!sectionEl) return;
         const rect = sectionEl.getBoundingClientRect();
         const relativeY = e.clientY - rect.top;
-        const targetIndex = Math.floor(relativeY / 68);
+        const targetIndex = Math.floor(relativeY / ROW_HEIGHT);
         const rowCount = props.radioRequestQueue?.rows().length ?? 0;
         const clampedTarget = Math.max(0, Math.min(targetIndex, rowCount - 1));
         setRadioDropTargetIndex(clampedTarget !== radioIdx ? clampedTarget : null);
@@ -392,22 +407,21 @@ export function QueueSidebar(props: QueueSidebarProps) {
       setDropTargetIndex(clampedTarget !== idx ? clampedTarget : null);
     };
 
-    const handlePointerUp = () => {
-      // cancel pending drag if not yet activated
-      pendingPointerDrag = null;
-
-      const radioFromIndex = radioPointerDragIndex();
-      if (radioFromIndex !== null) {
+    const handlePointerUp = (e: PointerEvent) => {
+      if (radioDrag) {
+        if (e.pointerId !== radioDrag.pointerId) return;
         const toIndex = radioDropTargetIndex();
-        const rows = props.radioRequestQueue?.rows();
-        if (toIndex !== null && radioFromIndex !== toIndex && rows) {
-          const requestId = rows[radioFromIndex]?.id;
-          if (requestId) props.radioRequestQueue?.onReorder(requestId, toIndex);
+        const queue = props.radioRequestQueue;
+        const requestId = radioDrag.requestId;
+        if (toIndex !== null && queue?.rows().some((row) => row.id === requestId)) {
+          queue.onReorder(requestId, toIndex);
         }
-        setRadioPointerDragIndex(null);
-        setRadioDropTargetIndex(null);
+        resetRadioDrag();
         return;
       }
+      if (!isCharnelMode()) return;
+      // cancel pending drag if not yet activated
+      pendingPointerDrag = null;
 
       const remoteFromIndex = remotePointerDragIndex();
       if (remoteFromIndex !== null) {
@@ -431,11 +445,16 @@ export function QueueSidebar(props: QueueSidebarProps) {
       setDropTargetIndex(null);
     };
 
+    const handlePointerCancel = (e: PointerEvent) => {
+      if (radioDrag?.pointerId === e.pointerId) resetRadioDrag();
+    };
     document.addEventListener("pointermove", handlePointerMove);
     document.addEventListener("pointerup", handlePointerUp);
+    document.addEventListener("pointercancel", handlePointerCancel);
     onCleanup(() => {
       document.removeEventListener("pointermove", handlePointerMove);
       document.removeEventListener("pointerup", handlePointerUp);
+      document.removeEventListener("pointercancel", handlePointerCancel);
     });
   });
 
@@ -715,10 +734,12 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   }
                 }}
                 title={
-                  activeTab() === "queue" ? "clear all songs from queue" : "clear all queue history"
+                  activeTab() === "queue"
+                    ? "clear the playback queue, not station requests"
+                    : "clear all queue history"
                 }
               >
-                clear
+                {activeTab() === "queue" ? "clear local queue" : "clear"}
               </button>
             </Show>
 
@@ -814,7 +835,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
         {/* queue tab content */}
         <div
           ref={scrollElementRef}
-          class="flex-1 overflow-y-auto"
+          class="min-h-0 flex-1 overflow-y-auto"
           style={{
             "overflow-anchor": "none",
             "overscroll-behavior": "contain",
@@ -939,7 +960,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                             void remoteReorderQueue(fromIndex, toIndex);
                           }}
                           onPointerDown={(e) => {
-                            // pointer-based drag for Tauri only (native HTML5
+                            // pointer-based drag for Tauri only (HTML5
                             // drag doesn't work in WKWebView) - see the local
                             // queue's identical pattern above.
                             if (isPending()) return;
@@ -970,7 +991,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                 `radioRequestQueue` prop's own doc comment. */}
             <Show when={props.radioRequestQueue}>
               {(queue) => (
-                <div ref={radioSectionRef} class="px-2 pt-1">
+                <div class="px-2 pt-1 touch-pan-y">
                   <div class="flex items-center justify-between px-1 pb-1">
                     <div class="text-xs uppercase tracking-wide text-[var(--color-text-muted)] truncate">
                       {queue().stationName} queue
@@ -980,11 +1001,12 @@ export function QueueSidebar(props: QueueSidebarProps) {
                     </div>
                     <Show when={queue().rows().length > 0}>
                       <button
-                        class="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] hover:border-red-500 hover:text-red-400 flex-shrink-0"
+                        type="button"
+                        class="text-xs px-2 py-2 rounded border border-[var(--color-border)] hover:border-red-500 hover:text-red-400 flex-shrink-0"
                         onClick={() => queue().onClear()}
                         title="clear this station's whole request queue"
                       >
-                        clear
+                        clear station requests
                       </button>
                     </Show>
                   </div>
@@ -998,10 +1020,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                       </Show>
                     }
                   >
-                    <div
-                      class="relative"
-                      style={{ height: `${queue().rows().length * 68}px` }}
-                    >
+                    <div ref={radioRowsRef}>
                       <For each={queue().rows()}>
                         {(row, i) => (
                           <ContextMenu
@@ -1026,8 +1045,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                                 radioDraggedIndex() === i() || radioPointerDragIndex() === i()
                               }
                               isDropTarget={radioDropTargetIndex() === i()}
-                              top={i() * 68}
-                              draggableEnabled={!isCharnelMode()}
+                              draggableEnabled={!radioUsesPointerHandle()}
                               onRemove={(e) => {
                                 e.stopPropagation();
                                 queue().onRemove(row.id);
@@ -1037,8 +1055,10 @@ export function QueueSidebar(props: QueueSidebarProps) {
                               onDragLeave={handleRadioDragLeave}
                               onDragEnd={handleRadioDragEnd}
                               onDrop={() => handleRadioDrop(i())}
-                              onPointerDown={(e) => {
-                                if (isCharnelMode() && e.button === 0) {
+                              onHandlePointerDown={(e) => {
+                                e.stopPropagation();
+                                if (e.isPrimary && e.button === 0 && !pendingPointerDrag && !radioDrag) {
+                                  radioDrag = { pointerId: e.pointerId, requestId: row.id };
                                   pendingPointerDrag = {
                                     index: i(),
                                     startY: e.clientY,

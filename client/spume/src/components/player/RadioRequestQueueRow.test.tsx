@@ -19,6 +19,7 @@ it("controls the title marquee from the whole row, including the thumbnail and r
   const host = document.createElement("div");
   document.body.appendChild(host);
   const remove = vi.fn();
+  const startDrag = vi.fn();
   const dispose = render(() => (
     <RadioRequestQueueRow
       row={{
@@ -37,7 +38,6 @@ it("controls the title marquee from the whole row, including the thumbnail and r
       thumbnailUrl={null}
       isDragging={false}
       isDropTarget={false}
-      top={0}
       draggableEnabled={false}
       onRemove={remove}
       onDragStart={vi.fn()}
@@ -45,7 +45,7 @@ it("controls the title marquee from the whole row, including the thumbnail and r
       onDragLeave={vi.fn()}
       onDragEnd={vi.fn()}
       onDrop={vi.fn()}
-      onPointerDown={vi.fn()}
+      onHandlePointerDown={startDrag}
     />
   ), host);
   try {
@@ -62,6 +62,13 @@ it("controls the title marquee from the whole row, including the thumbnail and r
     expect(title.getAttribute("data-hovered")).toBe("true");
     button.click();
     expect(remove).toHaveBeenCalledOnce();
+    row.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    button.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    expect(startDrag).not.toHaveBeenCalled();
+    host.querySelector('[title="drag to reorder"]')!.dispatchEvent(
+      new Event("pointerdown", { bubbles: true })
+    );
+    expect(startDrag).toHaveBeenCalledOnce();
     row.dispatchEvent(new MouseEvent("mouseleave"));
     expect(title.getAttribute("data-hovered")).toBe("false");
   } finally {
