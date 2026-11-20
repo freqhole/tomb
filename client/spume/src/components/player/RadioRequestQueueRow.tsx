@@ -21,19 +21,13 @@ export interface RadioRequestQueueRowProps {
   thumbnailUrl: string | null;
   isDragging: boolean;
   isDropTarget: boolean;
-  /** fixed row height-based absolute positioning, same convention as
-   *  RemoteQueueRow.tsx - no virtualizer for this list either (station
-   *  request queues are expected to stay modest-sized). */
-  top: number;
   onRemove: (e: MouseEvent) => void;
   onDragStart: (e: DragEvent) => void;
   onDragOver: (e: DragEvent) => void;
   onDragLeave: () => void;
   onDragEnd: () => void;
   onDrop: () => void;
-  /** pointer-based drag fallback for Tauri (native HTML5 `draggable`
-   *  drag doesn't work in WKWebView) - only wired up when `isCharnelMode()`. */
-  onPointerDown: (e: PointerEvent) => void;
+  onHandlePointerDown: (e: PointerEvent) => void;
   draggableEnabled: boolean;
 }
 
@@ -43,14 +37,14 @@ export function RadioRequestQueueRow(props: RadioRequestQueueRowProps) {
   return (
     <div
       draggable={props.draggableEnabled}
-      class={`absolute top-0 left-0 w-full flex items-center py-2 pl-2 group cursor-move transition-all duration-200 overflow-hidden ${
+      class={`h-[68px] w-full flex items-center py-2 pl-2 group transition-colors overflow-hidden ${
         props.isDropTarget
           ? "bg-[var(--color-accent-500)]/20 border-t-2 border-[var(--color-accent-500)] scale-[1.02]"
           : props.isDragging
             ? "opacity-40 bg-[var(--color-accent-500)]/5 scale-95"
             : "rounded-lg hover:bg-[var(--color-accent-500)]/10"
       }`}
-      style={{ transform: `translateY(${props.top}px)` }}
+      classList={{ "cursor-move": props.draggableEnabled }}
       onMouseEnter={() => setIsRowHovered(true)}
       onMouseLeave={() => setIsRowHovered(false)}
       onDragStart={props.onDragStart}
@@ -58,7 +52,6 @@ export function RadioRequestQueueRow(props: RadioRequestQueueRowProps) {
       onDragLeave={props.onDragLeave}
       onDragEnd={props.onDragEnd}
       onDrop={props.onDrop}
-      onPointerDown={props.onPointerDown}
       title={props.row.requestedByUsername ? `requested by ${props.row.requestedByUsername}` : undefined}
     >
       <MediaThumbnail
@@ -91,13 +84,24 @@ export function RadioRequestQueueRow(props: RadioRequestQueueRowProps) {
       </div>
 
       <button
-        class="flex-shrink-0 p-1.5 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/20 rounded transition-colors relative z-10 opacity-0 group-hover:opacity-100"
+        type="button"
+        class="flex-shrink-0 p-2 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/20 rounded transition-colors relative z-10"
         onClick={props.onRemove}
         title="remove from queue"
         aria-label="remove from queue"
       >
         <Icon name="close" size={14} />
       </button>
+      <Show when={!props.draggableEnabled}>
+        <span
+          aria-hidden="true"
+          title="drag to reorder"
+          class="flex h-11 w-9 shrink-0 items-center justify-center touch-none select-none cursor-grab text-[var(--color-text-muted)]"
+          on:pointerdown={props.onHandlePointerDown}
+        >
+          <Icon name="menu" size={16} />
+        </span>
+      </Show>
     </div>
   );
 }

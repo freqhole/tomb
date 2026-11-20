@@ -9,14 +9,11 @@
 //! (see `offal::music::radio`'s route doc comments), so there's no
 //! per-event ACL to apply here - filtering is purely by `station_id`.
 //!
-//! emit points live in `offal::music::radio`'s route handlers (not
-//! `radio::requests` itself), since building a `Submitted` event's full
+//! route handlers build a `Submitted` event's full
 //! `RadioQueuedRequestInfo` payload needs the same title/artist/art
 //! metadata resolution `list_requests` already does for its HTTP
-//! response - `radio::requests` only knows the bare `QueuedRequest`, with
-//! no metadata-resolution capability of its own, and duplicating that
-//! resolution logic down into the queue primitive would be the wrong
-//! layer for it.
+//! response. the in-memory queue publishes expiry removals before the
+//! route publishes the replacement request.
 
 use crate::jobs::job_events::CloseReason;
 use crate::offal::music::radio::RadioQueuedRequestInfo;
@@ -42,8 +39,8 @@ pub enum RadioQueueEvent {
         station_id: String,
         request: RadioQueuedRequestInfo,
     },
-    /// one request left the queue (explicit removal, or the broadcaster
-    /// popped it off the front to actually play it - see
+    /// one request left the queue (expiry, explicit removal, or the
+    /// broadcaster popped it off the front to play it - see
     /// `radio::requests::pop_next`'s callers).
     Removed {
         station_id: String,

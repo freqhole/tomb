@@ -230,34 +230,36 @@ pub async fn submit_request(caller: &Caller, body: JsonValue) -> GrimoireRespons
         );
     }
 
-    let id = crate::radio::requests::submit(
-        &req.station_id,
-        kind,
-        req.item_id.clone(),
-        caller.user_id.clone(),
-        req.start_position_seconds,
-    )
-    .await;
-
     // the new request's full display metadata, shared with
     // `list_requests` below so both stay byte-for-byte consistent - a
     // subscriber watching this station's queue can append a fully-
     // rendered row the moment this event arrives, no follow-up fetch.
     let mut username_cache = std::collections::HashMap::new();
     let user_repo = crate::users::repository::UserRepository::new();
-    let info = resolve_request_info(
-        id,
+    let mut info = resolve_request_info(
+        String::new(),
         kind,
-        req.item_id,
+        req.item_id.clone(),
         caller.user_id.clone(),
         &mut username_cache,
         &user_repo,
     )
     .await;
-    crate::radio::queue_events::emit(crate::radio::queue_events::RadioQueueEvent::Submitted {
-        station_id: req.station_id,
-        request: info,
-    });
+    crate::radio::requests::submit(
+        &req.station_id,
+        kind,
+        req.item_id,
+        caller.user_id.clone(),
+        req.start_position_seconds,
+        |id| {
+            info.id = id;
+            crate::radio::queue_events::emit(crate::radio::queue_events::RadioQueueEvent::Submitted {
+                station_id: req.station_id.clone(),
+                request: info,
+            });
+        },
+    )
+    .await;
 
     GrimoireResponse::success("request submitted", JsonValue::Null)
 }

@@ -725,23 +725,18 @@ impl Broadcaster {
     }
 
     pub fn join(&self) -> u32 {
+        crate::radio::requests::listener_joined(&self.station_id);
         let next = self.listener_count.fetch_add(1, Ordering::Relaxed) + 1;
         if next == 1 {
             self.listener_notify.notify_waiters();
-            let station_id = self.station_id.clone();
-            tokio::spawn(async move { crate::radio::requests::mark_active(&station_id).await });
         }
         next
     }
 
     pub fn leave(&self) -> u32 {
         let prev = self.listener_count.fetch_sub(1, Ordering::Relaxed);
-        let next = prev.saturating_sub(1);
-        if next == 0 {
-            let station_id = self.station_id.clone();
-            tokio::spawn(async move { crate::radio::requests::mark_idle(&station_id).await });
-        }
-        next
+        crate::radio::requests::listener_left(&self.station_id);
+        prev.saturating_sub(1)
     }
 
     pub fn listener_count(&self) -> u32 {

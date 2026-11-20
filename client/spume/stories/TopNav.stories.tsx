@@ -137,6 +137,23 @@ export const RemoteNameSizing: Story = {
   },
 };
 
+export const LongMainMenu: Story = {
+  args: {
+    mainNavSections: [],
+    hideSearch: true,
+    onRenameLocalLibrary: () => {},
+    remotes: [{ id: "online-library", name: "online library", url: "" }],
+    onDeleteRemote: () => {},
+    recentPlaylists: Array.from({ length: 30 }, (_, index) => ({
+      id: `playlist-${index + 1}`,
+      name: `playlist ${index + 1}`,
+      thumbnailUrl: null,
+      updatedAt: 0,
+      onClick: () => {},
+    })),
+  },
+};
+
 // interactive example with full layout
 export const Interactive: Story = {
   render: () => {

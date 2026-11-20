@@ -1390,6 +1390,26 @@ export function AppLayout(props: AppLayoutProps) {
     remoteRef: () => tunedStation.remote() ?? {},
     remoteId: () => tunedStation.remote()?.remote_id,
   });
+  const confirmClearStationRequests = async () => {
+    const station = currentRadioStation();
+    if (!station || !tunedStationAcceptsRequests()) return;
+    const confirmed = await confirm({
+      title: "clear station requests?",
+      message: `this removes all pending requests for ${station.station_name}. it does not stop the current track.`,
+      confirmText: "clear station requests",
+      variant: "danger",
+    });
+    const current = currentRadioStation();
+    if (
+      confirmed &&
+      current &&
+      current.station_id === station.station_id &&
+      current.peer_addr === station.peer_addr &&
+      tunedStationAcceptsRequests()
+    ) {
+      await radioRequestQueueState.handleClear();
+    }
+  };
 
   const getRadioQueueContextMenuActions = (station: RadioStationRef): MenuAction[] => [
     {
@@ -1892,7 +1912,7 @@ export function AppLayout(props: AppLayoutProps) {
                       thumbUrls: radioRequestQueueState.thumbUrls,
                       hasNowPlaying: () => !!radioNowPlaying()?.song_id?.trim(),
                       onRemove: (requestId) => void radioRequestQueueState.handleRemove(requestId),
-                      onClear: () => void radioRequestQueueState.handleClear(),
+                      onClear: () => void confirmClearStationRequests(),
                       onReorder: (requestId, newIndex) =>
                         void radioRequestQueueState.handleReorder(requestId, newIndex),
                       onClearRange: (requestId, direction) =>
