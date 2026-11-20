@@ -253,10 +253,12 @@ pub async fn submit_request(caller: &Caller, body: JsonValue) -> GrimoireRespons
         req.start_position_seconds,
         |id| {
             info.id = id;
-            crate::radio::queue_events::emit(crate::radio::queue_events::RadioQueueEvent::Submitted {
-                station_id: req.station_id.clone(),
-                request: info,
-            });
+            crate::radio::queue_events::emit(
+                crate::radio::queue_events::RadioQueueEvent::Submitted {
+                    station_id: req.station_id.clone(),
+                    request: info,
+                },
+            );
         },
     )
     .await;
