@@ -49,7 +49,7 @@ webauthn-rs = { version = "0.5.1", features = [
 # iroh/transport-specific, not something a transport-agnostic protocol
 # could stay agnostic about. version matches skein/reliquary's pin exactly
 # (read-only research, not a shared dependency).
-iroh = { version = "1.4.1", optional = true }
+iroh = { workspace = true, optional = true }
 
 [dev-dependencies]
 data-encoding = "2"

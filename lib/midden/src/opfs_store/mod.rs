@@ -1,9 +1,9 @@
 //! an OPFS-backed iroh-blobs store living entirely OUTSIDE the iroh-blobs
 //! crate — see skein/docs/opfs-store-implementation-plan.md phase C.
 //!
-//! iroh-blobs 0.103 exposes everything a custom store actor needs:
+//! iroh-blobs exposes everything a custom store actor needs:
 //! `api::proto` is pub (the `Command` enum and the irpc-generated `*Msg`
-//! types), `MemStore::from_sender(client)` is plain pub, and the bao-tree
+//! types), `Store::from_client` wraps the actor's RPC client, and the bao-tree
 //! traversal helpers work against public traits (`ReadBytesAt` +
 //! `Outboard`). so the browser store needs ZERO fork diffs.
 //!
@@ -11,7 +11,7 @@
 //! - `storage::BlobDir`/`BlobFile` abstract the byte storage: `NativeDir`
 //!   (in-memory, `cargo test`) and `opfs::OpfsDir` (sync access handles,
 //!   worker-only wasm). ALL protocol/state-machine logic below is generic
-//!   over the trait and natively tested in `tests.rs`.
+//!   over the trait and tested on the host in `tests.rs`.
 //! - per blob: `<hash>.data` + `<hash>.obao` (pre-order outboard) +, while
 //!   partial, a `<hash>.meta` sidecar persisting size + bitfield. the
 //!   sidecar doubles as the partial/complete marker: completion deletes it
@@ -40,24 +40,23 @@ mod tests;
 
 use std::ops::Deref;
 
-use iroh_blobs::store::mem::MemStore;
+use iroh_blobs::api::Store;
 
 pub use actor::spawn_store;
 // ProtectCb/ProtectOutcome are consumed by lib.rs's make_protect_cb, which is
-// wasm-only — this re-export is otherwise unused on native (test) builds.
+// wasm-only — this re-export is otherwise unused on host test builds.
 #[allow(unused_imports)]
 pub use gc::{GcOptions, ProtectCb, ProtectOutcome};
 
 /// public handle: an iroh-blobs Store backed by the storage-generic actor.
-/// wraps MemStore purely for its pub from_sender constructor + Deref<Store>.
 pub struct OpfsStore {
-    inner: MemStore,
+    inner: Store,
 }
 
 impl Deref for OpfsStore {
-    type Target = iroh_blobs::api::Store;
+    type Target = Store;
     fn deref(&self) -> &Self::Target {
-        self.inner.deref()
+        &self.inner
     }
 }
 
@@ -66,10 +65,10 @@ impl OpfsStore {
     /// actor stays alive as long as any clone exists.
     ///
     /// only called from `build_blobs_store`'s wasm-only branch in lib.rs,
-    /// so it is otherwise unused on native builds.
+    /// so it is otherwise unused on host builds.
     #[allow(dead_code)]
-    pub fn clone_store(&self) -> iroh_blobs::api::Store {
-        self.inner.deref().clone()
+    pub fn clone_store(&self) -> Store {
+        self.inner.clone()
     }
 }
 
@@ -85,21 +84,21 @@ impl OpfsStore {
         let storage = opfs::OpfsDir::new(dir);
         let client = spawn_store(storage, gc).await.map_err(|e| e.to_string())?;
         Ok(Self {
-            inner: MemStore::from_sender(client),
+            inner: Store::from_client(client),
         })
     }
 }
 
 #[cfg(not(target_family = "wasm"))]
 impl OpfsStore {
-    /// native (test) construction over any BlobDir impl.
+    /// host test construction over any BlobDir impl.
     pub async fn new_native<D>(storage: D, gc: Option<GcOptions>) -> std::io::Result<Self>
     where
         D: storage::BlobDir + 'static,
     {
         let client = spawn_store(storage, gc).await?;
         Ok(Self {
-            inner: MemStore::from_sender(client),
+            inner: Store::from_client(client),
         })
     }
 }

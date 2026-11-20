@@ -40,9 +40,9 @@ use iroh_blobs::{
             CreateTagRequest, CreateTempTagMsg, DeleteBlobsMsg, DeleteTagsMsg, ExportBaoMsg,
             ExportBaoRequest, ExportRangesItem, ExportRangesMsg, ExportRangesRequest, ImportBaoMsg,
             ImportBaoRequest, ImportByteStreamMsg, ImportByteStreamUpdate, ImportBytesMsg,
-            ImportBytesRequest, ListBlobsMsg, ListTagsMsg, ListTempTagsMsg, ObserveMsg,
-            ObserveRequest, RenameTagMsg, Scope, SetTagMsg, SetTagRequest, ShutdownMsg, SyncDbMsg,
-            WaitIdleMsg,
+            ImportBytesRequest, ListBlobsItem, ListBlobsMsg, ListTagsItem, ListTagsMsg,
+            ListTempTagsItem, ListTempTagsMsg, ObserveMsg, ObserveRequest, RenameTagMsg, Scope,
+            SetTagMsg, SetTagRequest, ShutdownMsg, SyncDbMsg, WaitIdleMsg,
         },
         tags::TagInfo,
         Tag, TempTag,
@@ -1046,15 +1046,22 @@ async fn handle_command<D: BlobDir + 'static>(
             tx.send(status).await.ok();
         }
         Command::ListBlobs(ListBlobsMsg { tx, .. }) => {
-            let hashes: Vec<Hash> = ctx.entries.borrow().keys().copied().collect();
+            let hashes: Vec<Hash> = ctx
+                .entries
+                .borrow()
+                .keys()
+                .copied()
+                .filter(|hash| *hash != Hash::EMPTY)
+                .collect();
             let guard = ctx.tasks.begin();
             spawn(async move {
                 let _guard = guard;
                 for hash in hashes {
-                    if tx.send(Ok(hash)).await.is_err() {
-                        break;
+                    if tx.send(ListBlobsItem::Hash(hash)).await.is_err() {
+                        return;
                     }
                 }
+                tx.send(ListBlobsItem::Done).await.ok();
             });
         }
         Command::DeleteBlobs(DeleteBlobsMsg { inner, tx, .. }) => {
@@ -1124,15 +1131,22 @@ async fn handle_command<D: BlobDir + 'static>(
                     (inner.raw && value.format.is_raw())
                         || (inner.hash_seq && value.format.is_hash_seq())
                 })
-                .map(|(tag, value)| {
-                    Ok(TagInfo {
-                        name: tag.clone(),
-                        hash: value.hash,
-                        format: value.format,
-                    })
+                .map(|(tag, value)| TagInfo {
+                    name: tag.clone(),
+                    hash: value.hash,
+                    format: value.format,
                 })
                 .collect();
-            tx.send(tags).await.ok();
+            let guard = ctx.tasks.begin();
+            spawn(async move {
+                let _guard = guard;
+                for tag in tags {
+                    if tx.send(ListTagsItem::Tag(tag)).await.is_err() {
+                        return;
+                    }
+                }
+                tx.send(ListTagsItem::Done).await.ok();
+            });
         }
         Command::DeleteTags(DeleteTagsMsg { inner, tx, .. }) => {
             {
@@ -1187,7 +1201,16 @@ async fn handle_command<D: BlobDir + 'static>(
         }
         Command::ListTempTags(ListTempTagsMsg { tx, .. }) => {
             let tts = ctx.temp_tags.borrow().list();
-            tx.send(tts).await.ok();
+            let guard = ctx.tasks.begin();
+            spawn(async move {
+                let _guard = guard;
+                for tag in tts {
+                    if tx.send(ListTempTagsItem::Tag(tag)).await.is_err() {
+                        return;
+                    }
+                }
+                tx.send(ListTempTagsItem::Done).await.ok();
+            });
         }
         Command::SyncDb(SyncDbMsg { tx, .. }) => {
             tx.send(Ok(())).await.ok();
