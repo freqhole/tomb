@@ -28,6 +28,7 @@ import {
   createServerSessions,
   updateServerSessionItems,
 } from "../../music/services/queue/serverSession";
+import { queueToTunedStation } from "../../app/services/radio/queueToTunedStation";
 
 // keeps video history/local-tracking/server-session in sync when a video is
 // appended to an already-active queue (add to queue/play next) instead of
@@ -79,8 +80,9 @@ export async function addVideoToQueue(
   video: VideoSummary | QueuedVideo,
   source?: VideoQueueSourceContext
 ): Promise<void> {
-  const queue = appState()?.queue ?? [];
   const item = videoToMediaItem({ ...video, queue_entry_id: undefined });
+  if (await queueToTunedStation([item]) === "handled") return;
+  const queue = appState()?.queue ?? [];
   if (isRemoteTargetActive()) mirrorAppendVideosToQueue(videosOnly([item]));
   const newQueue = [...queue, item];
   await setQueue(newQueue);
@@ -107,8 +109,9 @@ export async function addVideosToQueue(
   source?: VideoQueueSourceContext
 ): Promise<void> {
   if (videos.length === 0) return;
-  const queue = appState()?.queue ?? [];
   const items = videos.map((v) => videoToMediaItem({ ...v, queue_entry_id: undefined }));
+  if (await queueToTunedStation(items) === "handled") return;
+  const queue = appState()?.queue ?? [];
   if (isRemoteTargetActive()) mirrorAppendVideosToQueue(videosOnly(items));
   const newQueue = [...queue, ...items];
   await setQueue(newQueue);
@@ -119,9 +122,10 @@ export async function playVideoNext(
   video: VideoSummary | QueuedVideo,
   source?: VideoQueueSourceContext
 ): Promise<void> {
+  const item = videoToMediaItem({ ...video, queue_entry_id: undefined });
+  if (await queueToTunedStation([item], "next") === "handled") return;
   const state = appState();
   const queue = state?.queue ?? [];
-  const item = videoToMediaItem({ ...video, queue_entry_id: undefined });
   const currentId = state?.current_item_key;
   const currentIndex = currentId ? queue.findIndex((i) => mediaItemKey(i) === currentId) : -1;
   const insertAt = currentIndex >= 0 ? currentIndex + 1 : queue.length;

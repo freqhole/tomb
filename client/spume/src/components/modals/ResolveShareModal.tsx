@@ -40,6 +40,7 @@ export interface ResolveShareModalProps {
   onClose: () => void;
   /** open AddRemoteModal pre-filled with the share's node id. */
   onAddRemote: (nodeId: string) => void;
+  autoNavigate?: boolean;
 }
 
 type ResolveState =
@@ -85,11 +86,13 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
           }
           // auto-navigate. setting hash here triggers HashRouter; the modal
           // closes itself on the next tick via the effect below.
-          setTimeout(() => {
-            window.location.hash = targetUrl;
-            setNavigated(true);
-            props.onClose();
-          }, 250);
+          if (props.autoNavigate !== false) {
+            setTimeout(() => {
+              window.location.hash = targetUrl;
+              setNavigated(true);
+              props.onClose();
+            }, 250);
+          }
           return { kind: "matched", payload, targetUrl };
         }
         // no remote for this node yet - persist a pending-remote row (for
@@ -148,9 +151,18 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
             return (
               <>
                 <ShareEntityInfo payload={s.payload} />
-                <p class="text-sm text-[var(--color-text-secondary)]">
-                  one sec! opening {s.payload.k} on connected remote…
-                </p>
+                <Show when={props.autoNavigate !== false} fallback={
+                  <Button variant="primary" onClick={() => {
+                    window.location.hash = s.targetUrl;
+                    props.onClose();
+                  }}>
+                    open shared item
+                  </Button>
+                }>
+                  <p class="text-sm text-[var(--color-text-secondary)]">
+                    one sec! opening {s.payload.k} on connected remote…
+                  </p>
+                </Show>
               </>
             );
           }}
@@ -202,24 +214,21 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
                     request access
                   </Button>
                 </Show>
-                <Show when={!isCharnelMode()}>
-                  <p class="text-sm text-[var(--color-text-primary)] mt-6 p-2">
-                    or open this in the freqhole desktop app (note: you can paste the link into the
-                    search input).
-                  </p>
-
-                  <a
-                    href={`freqhole://o/${props.token ?? ""}`}
-                    class="px-3 py-2 text-sm rounded-md bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] border border-[var(--color-border-default)]"
-                  >
-                    open in freqhole app
-                    <Icon name="externalLink" size={16} className="inline-block ml-2" />
-                  </a>
-                </Show>
-                {/* </div> */}
               </>
             );
           }}
+        </Show>
+        <Show when={!isCharnelMode() && (state()?.kind === "matched" || state()?.kind === "unmatched")}>
+          <p class="text-sm text-[var(--color-text-primary)] mt-6 p-2">
+            or open this in the freqhole app (note: you can paste the link into the search input).
+          </p>
+          <a
+            href={`freqhole://o/${props.token ?? ""}`}
+            class="inline-block px-3 py-2 text-sm rounded-md bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-hover)] text-[var(--color-text-primary)] border border-[var(--color-border-default)]"
+          >
+            open in freqhole app
+            <Icon name="externalLink" size={16} className="inline-block ml-2" />
+          </a>
         </Show>
       </div>
     </Modal>

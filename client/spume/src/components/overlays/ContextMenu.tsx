@@ -56,8 +56,8 @@ export interface ContextMenuProps {
   as?: ValidComponent;
   /** extra classes merged onto the trigger element */
   triggerClass?: string;
-  /** overrides the default z-[1200] flyout tier - use sparingly, only for
-   *  a menu that must out-rank z-1200's usual siblings (e.g. the title
+  /** overrides the default z-[1600] flyout tier - use sparingly, only for
+   *  a menu that must out-rank z-1600's usual siblings (e.g. the title
    *  bar's global chrome menu, which should sit above page content). */
   zIndex?: number;
 }
@@ -108,7 +108,7 @@ export function ContextMenu(props: ContextMenuProps) {
             origin-top-left
             data-[expanded]:animate-[fade-in_0.15s_ease-out]
           "
-          style={{ ...viewportMenuStyle, "z-index": local.zIndex ?? 1200 }}
+          style={{ ...viewportMenuStyle, "z-index": local.zIndex ?? 1600 }}
         >
           <Show when={local.header}>
             <div class="p-2 border-b border-[var(--color-border-default)]">{local.header}</div>
@@ -177,13 +177,13 @@ export interface DropdownMenuProps {
    * left edge of the viewport (e.g. the title-bar hamburger), where it
    * pushes the menu off-screen to the left. use "left" there instead. */
   align?: "left" | "right";
-  /** overrides the default z-[1200] flyout tier - see `ContextMenuProps`'s
+  /** overrides the default z-[1600] flyout tier - see `ContextMenuProps`'s
    *  own doc comment for the same field. */
   zIndex?: number;
 }
 
 export function DropdownMenu(props: DropdownMenuProps) {
-  const [local, rest] = splitProps(props, ["trigger", "actions", "header", "onOpen"]);
+  const [local, rest] = splitProps(props, ["trigger", "actions", "header", "onOpen", "zIndex"]);
 
   return (
     <KobalteContextMenu fitViewport overlap overflowPadding={8} {...rest}>
@@ -198,11 +198,10 @@ export function DropdownMenu(props: DropdownMenuProps) {
             shadow-2xl
             overflow-y-auto overflow-x-hidden
             animate-[fade-in_0.15s_ease-out]
-            z-[1200]
             origin-top-left
             data-[expanded]:animate-[fade-in_0.15s_ease-out]
           "
-          style={viewportMenuStyle}
+          style={{ ...viewportMenuStyle, "z-index": local.zIndex ?? 1600 }}
         >
           <Show when={local.header}>
             <div class="p-2 border-b border-[var(--color-border-default)]">{local.header}</div>
@@ -316,7 +315,7 @@ export function ClickDropdownMenu(props: DropdownMenuProps) {
   const menuStyle = (): JSX.CSSProperties => {
     return {
       ...menuPos(),
-      "z-index": `${local.zIndex ?? 1200}`,
+      "z-index": `${local.zIndex ?? 1600}`,
     };
   };
 

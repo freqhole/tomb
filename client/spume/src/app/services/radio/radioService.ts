@@ -2441,7 +2441,23 @@ export async function tuneIntoRadio(
    * surfaces a "connecting" status so the player bar shows a visible
    * transition until the next track's init chunk lands. */
   const flushForAdminSkip = () => {
-    if (!isActiveTune() || !ms) return;
+    if (!isActiveTune()) return;
+    pendingMeta.clear();
+    pendingInterstitials.clear();
+    pendingTrackBoundaries = [];
+    pendingInitialNowPlaying = null;
+    batch(() => {
+      setNowPlaying(null);
+      swapArtUrl(null);
+      setTrackPositionMs(0);
+      setTimelineSnapshot((previous) => previous ? {
+        ...previous,
+        timeline_seq: previous.timeline_seq + 1,
+        current: null,
+        upcoming: [],
+      } : null);
+    });
+    if (!ms) return;
     console.info("[radio] admin skip accepted — flushing buffered audio for a silent cut");
     sourceBufferResetCount += 1;
     queue.length = 0;

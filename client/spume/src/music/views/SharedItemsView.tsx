@@ -24,6 +24,8 @@ import {
 import type { SharedItemEntry } from "../../app/services/storage/types";
 import { useTopNavSlots } from "../../app/shell/topNavSlots";
 import { CrossRemoteTopNavSearch } from "../../library/views/graph/CrossRemoteTopNavSearch";
+import { ResolveShareModal } from "../../components/modals/ResolveShareModal";
+import { AddRemoteModal } from "../../components/modals/AddRemoteModal";
 
 function kindLabel(kind: SharedItemEntry["kind"]): string {
   switch (kind) {
@@ -89,6 +91,8 @@ function formatRelative(ts: number): string {
 
 export function SharedItemsView() {
   const navigate = useNavigate();
+  const [receivedShareToken, setReceivedShareToken] = createSignal<string | null>(null);
+  const [addRemoteNodeId, setAddRemoteNodeId] = createSignal<string | null>(null);
 
   onMount(() => {
     void loadSharedItems();
@@ -112,7 +116,7 @@ export function SharedItemsView() {
   });
 
   const openShare = (token: string) => {
-    navigate(`/shared?share=${encodeURIComponent(token)}`);
+    setReceivedShareToken(token);
   };
 
   const openRemoteItem = async (item: SharedItemEntry) => {
@@ -216,6 +220,7 @@ export function SharedItemsView() {
   };
 
   return (
+    <>
     <div class="h-full overflow-y-auto px-4 pb-4 pt-[var(--nav-height,42px)] wide:px-6 wide:pb-6 wide:pt-[100px]">
       <div class="max-w-4xl mx-auto space-y-4">
         <header class="flex items-center justify-between gap-3 wide:ml-16 pb-3">
@@ -249,7 +254,12 @@ export function SharedItemsView() {
               {(item) => (
                 <li class="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-secondary)]/40 p-3">
                   <div class="flex items-start justify-between gap-3">
-                    <div class="min-w-0">
+                    <button
+                      type="button"
+                      class="min-w-0 flex-1 text-left rounded hover:bg-[var(--color-bg-hover)]"
+                      onClick={() => openShare(item.token)}
+                      aria-label={`open shared ${kindLabel(item.kind)}: ${item.title || item.entity_id}`}
+                    >
                       <div class="text-sm font-medium text-[var(--color-text-primary)] truncate">
                         {item.title || item.entity_id}
                       </div>
@@ -267,7 +277,7 @@ export function SharedItemsView() {
                           from {item.source_remote_name}
                         </div>
                       </Show>
-                    </div>
+                    </button>
                     <div class="flex items-center gap-1 flex-shrink-0">
                       <button
                         type="button"
@@ -319,6 +329,26 @@ export function SharedItemsView() {
         </Show>
       </div>
     </div>
+    <Show when={receivedShareToken()}>
+      {(token) => (
+        <ResolveShareModal
+          token={token()}
+          autoNavigate={false}
+          onClose={() => setReceivedShareToken(null)}
+          onAddRemote={setAddRemoteNodeId}
+        />
+      )}
+    </Show>
+    <Show when={addRemoteNodeId()}>
+      {(nodeId) => (
+        <AddRemoteModal
+          isOpen={true}
+          initialValue={nodeId()}
+          onClose={() => setAddRemoteNodeId(null)}
+        />
+      )}
+    </Show>
+    </>
   );
 }
 

@@ -842,13 +842,18 @@ export function AppLayout(props: AppLayoutProps) {
     const remoteId = radioCurrentRemoteServerId();
     if (!remoteId) return false;
     const auth = getAuthInfo(remoteId);
-    return auth?.loggedIn === true && auth.role === "admin";
+    return auth?.loggedIn === true && (auth.role === "admin" || tunedStationAcceptsRequests());
   });
 
   const requestRadioTrackSkip = async (): Promise<void> => {
     const station = currentRadioStation();
     if (!station?.station_id) {
       throw new Error("current station cannot be skipped");
+    }
+    if (tunedStationAcceptsRequests()) {
+      const itemId = radioNowPlaying()?.song_id;
+      if (itemId) await radioRequestQueueState.handleSkip(itemId);
+      return;
     }
 
     if (station.is_local) {
@@ -1394,9 +1399,9 @@ export function AppLayout(props: AppLayoutProps) {
     const station = currentRadioStation();
     if (!station || !tunedStationAcceptsRequests()) return;
     const confirmed = await confirm({
-      title: "clear station requests?",
-      message: `this removes all pending requests for ${station.station_name}. it does not stop the current track.`,
-      confirmText: "clear station requests",
+      title: "clear station?",
+      message: `this stops the current track and removes all pending requests for ${station.station_name}, for everyone listening.`,
+      confirmText: "clear station",
       variant: "danger",
     });
     const current = currentRadioStation();
@@ -1911,6 +1916,26 @@ export function AppLayout(props: AppLayoutProps) {
                       loading: radioRequestQueueState.loading,
                       thumbUrls: radioRequestQueueState.thumbUrls,
                       hasNowPlaying: () => !!radioNowPlaying()?.song_id?.trim(),
+                      nowPlaying: () => {
+                        const track = radioNowPlaying();
+                        if (!track?.song_id?.trim()) return null;
+                        return {
+                          id: track.song_id,
+                          itemId: track.song_id,
+                          kind: track.kind ?? "song",
+                          title: track.title,
+                          artist: track.artist ?? null,
+                          album: track.album ?? null,
+                          durationMs: track.duration_ms ?? null,
+                          artBlobId: null,
+                          requestedBy: "",
+                          requestedByUsername: null,
+                        };
+                      },
+                      nowPlayingThumbUrl: radioArtUrl,
+                      onSkip: (itemId) => void radioRequestQueueState.handleSkip(itemId),
+                      onPlayNow: (requestId) =>
+                        void radioRequestQueueState.handlePlayNow(requestId),
                       onRemove: (requestId) => void radioRequestQueueState.handleRemove(requestId),
                       onClear: () => void confirmClearStationRequests(),
                       onReorder: (requestId, newIndex) =>
@@ -2650,6 +2675,8 @@ export function AppLayout(props: AppLayoutProps) {
             confirmText={confirmState().confirmText}
             cancelText={confirmState().cancelText}
             variant={confirmState().variant}
+            cancelVariant={confirmState().cancelVariant}
+            cancelLast={confirmState().cancelLast}
           />
 
           {/* global playlist selector modal */}

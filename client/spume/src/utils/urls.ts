@@ -8,6 +8,15 @@
 import { utils } from "../app/api/client";
 
 /**
+ * check if a URL is a valid full HTTP(S) URL.
+ * rejects relative paths like "/api/blobs/{id}" which don't work for P2P.
+ */
+export function isValidHttpUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  return url.startsWith("http://") || url.startsWith("https://");
+}
+
+/**
  * get the URL for a remote media resource (image or audio)
  *
  * returns standard URL that uses session cookies for authentication

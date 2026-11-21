@@ -8,7 +8,9 @@ export interface ConfirmOptions {
   message: string;
   confirmText?: string;
   cancelText?: string;
-  variant?: "primary" | "danger";
+  variant?: "primary" | "secondary" | "danger";
+  cancelVariant?: "ghost" | "danger";
+  cancelLast?: boolean;
 }
 
 interface ConfirmState extends ConfirmOptions {

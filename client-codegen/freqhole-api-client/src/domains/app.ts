@@ -71,6 +71,7 @@ export function createAppMethods(call: CallFn) {
       kind: "song" | "video";
       item_id: string;
       start_position_seconds?: number | null;
+      queue_position?: number | null;
     }) => {
       return call(
         "app",
@@ -131,7 +132,7 @@ export function createAppMethods(call: CallFn) {
       );
     },
 
-    // clear every queued request for a station at once
+    // clear pending requests and the current track for everyone listening
     radioClearRequests: (params: { station_id: string }) => {
       return call(
         "app",
@@ -140,6 +141,28 @@ export function createAppMethods(call: CallFn) {
         routes.app.radio_clear_requests.req,
         routes.app.radio_clear_requests.method,
         routes.app.radio_clear_requests.path,
+        params,
+      );
+    },
+    radioSkipRequestTrack: (params: { station_id: string; item_id: string }) => {
+      return call(
+        "app",
+        "radio_skip_request_track",
+        routes.app.radio_skip_request_track.resp,
+        routes.app.radio_skip_request_track.req,
+        routes.app.radio_skip_request_track.method,
+        routes.app.radio_skip_request_track.path,
+        params,
+      );
+    },
+    radioPlayRequestNow: (params: { station_id: string; request_id: string }) => {
+      return call(
+        "app",
+        "radio_play_request_now",
+        routes.app.radio_play_request_now.resp,
+        routes.app.radio_play_request_now.req,
+        routes.app.radio_play_request_now.method,
+        routes.app.radio_play_request_now.path,
         params,
       );
     },

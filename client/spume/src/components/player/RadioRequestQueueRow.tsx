@@ -1,19 +1,11 @@
-// one row in the sidebar's live radio request-queue section - a
-// DIFFERENT, thinner data shape than QueueSongRow/VideoQueueRow (a
-// `RadioRequestRow` from useRadioRequestQueue.ts, not a `MediaItem`): no
-// playback state, no favorite/rating, no waveform - these aren't
-// locally-playable queue entries, just a station's own pending request
-// backlog that any listener can reorder/remove. deliberately simpler
-// than RemoteQueueRow.tsx for the same reason - no progress fill, no
-// "currently playing" concept (nothing in this list is "playing"; the
-// station's own broadcaster decides what plays next, from the front of
-// this same queue).
+// station-owned current and pending items, separate from the local playback queue.
 import { createSignal, Show } from "solid-js";
 import type { RadioRequestRow as RadioRequestRowData } from "../radio/useRadioRequestQueue";
 import { MediaThumbnail } from "../media/MediaThumbnail";
 import { MarqueeText } from "../text/MarqueeText";
 import { Icon } from "../icons/registry";
 import { formatDuration } from "../../utils/formatDuration";
+import { isTouchDevice } from "../../utils/isMobile";
 
 export interface RadioRequestQueueRowProps {
   row: RadioRequestRowData;
@@ -21,13 +13,14 @@ export interface RadioRequestQueueRowProps {
   thumbnailUrl: string | null;
   isDragging: boolean;
   isDropTarget: boolean;
+  isCurrentlyPlaying?: boolean;
   onRemove: (e: MouseEvent) => void;
-  onDragStart: (e: DragEvent) => void;
-  onDragOver: (e: DragEvent) => void;
-  onDragLeave: () => void;
-  onDragEnd: () => void;
-  onDrop: () => void;
-  onHandlePointerDown: (e: PointerEvent) => void;
+  onDragStart?: (e: DragEvent) => void;
+  onDragOver?: (e: DragEvent) => void;
+  onDragLeave?: () => void;
+  onDragEnd?: () => void;
+  onDrop?: () => void;
+  onPointerDown?: (e: PointerEvent) => void;
   draggableEnabled: boolean;
 }
 
@@ -52,6 +45,7 @@ export function RadioRequestQueueRow(props: RadioRequestQueueRowProps) {
       onDragLeave={props.onDragLeave}
       onDragEnd={props.onDragEnd}
       onDrop={props.onDrop}
+      onPointerDown={props.onPointerDown}
       title={props.row.requestedByUsername ? `requested by ${props.row.requestedByUsername}` : undefined}
     >
       <MediaThumbnail
@@ -65,6 +59,9 @@ export function RadioRequestQueueRow(props: RadioRequestQueueRowProps) {
       />
 
       <div class="flex-1 min-w-0 relative z-10">
+        <Show when={props.isCurrentlyPlaying}>
+          <p class="text-xs text-[var(--color-accent-500)] m-0">now playing</p>
+        </Show>
         <h4 class="text-sm font-medium text-[var(--color-text-primary)] truncate m-0">
           <MarqueeText text={props.row.title} isHovering={isRowHovered} />
         </h4>
@@ -85,23 +82,14 @@ export function RadioRequestQueueRow(props: RadioRequestQueueRowProps) {
 
       <button
         type="button"
-        class="flex-shrink-0 p-2 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/20 rounded transition-colors relative z-10"
+        class={`flex-shrink-0 p-2 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/20 rounded transition-colors relative z-10 ${isTouchDevice() ? "" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"}`}
         onClick={props.onRemove}
-        title="remove from queue"
-        aria-label="remove from queue"
+        onPointerDown={(e) => e.stopPropagation()}
+        title={props.isCurrentlyPlaying ? "skip station track" : "remove from queue"}
+        aria-label={props.isCurrentlyPlaying ? "skip station track" : "remove from queue"}
       >
         <Icon name="close" size={14} />
       </button>
-      <Show when={!props.draggableEnabled}>
-        <span
-          aria-hidden="true"
-          title="drag to reorder"
-          class="flex h-11 w-9 shrink-0 items-center justify-center touch-none select-none cursor-grab text-[var(--color-text-muted)]"
-          on:pointerdown={props.onHandlePointerDown}
-        >
-          <Icon name="menu" size={16} />
-        </span>
-      </Show>
     </div>
   );
 }

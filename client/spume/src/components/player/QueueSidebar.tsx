@@ -19,8 +19,7 @@ import { RadioRequestQueueRow } from "./RadioRequestQueueRow";
 import { QueuePlayerTargetRow } from "./QueuePlayerTargetRow";
 import type { HistoryDisplayEntry, RadioStationRef } from "../../app/services/storage/types";
 import type { ImageMetadata } from "../../music/services/storage/types";
-import { isMobile, isTouchDevice } from "../../utils/isMobile";
-import { isNarrowViewport } from "../../config/breakpoints";
+import { isMobile } from "../../utils/isMobile";
 import { tapOrDblClick } from "../../utils/tapOrDblClick";
 import { isCharnelMode } from "../../app/services/charnel";
 import {
@@ -194,6 +193,10 @@ export interface QueueSidebarProps {
      *  that the station has nothing happening; the empty-queue fallback
      *  message should only show when this is false too. */
     hasNowPlaying: Accessor<boolean>;
+    nowPlaying?: Accessor<RadioRequestRow | null>;
+    nowPlayingThumbUrl?: Accessor<string | null>;
+    onSkip?: (itemId: string) => void;
+    onPlayNow?: (requestId: string) => void;
     onRemove: (requestId: string) => void;
     onClear: () => void;
     onReorder: (requestId: string, newIndex: number) => void;
@@ -227,8 +230,6 @@ export function QueueSidebar(props: QueueSidebarProps) {
   let scrollElementRef: HTMLDivElement | undefined;
   let historyScrollRef: HTMLDivElement | undefined;
   let radioRowsRef: HTMLDivElement | undefined;
-  const [narrowRadioQueue, setNarrowRadioQueue] = createSignal(isNarrowViewport());
-  const radioUsesPointerHandle = () => isCharnelMode() || narrowRadioQueue() || isTouchDevice();
 
   // track which item we've scrolled to (plain var, not reactive)
   let lastScrolledItemKey: string | null = null;
@@ -329,12 +330,8 @@ export function QueueSidebar(props: QueueSidebarProps) {
     onCleanup(stop);
   });
 
-  // pointer drag for radio handles and the existing Tauri queue fallback
+  // pointer drag fallback for Tauri queues; browser queues use HTML5 dragging.
   onMount(() => {
-    const syncWidth = () => setNarrowRadioQueue(isNarrowViewport());
-    window.addEventListener("resize", syncWidth);
-    onCleanup(() => window.removeEventListener("resize", syncWidth));
-
     const resetRadioDrag = () => {
       if (pendingPointerDrag?.list === "radio") pendingPointerDrag = null;
       radioDrag = undefined;
@@ -734,12 +731,10 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   }
                 }}
                 title={
-                  activeTab() === "queue"
-                    ? "clear the playback queue, not station requests"
-                    : "clear all queue history"
+                  activeTab() === "queue" ? "clear the playback queue" : "clear all queue history"
                 }
               >
-                {activeTab() === "queue" ? "clear local queue" : "clear"}
+                clear
               </button>
             </Show>
 
@@ -995,21 +990,44 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   <div class="flex items-center justify-between px-1 pb-1">
                     <div class="text-xs uppercase tracking-wide text-[var(--color-text-muted)] truncate">
                       {queue().stationName} queue
-                      <Show when={queue().rows().length > 0}>
-                        <span class="ml-2 normal-case">{queue().rows().length}</span>
+                      <Show when={queue().rows().length > 0 || queue().hasNowPlaying()}>
+                        <span class="ml-2 normal-case">{queue().rows().length + (queue().hasNowPlaying() ? 1 : 0)}</span>
                       </Show>
                     </div>
-                    <Show when={queue().rows().length > 0}>
+                    <Show when={queue().rows().length > 0 || queue().hasNowPlaying()}>
                       <button
                         type="button"
                         class="text-xs px-2 py-2 rounded border border-[var(--color-border)] hover:border-red-500 hover:text-red-400 flex-shrink-0"
                         onClick={() => queue().onClear()}
                         title="clear this station's whole request queue"
                       >
-                        clear station requests
+                        clear station
                       </button>
                     </Show>
                   </div>
+                  <Show when={queue().nowPlaying?.()}>
+                    {(row) => (
+                      <ContextMenu actions={[{
+                        label: "remove",
+                        icon: "close",
+                        onClick: () => queue().onSkip?.(row().itemId),
+                      }]}>
+                      <RadioRequestQueueRow
+                        row={row()}
+                        index={0}
+                        thumbnailUrl={queue().nowPlayingThumbUrl?.() ?? null}
+                        isCurrentlyPlaying={true}
+                        isDragging={false}
+                        isDropTarget={false}
+                        draggableEnabled={false}
+                        onRemove={(e) => {
+                          e.stopPropagation();
+                          queue().onSkip?.(row().itemId);
+                        }}
+                      />
+                      </ContextMenu>
+                    )}
+                  </Show>
                   <Show
                     when={queue().rows().length > 0}
                     fallback={
@@ -1025,6 +1043,17 @@ export function QueueSidebar(props: QueueSidebarProps) {
                         {(row, i) => (
                           <ContextMenu
                             actions={[
+                              {
+                                label: "play now on station",
+                                icon: "play",
+                                disabled: !queue().onPlayNow,
+                                onClick: () => queue().onPlayNow?.(row.id),
+                              },
+                              {
+                                label: "remove",
+                                icon: "close",
+                                onClick: () => queue().onRemove(row.id),
+                              },
                               {
                                 label: "clear requests above",
                                 icon: "close",
@@ -1045,7 +1074,7 @@ export function QueueSidebar(props: QueueSidebarProps) {
                                 radioDraggedIndex() === i() || radioPointerDragIndex() === i()
                               }
                               isDropTarget={radioDropTargetIndex() === i()}
-                              draggableEnabled={!radioUsesPointerHandle()}
+                              draggableEnabled={!isCharnelMode()}
                               onRemove={(e) => {
                                 e.stopPropagation();
                                 queue().onRemove(row.id);
@@ -1055,9 +1084,14 @@ export function QueueSidebar(props: QueueSidebarProps) {
                               onDragLeave={handleRadioDragLeave}
                               onDragEnd={handleRadioDragEnd}
                               onDrop={() => handleRadioDrop(i())}
-                              onHandlePointerDown={(e) => {
-                                e.stopPropagation();
-                                if (e.isPrimary && e.button === 0 && !pendingPointerDrag && !radioDrag) {
+                              onPointerDown={(e) => {
+                                if (
+                                  isCharnelMode() &&
+                                  e.isPrimary &&
+                                  e.button === 0 &&
+                                  !pendingPointerDrag &&
+                                  !radioDrag
+                                ) {
                                   radioDrag = { pointerId: e.pointerId, requestId: row.id };
                                   pendingPointerDrag = {
                                     index: i(),

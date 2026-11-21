@@ -6897,6 +6897,12 @@ export const SetTaxonLabelRequestSchema = z.object({
 });
 export type SetTaxonLabelRequest = z.infer<typeof SetTaxonLabelRequestSchema>;
 
+export const SkipRadioRequestTrackRequestSchema = z.object({
+  station_id: z.string(),
+  item_id: z.string()
+});
+export type SkipRadioRequestTrackRequest = z.infer<typeof SkipRadioRequestTrackRequestSchema>;
+
 export const SongSchema = z.object({
   id: z.string(),
   media_blob_id: z.string(),
@@ -7297,7 +7303,8 @@ export const SubmitRadioRequestRequestSchema = z.object({
   station_id: z.string(),
   kind: z.string(),
   item_id: z.string(),
-  start_position_seconds: z.number().nullish()
+  start_position_seconds: z.number().nullish(),
+  queue_position: z.number().nullish()
 });
 export type SubmitRadioRequestRequest = z.infer<typeof SubmitRadioRequestRequestSchema>;
 
@@ -7372,7 +7379,18 @@ export const SyncAlbumRequestSchema = z.object({
   release_date: z.string().nullish(),
   label: z.string().nullish(),
   genres: z.array(z.string()),
+  taxons: z.array(z.object({
+  id: z.string(),
+  kind_slug: z.string(),
+  label: z.string()
+})),
+  metadata: z.string().nullish(),
   urls: z.array(z.string()),
+  entity_urls: z.array(z.object({
+  id: z.string().nullish(),
+  name: z.string().nullish(),
+  url: z.string()
+})),
   mb_release_id: z.string().nullish(),
   mb_release_group_id: z.string().nullish(),
   tags: z.array(z.string()),

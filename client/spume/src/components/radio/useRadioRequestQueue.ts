@@ -312,6 +312,30 @@ export function useRadioRequestQueue(props: UseRadioRequestQueueProps) {
     }
   };
 
+  const handleSkip = async (itemId: string) => {
+    const stationId = props.stationId();
+    if (!stationId) return;
+    try {
+      const client = await getClientForRemote(props.remoteRef());
+      const result = await client.app.radioSkipRequestTrack({ station_id: stationId, item_id: itemId });
+      if (!result.success) toast.error(result.error.issues[0]?.message || "failed to skip station track");
+    } catch (err) {
+      toast.error(`failed to skip station track: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handlePlayNow = async (requestId: string) => {
+    const stationId = props.stationId();
+    if (!stationId) return;
+    try {
+      const client = await getClientForRemote(props.remoteRef());
+      const result = await client.app.radioPlayRequestNow({ station_id: stationId, request_id: requestId });
+      if (!result.success) toast.error(result.error.issues[0]?.message || "failed to play station request");
+    } catch (err) {
+      toast.error(`failed to play station request: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
   /** moves one request to `newIndex` (clamped server-side) - same
    *  optimistic-then-confirm shape as `handleRemove`/`handleClear`. used
    *  by a drag-reorder gesture on the sidebar's row list. */
@@ -390,6 +414,8 @@ export function useRadioRequestQueue(props: UseRadioRequestQueueProps) {
     handleClear,
     handleReorder,
     handleClearRange,
+    handleSkip,
+    handlePlayNow,
     reload: load,
   };
 }

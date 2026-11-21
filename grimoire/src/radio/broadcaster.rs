@@ -207,6 +207,19 @@ impl Drop for IdleGuard<'_> {
     }
 }
 
+struct RequestPlaybackGuard<'a> {
+    station_id: &'a str,
+    token: Option<String>,
+}
+
+impl Drop for RequestPlaybackGuard<'_> {
+    fn drop(&mut self) {
+        if let Some(token) = &self.token {
+            crate::radio::requests::finish_playing(self.station_id, token);
+        }
+    }
+}
+
 pub struct Broadcaster {
     station_id: String,
     /// station's `content_mode` at spawn time ('audio_only' |
@@ -253,6 +266,9 @@ pub struct Broadcaster {
     listener_notify: Notify,
     /// wakes the active song loop when an admin requests a skip.
     skip_notify: Notify,
+    request_control: tokio::sync::Mutex<()>,
+    pending_request_track: std::sync::Mutex<Option<crate::radio::playlist::RadioTrack>>,
+    request_resume_floor: std::sync::Mutex<Option<u32>>,
     /// rolling plan of pre-picked upcoming songs. consumed by the run loop
     /// at each track boundary; refilled in a background task while the
     /// current song plays so timeline snapshots have real lookahead.
@@ -323,6 +339,9 @@ impl Broadcaster {
             force_new_album_pick: AtomicBool::new(false),
             listener_notify: Notify::new(),
             skip_notify: Notify::new(),
+            request_control: tokio::sync::Mutex::new(()),
+            pending_request_track: std::sync::Mutex::new(None),
+            request_resume_floor: std::sync::Mutex::new(None),
             plan: RwLock::new(VecDeque::new()),
             plan_mode: RwLock::new(None),
             plan_item_seq: AtomicU64::new(0),
@@ -604,6 +623,14 @@ impl Broadcaster {
     /// nothing to add there. called from the tune handler BEFORE
     /// `join()`, so this always sees the pre-join state.
     pub fn set_pending_resume_if_idle(&self, hint: ResumeHint) {
+        if self
+            .request_resume_floor
+            .lock()
+            .unwrap()
+            .is_some_and(|floor| hint.init_seq.is_none_or(|seq| seq < floor))
+        {
+            return;
+        }
         if self.awaiting_listener.load(Ordering::Relaxed) {
             *self.pending_resume.lock().unwrap() = Some(hint);
         }
@@ -623,6 +650,15 @@ impl Broadcaster {
     /// should start at when the paused chunk is still in the ring.
     pub async fn prepare_resume(&self, hint: Option<ResumeHint>) -> Option<u32> {
         let hint = hint?;
+        let _control = self.request_control.lock().await;
+        if self
+            .request_resume_floor
+            .lock()
+            .unwrap()
+            .is_some_and(|floor| hint.init_seq.is_none_or(|seq| seq < floor))
+        {
+            return None;
+        }
         let snapshot = {
             let s = self.state.read().await;
             StationSnapshot {
@@ -826,6 +862,48 @@ impl Broadcaster {
         Ok(())
     }
 
+    async fn wait_for_track_skip(&self, generation: u32) {
+        loop {
+            let notified = self.skip_notify.notified();
+            if self.skip_request_generation.load(Ordering::Relaxed) != generation {
+                return;
+            }
+            notified.await;
+        }
+    }
+
+    async fn interrupt_request_track(&self) {
+        // invalidate in-flight picks and warm-up too, not only a published track.
+        let mut state = self.state.write().await;
+        self.skip_request_generation.fetch_add(1, Ordering::Relaxed);
+        *self.request_resume_floor.lock().unwrap() = Some(self.next_seq.load(Ordering::Relaxed));
+        state.current_init = None;
+        state.ring.clear();
+        state.now_playing = Arc::new(NowPlaying {
+            station_id: Some(self.station_id.clone()),
+            title: "switching tracks…".to_string(),
+            ..Default::default()
+        });
+        self.track_started_at_ms.store(0, Ordering::Relaxed);
+        self.current_track_duration_ms.store(0, Ordering::Relaxed);
+        *self.pending_resume.lock().unwrap() = None;
+        *self.resume_index.lock().unwrap() = None;
+        *self.rewind_for_init_seq.lock().unwrap() = None;
+        self.set_listener_cushion_until(None);
+        let _ = self.meta_tx.send(MetaUpdate::SkipFlush);
+        let _ = self.meta_tx.send(MetaUpdate::Meta {
+            now_playing: state.now_playing.clone(),
+            init_seq: state.init_seq,
+        });
+        self.skip_notify.notify_one();
+    }
+
+    async fn clear_request_queue(&self) {
+        *self.pending_request_track.lock().unwrap() = None;
+        clear_station_requests(&self.station_id).await;
+        self.interrupt_request_track().await;
+    }
+
     async fn run(self: Arc<Self>) {
         info!(
             "[radio-broadcaster] starting encode loop for station {}",
@@ -833,6 +911,23 @@ impl Broadcaster {
         );
         loop {
             self.wait_for_listener().await;
+            let (skip_generation, requested_track) = {
+                let _control = self.request_control.lock().await;
+                (
+                    self.skip_request_generation.load(Ordering::Relaxed),
+                    self.pending_request_track.lock().unwrap().take(),
+                )
+            };
+            if let Some(track) = requested_track {
+                if let Err(e) = self.play_track(&track, false, skip_generation).await {
+                    warn!(
+                        "[radio-broadcaster] station {} selected request failed: {e}",
+                        self.station_id
+                    );
+                }
+                self.announce_interstitial("switching tracks…").await;
+                continue;
+            }
 
             // a client resuming after a pause may have arrived with a
             // resume hint (only ever set when the station was genuinely
@@ -848,7 +943,10 @@ impl Broadcaster {
                 match fetch_track(hint.kind, &hint.item_id).await {
                     Ok(mut track) => {
                         track.start_position_seconds = Some(hint.position_seconds);
-                        if let Err(e) = self.play_track(&track, /*is_bumper=*/ false).await {
+                        if let Err(e) = self
+                            .play_track(&track, /*is_bumper=*/ false, skip_generation)
+                            .await
+                        {
                             warn!(
                                 "[radio-broadcaster] station {} resume-hint play failed: {e}",
                                 self.station_id
@@ -870,7 +968,7 @@ impl Broadcaster {
             // bumper interleave: when the per-station cadence has elapsed
             // since the last bumper play (and the station has any
             // bumpers), slot one in before the next regular pick.
-            let bumper_played = match self.maybe_play_bumper().await {
+            let bumper_played = match self.maybe_play_bumper(skip_generation).await {
                 Ok(p) => p,
                 Err(e) => {
                     warn!(
@@ -906,13 +1004,19 @@ impl Broadcaster {
             // consume from planner if available; fall back to a direct pick.
             // after a skip request, drop stale plan continuity and force
             // album mode to jump to a new album start.
-            let track_result = if force_new_album {
-                self.plan.write().await.clear();
-                pick_for_station_force_new_album(&self.station_id).await
-            } else {
-                match self.consume_planner_head().await {
-                    Some(planned) => Ok(planned.track),
-                    None => pick_for_station(&self.station_id).await,
+            let track_result = {
+                let _control = self.request_control.lock().await;
+                if self.skip_request_generation.load(Ordering::Relaxed) != skip_generation {
+                    continue;
+                }
+                if force_new_album {
+                    self.plan.write().await.clear();
+                    pick_for_station_force_new_album(&self.station_id).await
+                } else {
+                    match self.consume_planner_head().await {
+                        Some(planned) => Ok(planned.track),
+                        None => pick_for_station(&self.station_id).await,
+                    }
                 }
             };
 
@@ -925,7 +1029,10 @@ impl Broadcaster {
                         bc.refill_planner(Some(current_song_id)).await;
                     });
 
-                    if let Err(e) = self.play_track(&track, /*is_bumper=*/ false).await {
+                    if let Err(e) = self
+                        .play_track(&track, /*is_bumper=*/ false, skip_generation)
+                        .await
+                    {
                         warn!(
                             "[radio-broadcaster] station {} song failed: {e}; retrying in {RETRY_PAUSE:?}",
                             self.station_id
@@ -1001,6 +1108,9 @@ impl Broadcaster {
             if self.listener_count() == 0 {
                 return;
             }
+            if self.pending_request_track.lock().unwrap().is_some() {
+                return;
+            }
             if !crate::radio::requests::list(&self.station_id)
                 .await
                 .is_empty()
@@ -1056,7 +1166,7 @@ impl Broadcaster {
     /// roll the bumper dice. returns `Ok(true)` when a bumper was played,
     /// `Ok(false)` when bumpers are disabled / cadence not elapsed / no
     /// bumpers configured, and `Err` only on database failures.
-    async fn maybe_play_bumper(self: &Arc<Self>) -> GrimoireResult<bool> {
+    async fn maybe_play_bumper(self: &Arc<Self>, skip_generation: u32) -> GrimoireResult<bool> {
         let freq = match crate::radio::bumpers::get_frequency(&self.station_id).await? {
             Some(f) if f > 0 => f,
             _ => return Ok(false),
@@ -1093,7 +1203,8 @@ impl Broadcaster {
             "[radio-broadcaster] station {} playing bumper '{}' ({})",
             self.station_id, bumper.label, bumper.id
         );
-        self.play_track(&track, /*is_bumper=*/ true).await?;
+        self.play_track(&track, /*is_bumper=*/ true, skip_generation)
+            .await?;
         self.last_bumper_at.store(now, Ordering::Relaxed);
         Ok(true)
     }
@@ -1130,7 +1241,25 @@ impl Broadcaster {
         self: &Arc<Self>,
         track: &crate::radio::playlist::RadioTrack,
         is_bumper: bool,
+        skip_generation: u32,
     ) -> GrimoireResult<()> {
+        let _request_playback = {
+            let _control = self.request_control.lock().await;
+            if self.skip_request_generation.load(Ordering::Relaxed) != skip_generation {
+                return Ok(());
+            }
+            RequestPlaybackGuard {
+                station_id: &self.station_id,
+                token: crate::radio::requests::mark_playing(
+                    &self.station_id,
+                    crate::radio::requests::RequestMedia {
+                        kind: track.kind,
+                        item_id: track.song_id.clone(),
+                        media_blob_id: track.audio_blob_id.clone(),
+                    },
+                ),
+            }
+        };
         info!(
             "[radio-broadcaster] station {} now playing{}: {} ({})",
             self.station_id,
@@ -1259,14 +1388,16 @@ impl Broadcaster {
                 track.start_position_seconds,
             )?
         };
-        let skip_generation = self.skip_request_generation.load(Ordering::Relaxed);
-
-        let first = encoder
-            .next_chunk()
-            .await?
-            .ok_or_else(|| GrimoireError::ProcessingFailed {
-                message: "radio: encoder returned no init chunk".to_string(),
-            })?;
+        let first = tokio::select! {
+            result = encoder.next_chunk() => result?,
+            _ = self.wait_for_track_skip(skip_generation) => {
+                encoder.interrupt();
+                return Ok(());
+            }
+        }
+        .ok_or_else(|| GrimoireError::ProcessingFailed {
+            message: "radio: encoder returned no init chunk".to_string(),
+        })?;
         if !first.is_init {
             return Err(GrimoireError::ProcessingFailed {
                 message: "radio: first chunk was not an init segment".to_string(),
@@ -1314,6 +1445,10 @@ impl Broadcaster {
             && Instant::now() < warmup_deadline
             && !encoder.is_finished()
         {
+            if self.skip_request_generation.load(Ordering::Relaxed) != skip_generation {
+                encoder.interrupt();
+                return Ok(());
+            }
             tokio::time::sleep(ENCODER_WARMUP_POLL_INTERVAL).await;
             if last_progress_at.elapsed() >= WARMUP_PROGRESS_INTERVAL {
                 last_progress_at = Instant::now();
@@ -1383,31 +1518,33 @@ impl Broadcaster {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0);
-        self.track_started_at_ms.store(now_ms, Ordering::Relaxed);
-        self.current_track_duration_ms
-            .store(track.duration_ms.unwrap_or(0), Ordering::Relaxed);
-        self.current_track_is_bumper
-            .store(is_bumper, Ordering::Relaxed);
-
         {
             let mut s = self.state.write().await;
+            if self.skip_request_generation.load(Ordering::Relaxed) != skip_generation {
+                encoder.interrupt();
+                return Ok(());
+            }
+            self.track_started_at_ms.store(now_ms, Ordering::Relaxed);
+            self.current_track_duration_ms
+                .store(track.duration_ms.unwrap_or(0), Ordering::Relaxed);
+            self.current_track_is_bumper
+                .store(is_bumper, Ordering::Relaxed);
             s.current_init = Some(init_arc.clone());
             s.init_seq = init_seq;
             s.ring.clear();
             s.now_playing = now_playing.clone();
+            *self.resume_index.lock().unwrap() = Some(TrackSeqIndex::new(
+                init_seq,
+                track.kind,
+                &track.song_id,
+                track.start_position_seconds,
+            ));
+            let _ = self.meta_tx.send(MetaUpdate::Meta {
+                now_playing: now_playing.clone(),
+                init_seq,
+            });
+            let _ = self.chunk_tx.send(init_arc);
         }
-        *self.resume_index.lock().unwrap() = Some(TrackSeqIndex::new(
-            init_seq,
-            track.kind,
-            &track.song_id,
-            track.start_position_seconds,
-        ));
-
-        let _ = self.meta_tx.send(MetaUpdate::Meta {
-            now_playing: now_playing.clone(),
-            init_seq,
-        });
-        let _ = self.chunk_tx.send(init_arc);
 
         // record this play. failure is non-fatal (history is best-effort).
         // skip for bumpers — they aren't part of the listenable history.
@@ -2287,6 +2424,98 @@ pub async fn skip_station_track(station_id: &str) -> GrimoireResult<()> {
     bc.request_skip_current_track()
 }
 
+pub enum RequestStationAction {
+    Clear,
+    Skip { item_id: String },
+    PlayNow { request_id: String },
+}
+
+/// member controls apply only to request stations, never curated stations.
+pub async fn manage_request_station(
+    station_id: &str,
+    action: RequestStationAction,
+) -> GrimoireResult<()> {
+    let station =
+        stations::get_station(station_id)
+            .await?
+            .ok_or_else(|| GrimoireError::BadRequest {
+                message: "station not found".to_string(),
+            })?;
+    if station.accepts_requests == 0 {
+        return Err(GrimoireError::BadRequest {
+            message: "station does not accept requests".to_string(),
+        });
+    }
+    let broadcaster = get_station(station_id).await;
+    let Some(bc) = broadcaster else {
+        if matches!(action, RequestStationAction::Clear) {
+            clear_station_requests(station_id).await;
+            return Ok(());
+        }
+        return Err(GrimoireError::BadRequest {
+            message: "station is not running".to_string(),
+        });
+    };
+    let _control = bc.request_control.lock().await;
+    match action {
+        RequestStationAction::Clear => {
+            bc.clear_request_queue().await;
+            return Ok(());
+        }
+        RequestStationAction::Skip { item_id } => {
+            if item_id.is_empty() || bc.now_playing().await.song_id != item_id {
+                return Err(GrimoireError::BadRequest {
+                    message: "the selected track is no longer playing".to_string(),
+                });
+            }
+        }
+        RequestStationAction::PlayNow { request_id } => {
+            let request = crate::radio::requests::list(station_id)
+                .await
+                .into_iter()
+                .find(|r| r.id == request_id)
+                .ok_or_else(|| GrimoireError::BadRequest {
+                    message: "request is no longer queued".to_string(),
+                })?;
+            if matches!(
+                (request.kind, bc.content_mode.as_str()),
+                (crate::radio::playlist::RadioItemKind::Song, "video_only")
+                    | (crate::radio::playlist::RadioItemKind::Video, "audio_only")
+            ) {
+                return Err(GrimoireError::BadRequest {
+                    message: "request kind not accepted by this station".to_string(),
+                });
+            }
+            let mut track = fetch_track(request.kind, &request.item_id).await?;
+            track.start_position_seconds = request.start_position_seconds;
+            if crate::radio::requests::take(station_id, &request_id)
+                .await
+                .is_none()
+            {
+                return Err(GrimoireError::BadRequest {
+                    message: "request is no longer queued".to_string(),
+                });
+            }
+            *bc.pending_request_track.lock().unwrap() = Some(track);
+            crate::radio::queue_events::emit(
+                crate::radio::queue_events::RadioQueueEvent::Removed {
+                    station_id: station_id.to_string(),
+                    request_id,
+                },
+            );
+        }
+    }
+    bc.interrupt_request_track().await;
+    Ok(())
+}
+
+async fn clear_station_requests(station_id: &str) {
+    crate::radio::requests::clear(station_id).await;
+    crate::radio::queue_events::emit(crate::radio::queue_events::RadioQueueEvent::Cleared {
+        station_id: station_id.to_string(),
+    });
+}
+
 /// stop every running broadcaster. used by the supervisor to "disable"
 /// the radio surface in response to a config-toggle from the wizard.
 pub async fn stop_all() -> GrimoireResult<()> {
@@ -2333,6 +2562,87 @@ mod tests {
             bytes: Bytes::from_static(b"ftyp+moov"),
             duration_ms: None,
         })
+    }
+
+    fn request_track() -> crate::radio::playlist::RadioTrack {
+        crate::radio::playlist::RadioTrack {
+            kind: RadioItemKind::Video,
+            song_id: "requested-video".to_string(),
+            title: "requested video".to_string(),
+            local_path: "/missing/requested-video.mp4".to_string(),
+            audio_blob_id: None,
+            artist: None,
+            album: None,
+            duration_ms: None,
+            waveform_blob_id: None,
+            art_blob_id: None,
+            start_position_seconds: Some(12.0),
+        }
+    }
+
+    #[tokio::test]
+    async fn clearing_requests_interrupts_current_and_selected_tracks_and_blocks_old_resume() {
+        let station_id = "clear-current-request-test";
+        crate::radio::requests::enqueue(
+            station_id,
+            crate::radio::requests::RequestMedia {
+                kind: RadioItemKind::Video,
+                item_id: "queued".into(),
+                media_blob_id: None,
+            },
+            "member".into(),
+            None,
+            None,
+            |_, _| {},
+        );
+        let mut bc = test_broadcaster();
+        bc.station_id = station_id.into();
+        let bc = Arc::new(bc);
+        *bc.pending_request_track.lock().unwrap() = Some(request_track());
+        {
+            let mut s = bc.state.write().await;
+            s.now_playing = Arc::new(NowPlaying {
+                song_id: "current".into(),
+                ..Default::default()
+            });
+            s.current_init = Some(dummy_init_chunk(10));
+            s.ring.push_back(dummy_media_chunk(11));
+        }
+        bc.next_seq.store(12, Ordering::Relaxed);
+        bc.awaiting_listener.store(true, Ordering::Relaxed);
+        let mut events = bc.meta_tx.subscribe();
+        bc.clear_request_queue().await;
+        assert!(crate::radio::requests::list(station_id).await.is_empty());
+        assert!(bc.pending_request_track.lock().unwrap().is_none());
+        assert!(bc.now_playing().await.song_id.is_empty());
+        assert!(bc.state.read().await.current_init.is_none());
+        assert!(bc.state.read().await.ring.is_empty());
+        assert!(matches!(
+            events.recv().await.unwrap(),
+            MetaUpdate::SkipFlush
+        ));
+        let hint = ResumeHint {
+            kind: RadioItemKind::Video,
+            item_id: "current".into(),
+            position_seconds: 12.0,
+            init_seq: Some(10),
+            seq: Some(11),
+            offset_ms: None,
+        };
+        assert!(bc.prepare_resume(Some(hint)).await.is_none());
+        assert!(bc.take_pending_resume().is_none());
+    }
+
+    #[tokio::test]
+    async fn request_interrupt_invalidates_a_track_still_being_selected() {
+        let bc = Arc::new(test_broadcaster());
+        let generation = bc.skip_request_generation.load(Ordering::Relaxed);
+        bc.interrupt_request_track().await;
+        // the invalid path would fail if the superseded pick reached encoder startup.
+        bc.play_track(&request_track(), false, generation)
+            .await
+            .unwrap();
+        assert!(bc.now_playing().await.song_id.is_empty());
     }
 
     fn dummy_media_chunk(seq: u32) -> Arc<Chunk> {

@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   stopVideoTracking: vi.fn(),
   stopSession: vi.fn(),
   mirrorClear: vi.fn(),
+  stationQueue: vi.fn(async () => "local"),
 }));
 vi.mock("./backends/htmlAudio", () => ({
   HtmlAudioBackend: class {
@@ -145,6 +146,9 @@ vi.mock("../queue/queueLimit", () => ({
 vi.mock("../queue/queueReplaceConfirm", () => ({ showReplaceQueueConfirm: vi.fn() }));
 vi.mock("../sync", () => ({ syncPlaylistToLocalFromQueue: mocks.syncPlaylist }));
 vi.mock("../../../app/services/radio/radioService", () => ({ leaveRadio: vi.fn() }));
+vi.mock("../../../app/services/radio/queueToTunedStation", () => ({
+  queueToTunedStation: mocks.stationQueue,
+}));
 vi.mock("../../../app/services/storage/currentRadioStation", () => ({
   clearCurrentRadioStation: vi.fn(),
 }));
@@ -170,6 +174,7 @@ import {
   playVideoQueue,
   resumeVideoHistoryEntry,
 } from "../../../video/services/queue/playVideoQueue";
+import { addVideoToQueue, addVideosToQueue, playVideoNext } from "../../../video/services/videoQueueActions";
 
 const song: Song = {
   id: "song",
@@ -214,6 +219,22 @@ const video: QueuedVideo = {
   source_type: "remote",
   is_offline: false,
 };
+
+it.each(["song", "video", "videos", "video-next"] as const)(
+  "does not persist, cache, or mirror %s additions handled by the request station",
+  async (kind) => {
+    mocks.stationQueue.mockResolvedValue("handled");
+    if (kind === "song") await addToQueue([song]);
+    else if (kind === "video") await addVideoToQueue(video);
+    else if (kind === "videos") await addVideosToQueue([video]);
+    else await playVideoNext(video);
+    expect(mocks.stationQueue).toHaveBeenCalledOnce();
+    expect(mocks.persistQueue).not.toHaveBeenCalled();
+    expect(mocks.preCache).not.toHaveBeenCalled();
+    expect(mocks.syncPlaylist).not.toHaveBeenCalled();
+    expect(mocks.mirrorAppend).not.toHaveBeenCalled();
+  }
+);
 function item(id: string, offline = false, kind: "song" | "video" = "song"): MediaItem {
   return kind === "song"
     ? { kind, song: { ...song, id, is_offline: offline } }
@@ -226,6 +247,7 @@ beforeEach(() => {
   mocks.load.mockResolvedValue(undefined);
   mocks.send.mockResolvedValue(undefined);
   mocks.remote = false;
+  mocks.stationQueue.mockResolvedValue("local");
   mocks.activePlayer = false;
   mocks.queueLimit = 1000;
   mocks.playbackState = "stopped";

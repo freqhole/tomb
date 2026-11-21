@@ -129,6 +129,10 @@ export function startQueueModeAdapter(): void {
           if (!inTimelineMode || !snapshot) return;
           const current = snapshot.current;
           if (!current) {
+            adapterGeneration += 1;
+            currentTimelineItemId = null;
+            currentTimelineSongId = null;
+            pause();
             console.info("[radio-queue-adapter] snapshot has no current item yet");
             return;
           }
