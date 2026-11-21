@@ -311,6 +311,7 @@ async fn pick_for_station_after_with_options(
                 (RadioItemKind::Song, "video_only") | (RadioItemKind::Video, "audio_only")
             );
             if !compatible {
+                crate::radio::requests::finish_playing(station_id, &req.id);
                 tracing::warn!(
                     "[radio-picker] station {station_id} dropped a queued request for {:?} {} \
                      - incompatible with content_mode {content_mode}",
@@ -325,6 +326,7 @@ async fn pick_for_station_after_with_options(
                     return Ok(track);
                 }
                 Err(e) => {
+                    crate::radio::requests::finish_playing(station_id, &req.id);
                     tracing::warn!(
                         "[radio-picker] station {station_id} dropped a queued request for {:?} \
                          {} - failed to fetch: {e}",

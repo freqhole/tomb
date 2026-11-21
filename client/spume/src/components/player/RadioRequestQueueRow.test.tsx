@@ -45,7 +45,7 @@ it("controls the title marquee from the whole row, including the thumbnail and r
       onDragLeave={vi.fn()}
       onDragEnd={vi.fn()}
       onDrop={vi.fn()}
-      onHandlePointerDown={startDrag}
+      onPointerDown={startDrag}
     />
   ), host);
   try {
@@ -62,12 +62,10 @@ it("controls the title marquee from the whole row, including the thumbnail and r
     expect(title.getAttribute("data-hovered")).toBe("true");
     button.click();
     expect(remove).toHaveBeenCalledOnce();
-    row.dispatchEvent(new Event("pointerdown", { bubbles: true }));
     button.dispatchEvent(new Event("pointerdown", { bubbles: true }));
     expect(startDrag).not.toHaveBeenCalled();
-    host.querySelector('[title="drag to reorder"]')!.dispatchEvent(
-      new Event("pointerdown", { bubbles: true })
-    );
+    expect(host.querySelector('[title="drag to reorder"]')).toBeNull();
+    row.dispatchEvent(new Event("pointerdown", { bubbles: true }));
     expect(startDrag).toHaveBeenCalledOnce();
     row.dispatchEvent(new MouseEvent("mouseleave"));
     expect(title.getAttribute("data-hovered")).toBe("false");

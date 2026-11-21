@@ -213,6 +213,19 @@ afterEach(() => {
 });
 
 describe("radio display follows buffered playback", () => {
+  it.each(["song", "video"] as const)("clears skipped %s metadata immediately, including pending boundaries", async (kind) => {
+    await tune(kind);
+    await tick(15);
+    meta(20, "second", kind);
+    await chunks(20, 30);
+    mocks.meta!(JSON.stringify({ type: "skip" }));
+    expect(radioNowPlaying()).toBeNull();
+    expect(radioTrackPositionMs()).toBe(0);
+    meta(10, "", kind);
+    expect(radioNowPlaying()?.song_id).toBe("");
+    await tick(60);
+    expect(radioNowPlaying()?.song_id).not.toBe("second");
+  });
   it.each(["song", "video"] as const)(
     "keeps %s metadata until the media ends, then shows the gap until the next starts",
     async (kind) => {

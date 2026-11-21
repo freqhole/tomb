@@ -35,6 +35,12 @@ export const LongStationQueue: Story = {
         artBlobId: null,
       }))
     );
+    const [nowPlaying, setNowPlaying] = createSignal<RadioRequestRow | null>({
+      ...rows()[0],
+      id: "current",
+      itemId: "current",
+      title: "current request",
+    });
     return (
       <QueueSidebar
         isOpen
@@ -50,9 +56,21 @@ export const LongStationQueue: Story = {
           rows,
           loading: () => false,
           thumbUrls: () => ({}),
-          hasNowPlaying: () => false,
+          hasNowPlaying: () => nowPlaying() !== null,
+          nowPlaying,
+          onSkip: () => setNowPlaying(null),
+          onPlayNow: (id) => {
+            const row = rows().find((item) => item.id === id);
+            if (row) {
+              setNowPlaying(row);
+              setRows((current) => current.filter((item) => item.id !== id));
+            }
+          },
           onRemove: (id) => setRows((current) => current.filter((row) => row.id !== id)),
-          onClear: () => setRows([]),
+          onClear: () => {
+            setRows([]);
+            setNowPlaying(null);
+          },
           onReorder: (id, index) => {
             setRows((current) => {
               const moved = current.find((row) => row.id === id);

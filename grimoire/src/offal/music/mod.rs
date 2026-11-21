@@ -337,6 +337,8 @@ pub async fn dispatch(
         "/api/radio/requests/remove" => Some(radio::remove_request(caller, body.clone()).await),
         "/api/radio/requests/reorder" => Some(radio::reorder_request(caller, body.clone()).await),
         "/api/radio/requests/clear" => Some(radio::clear_requests(caller, body.clone()).await),
+        "/api/radio/requests/skip" => Some(radio::skip_request_track(caller, body.clone()).await),
+        "/api/radio/requests/play-now" => Some(radio::play_request_now(caller, body.clone()).await),
 
         // blob metadata
         "/api/blob_metadata" => super::media_blobz::dispatch(path, caller, body).await,

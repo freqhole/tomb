@@ -19,7 +19,9 @@ export interface ConfirmDialogProps {
   /** cancel button text */
   cancelText?: string;
   /** variant for the confirm button */
-  variant?: "primary" | "danger";
+  variant?: "primary" | "secondary" | "danger";
+  cancelVariant?: "ghost" | "danger";
+  cancelLast?: boolean;
   /** whether the confirm action is loading */
   loading?: boolean;
   /** optional alert variant to show message in alert style */
@@ -39,6 +41,15 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
       props.onClose();
     }
   };
+  const cancelButton = () => (
+    <Button
+      variant={props.cancelVariant ?? "ghost"}
+      onClick={props.onClose}
+      disabled={props.loading}
+    >
+      {cancelText()}
+    </Button>
+  );
 
   return (
     <Modal
@@ -60,13 +71,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
         </Show>
 
         <div class="flex gap-3 justify-end">
-          <Button
-            variant="ghost"
-            onClick={props.onClose}
-            disabled={props.loading}
-          >
-            {cancelText()}
-          </Button>
+          <Show when={!props.cancelLast}>{cancelButton()}</Show>
           <Button
             variant={variant()}
             onClick={handleConfirm}
@@ -74,6 +79,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
           >
             {props.loading ? "processing..." : confirmText()}
           </Button>
+          <Show when={props.cancelLast}>{cancelButton()}</Show>
         </div>
       </div>
     </Modal>

@@ -21,6 +21,7 @@ import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import { getPendingRemoteById, getSyncQueueToLocal } from "../../../app/services/storage/db";
 import { queryClient } from "../../../queryClient";
 import { debug, warn } from "../../../utils/logger";
+import { isValidHttpUrl } from "../../../utils/urls";
 import { queryKeys } from "../../queries/queryKeys";
 import { evictCachedBlob, getCachedBlob, isCached, saveP2PBlobMetadata } from "../cache/blobCache";
 import {
@@ -1107,14 +1108,7 @@ export async function preCacheNextP2PSongs(
 import { getCachedBlobObjectURL } from "./blobs";
 import type { ImageMetadata } from "./types";
 
-/**
- * check if a URL is a valid full HTTP(S) URL.
- * rejects relative paths like "/api/blobs/{id}" which don't work for P2P.
- */
-export function isValidHttpUrl(url: string | null | undefined): boolean {
-  if (!url) return false;
-  return url.startsWith("http://") || url.startsWith("https://");
-}
+export { isValidHttpUrl };
 
 /**
  * synchronously resolve an image URL - for instant render without flicker.

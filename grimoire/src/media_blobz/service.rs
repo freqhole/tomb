@@ -1429,8 +1429,11 @@ pub async fn get_media_blob_by_blake3(blake3: &str) -> GrimoireResult<MediaBlob>
          LIMIT 1",
         blake3
     )
-    .fetch_one(&pool)
-    .await?;
+    .fetch_optional(&pool)
+    .await?
+    .ok_or_else(|| GrimoireError::MediaBlobNotFound {
+        id: blake3.to_string(),
+    })?;
 
     let mut blob_with_metadata = blob;
     blob_with_metadata.metadata =
@@ -1669,6 +1672,40 @@ level = "warn"
 
         crate::config::init_config(Some(config_path)).expect("init config");
         database::run_migrations().await.expect("run migrations");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singletons"]
+    async fn test_get_media_blob_by_blake3_distinguishes_missing_content() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+        let hash = "a".repeat(64);
+        assert!(matches!(
+            get_media_blob_by_blake3(&hash).await,
+            Err(GrimoireError::MediaBlobNotFound { id }) if id == hash
+        ));
+        let pool = database::connect().await.expect("connect");
+        sqlx::query(
+            "INSERT INTO media_blobz (id, sha256, size, mime, blob_type, blake3)
+             VALUES ('hash-lookup-test', ?, 10, 'video/mp4', 'original', ?)",
+        )
+        .bind("b".repeat(64))
+        .bind(&hash)
+        .execute(&pool)
+        .await
+        .expect("insert blob");
+        assert_eq!(
+            get_media_blob_by_blake3(&hash).await.unwrap().id,
+            "hash-lookup-test"
+        );
+        sqlx::query("UPDATE media_blobz SET deleted_at = 1 WHERE id = 'hash-lookup-test'")
+            .execute(&pool)
+            .await
+            .expect("soft-delete blob");
+        assert!(matches!(
+            get_media_blob_by_blake3(&hash).await,
+            Err(GrimoireError::MediaBlobNotFound { id }) if id == hash
+        ));
     }
 
     #[tokio::test]

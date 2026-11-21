@@ -28,6 +28,9 @@ pub struct SubmitRadioRequestRequest {
     /// this item (see `radio::requests::QueuedRequest::start_position_seconds`).
     #[serde(default)]
     pub start_position_seconds: Option<f64>,
+    /// optional insertion index for "play next"; omitted requests append.
+    #[serde(default)]
+    pub queue_position: Option<i64>,
 }
 
 /// request for `radio_list_requests`/`radio_clear_requests`.
@@ -41,6 +44,12 @@ pub struct RadioStationRequestsRequest {
 pub struct RemoveRadioRequestRequest {
     pub station_id: String,
     pub request_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ZodSchema)]
+pub struct SkipRadioRequestTrackRequest {
+    pub station_id: String,
+    pub item_id: String,
 }
 
 /// request for `radio_reorder_request` - moves one specific queued
@@ -138,6 +147,24 @@ pub const ROUTES: &[RouteInfo] = &[
         method: Method::POST,
         domain: Domain::App,
         request_type: "RadioStationRequestsRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "radio_skip_request_track",
+        path: "/api/radio/requests/skip",
+        method: Method::POST,
+        domain: Domain::App,
+        request_type: "SkipRadioRequestTrackRequest",
+        response_type: "EmptyResponse",
+        auth: RouteAuth::Authenticated,
+    },
+    RouteInfo {
+        name: "radio_play_request_now",
+        path: "/api/radio/requests/play-now",
+        method: Method::POST,
+        domain: Domain::App,
+        request_type: "RemoveRadioRequestRequest",
         response_type: "EmptyResponse",
         auth: RouteAuth::Authenticated,
     },
@@ -245,25 +272,39 @@ pub async fn submit_request(caller: &Caller, body: JsonValue) -> GrimoireRespons
         &user_repo,
     )
     .await;
-    crate::radio::requests::submit(
+    let submitted = crate::radio::requests::submit(
         &req.station_id,
         kind,
         req.item_id,
         caller.user_id.clone(),
         req.start_position_seconds,
-        |id| {
-            info.id = id;
+        req.queue_position.map(|index| index.max(0) as usize),
+        |id, index| {
+            info.id = id.clone();
             crate::radio::queue_events::emit(
                 crate::radio::queue_events::RadioQueueEvent::Submitted {
                     station_id: req.station_id.clone(),
                     request: info,
                 },
             );
+            if req.queue_position.is_some() {
+                crate::radio::queue_events::emit(
+                    crate::radio::queue_events::RadioQueueEvent::Reordered {
+                        station_id: req.station_id.clone(),
+                        request_id: id,
+                        new_index: index as u64,
+                    },
+                );
+            }
         },
     )
     .await;
 
-    GrimoireResponse::success("request submitted", JsonValue::Null)
+    match submitted {
+        Ok(true) => GrimoireResponse::success("request submitted", JsonValue::Null),
+        Ok(false) => GrimoireResponse::success("item already queued or playing", JsonValue::Null),
+        Err(error) => GrimoireResponse::failure("failed to submit request", vec![error.into()]),
+    }
 }
 
 /// resolves one queued request's full display metadata (title/artist/
@@ -471,7 +512,7 @@ pub async fn reorder_request(_caller: &Caller, body: JsonValue) -> GrimoireRespo
     GrimoireResponse::success("request reordered", JsonValue::Null)
 }
 
-/// clear every queued request for a station at once. same permission
+/// clear every queued request and the current track. same permission
 /// model as `remove_request`.
 pub async fn clear_requests(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
     let req: RadioStationRequestsRequest = match serde_json::from_value(body) {
@@ -488,9 +529,65 @@ pub async fn clear_requests(_caller: &Caller, body: JsonValue) -> GrimoireRespon
         }
     };
 
-    crate::radio::requests::clear(&req.station_id).await;
-    crate::radio::queue_events::emit(crate::radio::queue_events::RadioQueueEvent::Cleared {
-        station_id: req.station_id,
-    });
-    GrimoireResponse::success("queue cleared", JsonValue::Null)
+    manage_station(
+        &req.station_id,
+        crate::radio::broadcaster::RequestStationAction::Clear,
+    )
+    .await
+}
+
+pub async fn skip_request_track(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: SkipRadioRequestTrackRequest = match serde_json::from_value(body) {
+        Ok(req) => req,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+    manage_station(
+        &req.station_id,
+        crate::radio::broadcaster::RequestStationAction::Skip {
+            item_id: req.item_id,
+        },
+    )
+    .await
+}
+
+pub async fn play_request_now(_caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonValue> {
+    let req: RemoveRadioRequestRequest = match serde_json::from_value(body) {
+        Ok(req) => req,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "bad request",
+                vec![ErrorDetail::new(
+                    "bad_request",
+                    "bad request",
+                    e.to_string(),
+                )],
+            )
+        }
+    };
+    manage_station(
+        &req.station_id,
+        crate::radio::broadcaster::RequestStationAction::PlayNow {
+            request_id: req.request_id,
+        },
+    )
+    .await
+}
+
+async fn manage_station(
+    station_id: &str,
+    action: crate::radio::broadcaster::RequestStationAction,
+) -> GrimoireResponse<JsonValue> {
+    match crate::radio::broadcaster::manage_request_station(station_id, action).await {
+        Ok(()) => GrimoireResponse::success("station queue updated", JsonValue::Null),
+        Err(e) => GrimoireResponse::failure("failed to update station queue", vec![e.into()]),
+    }
 }

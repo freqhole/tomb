@@ -11,6 +11,7 @@
 
 use crate::radio::playlist::RadioItemKind;
 use crate::radio::queue_events::{self, RadioQueueEvent};
+use crate::GrimoireResult;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -20,6 +21,23 @@ use std::time::{Duration, Instant};
 /// momentary blip" debounce patterns elsewhere (e.g. reveal-debounce
 /// windows on the client).
 const IDLE_GRACE: Duration = Duration::from_secs(5 * 60);
+
+#[derive(Debug, Clone)]
+pub(crate) struct RequestMedia {
+    pub kind: RadioItemKind,
+    pub item_id: String,
+    pub media_blob_id: Option<String>,
+}
+
+impl RequestMedia {
+    fn matches(&self, kind: RadioItemKind, item_id: &str, media_blob_id: Option<&str>) -> bool {
+        self.kind == kind
+            && match (self.media_blob_id.as_deref(), media_blob_id) {
+                (Some(left), Some(right)) => left == right,
+                _ => self.item_id == item_id,
+            }
+    }
+}
 
 /// one member-submitted request, queued in submission order.
 #[derive(Debug, Clone)]
@@ -37,12 +55,14 @@ pub struct QueuedRequest {
     /// `pick_for_station_after_with_options`, which copies this onto the
     /// `RadioTrack` it returns).
     pub start_position_seconds: Option<f64>,
+    media_blob_id: Option<String>,
     /// when the request was submitted, for expiry while awaiting listeners.
     submitted_at: Instant,
 }
 
 struct StationQueue {
     items: VecDeque<QueuedRequest>,
+    playing: Option<(String, RequestMedia)>,
     /// `Some(t)` since the station's listener count last dropped to zero;
     /// `None` while at least one listener is tuned in. checked lazily
     /// (no background sweep task) before reading, appending, or joining.
@@ -54,6 +74,7 @@ impl StationQueue {
     fn new() -> Self {
         Self {
             items: VecDeque::new(),
+            playing: None,
             idle_since: None,
             listeners: 0,
         }
@@ -67,6 +88,7 @@ impl StationQueue {
             Some(left) if left.elapsed() < IDLE_GRACE => return,
             Some(_) => {
                 self.idle_since = None;
+                self.playing = None;
                 true
             }
             None => false,
@@ -109,7 +131,7 @@ pub fn listener_left(station_id: &str) {
         .expect("listener joined before leaving");
     q.listeners -= 1;
     if q.listeners == 0 {
-        if q.items.is_empty() {
+        if q.items.is_empty() && q.playing.is_none() {
             reg.remove(station_id);
         } else {
             q.idle_since = Some(Instant::now());
@@ -119,32 +141,98 @@ pub fn listener_left(station_id: &str) {
 
 /// submit a request to a station's queue. caller (the offal route
 /// handler) is responsible for checking `accepts_requests`/`content_mode`
-/// before calling this - this function just appends, creating the
-/// station's queue on first use. publishes after expiry removals, while
-/// concurrent queue changes still can't interleave.
+/// before calling this. resolve playable media before insertion; duplicate
+/// pending/current media is an idempotent no-op without a submission event.
+/// the station's blob id is content-stable (media_blobz.blake3 is unique).
 pub async fn submit(
     station_id: &str,
     kind: RadioItemKind,
     item_id: String,
     requested_by: String,
     start_position_seconds: Option<f64>,
-    on_submitted: impl FnOnce(String),
-) {
+    position: Option<usize>,
+    on_submitted: impl FnOnce(String, usize),
+) -> GrimoireResult<bool> {
+    let track = crate::radio::playlist::fetch_track(kind, &item_id).await?;
+    Ok(enqueue(
+        station_id,
+        RequestMedia {
+            kind,
+            item_id,
+            media_blob_id: track.audio_blob_id,
+        },
+        requested_by,
+        start_position_seconds,
+        position,
+        on_submitted,
+    ))
+}
+
+pub(crate) fn enqueue(
+    station_id: &str,
+    media: RequestMedia,
+    requested_by: String,
+    start_position_seconds: Option<f64>,
+    position: Option<usize>,
+    on_submitted: impl FnOnce(String, usize),
+) -> bool {
     let mut reg = registry().lock().unwrap();
     let q = reg
         .entry(station_id.to_string())
         .or_insert_with(StationQueue::new);
     q.sweep(station_id);
+    if q.playing.as_ref().is_some_and(|(_, playing)| {
+        playing.matches(media.kind, &media.item_id, media.media_blob_id.as_deref())
+    }) || q.items.iter().any(|request| {
+        media.matches(
+            request.kind,
+            &request.item_id,
+            request.media_blob_id.as_deref(),
+        )
+    }) {
+        return false;
+    }
     let id = uuid::Uuid::new_v4().to_string();
-    q.items.push_back(QueuedRequest {
-        id: id.clone(),
-        kind,
-        item_id,
-        requested_by,
-        start_position_seconds,
-        submitted_at: Instant::now(),
-    });
-    on_submitted(id);
+    let index = position.unwrap_or(q.items.len()).min(q.items.len());
+    q.items.insert(
+        index,
+        QueuedRequest {
+            id: id.clone(),
+            kind: media.kind,
+            item_id: media.item_id,
+            media_blob_id: media.media_blob_id,
+            requested_by,
+            start_position_seconds,
+            submitted_at: Instant::now(),
+        },
+    );
+    on_submitted(id, index);
+    true
+}
+
+pub(crate) fn mark_playing(station_id: &str, media: RequestMedia) -> Option<String> {
+    if let Some(q) = registry().lock().unwrap().get_mut(station_id) {
+        let token = uuid::Uuid::new_v4().to_string();
+        q.playing = Some((token.clone(), media));
+        return Some(token);
+    }
+    None
+}
+
+pub(crate) fn finish_playing(station_id: &str, token: &str) {
+    let mut reg = registry().lock().unwrap();
+    let Some(q) = reg.get_mut(station_id) else {
+        return;
+    };
+    if q.playing
+        .as_ref()
+        .is_some_and(|(current, _)| current == token)
+    {
+        q.playing = None;
+    }
+    if q.listeners == 0 && q.items.is_empty() && q.playing.is_none() {
+        reg.remove(station_id);
+    }
 }
 
 /// pop the next queued request for a station, if any. also lazily sweeps
@@ -157,7 +245,34 @@ pub async fn pop_next(station_id: &str) -> Option<QueuedRequest> {
     let mut reg = registry().lock().unwrap();
     let q = reg.get_mut(station_id)?;
     q.sweep(station_id);
-    q.items.pop_front()
+    let request = q.items.pop_front()?;
+    q.playing = Some((
+        request.id.clone(),
+        RequestMedia {
+            kind: request.kind,
+            item_id: request.item_id.clone(),
+            media_blob_id: request.media_blob_id.clone(),
+        },
+    ));
+    Some(request)
+}
+
+/// take a specific request without disturbing the other requests' order.
+pub async fn take(station_id: &str, request_id: &str) -> Option<QueuedRequest> {
+    let mut reg = registry().lock().unwrap();
+    let q = reg.get_mut(station_id)?;
+    q.sweep(station_id);
+    let index = q.items.iter().position(|r| r.id == request_id)?;
+    let request = q.items.remove(index)?;
+    q.playing = Some((
+        request.id.clone(),
+        RequestMedia {
+            kind: request.kind,
+            item_id: request.item_id.clone(),
+            media_blob_id: request.media_blob_id.clone(),
+        },
+    ));
+    Some(request)
 }
 
 /// list every currently-queued request for a station, in submission
@@ -223,12 +338,230 @@ pub async fn clear(station_id: &str) -> usize {
     };
     let count = q.items.len();
     q.items.clear();
+    q.playing = None;
     count
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn video_media(id: &str, blob_id: &str) -> RequestMedia {
+        RequestMedia {
+            kind: RadioItemKind::Video,
+            item_id: id.into(),
+            media_blob_id: Some(blob_id.into()),
+        }
+    }
+
+    #[tokio::test]
+    async fn simultaneous_members_cannot_enqueue_the_same_content_twice() {
+        let station_id = "concurrent-duplicate-request-test";
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let events = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let handles: Vec<_> = ["first-id", "same-blob-other-id"]
+            .into_iter()
+            .map(|id| {
+                let barrier = barrier.clone();
+                let events = events.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    enqueue(
+                        station_id,
+                        video_media(id, "shared-blob"),
+                        id.into(),
+                        None,
+                        None,
+                        |_, _| {
+                            events.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        },
+                    )
+                })
+            })
+            .collect();
+        let inserted = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .filter(|inserted| *inserted)
+            .count();
+        assert_eq!(inserted, 1);
+        assert_eq!(events.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert_eq!(list(station_id).await.len(), 1);
+        assert!(enqueue(
+            "other-duplicate-station",
+            video_media("first-id", "shared-blob"),
+            "member".into(),
+            None,
+            None,
+            |_, _| {}
+        ));
+    }
+
+    #[tokio::test]
+    async fn selected_and_playing_content_stays_deduplicated_until_playback_finishes() {
+        let station_id = "playing-duplicate-request-test";
+        let media = video_media("first-id", "shared-blob");
+        enqueue(
+            station_id,
+            media.clone(),
+            "first-member".into(),
+            Some(12.0),
+            None,
+            |_, _| {},
+        );
+        let original = list(station_id).await[0].clone();
+        assert!(!enqueue(
+            station_id,
+            video_media("alias", "shared-blob"),
+            "other-member".into(),
+            Some(99.0),
+            Some(0),
+            |_, _| {}
+        ));
+        let pending = list(station_id).await;
+        assert_eq!(pending[0].id, original.id);
+        assert_eq!(pending[0].requested_by, "first-member");
+        assert_eq!(pending[0].start_position_seconds, Some(12.0));
+        let selected = pop_next(station_id).await.unwrap();
+        assert!(!enqueue(
+            station_id,
+            video_media("alias", "shared-blob"),
+            "member".into(),
+            None,
+            None,
+            |_, _| {}
+        ));
+        let token = mark_playing(station_id, media).unwrap();
+        finish_playing(station_id, &selected.id);
+        assert!(!enqueue(
+            station_id,
+            video_media("alias", "shared-blob"),
+            "member".into(),
+            None,
+            None,
+            |_, _| {}
+        ));
+        finish_playing(station_id, &token);
+        assert!(enqueue(
+            station_id,
+            video_media("alias", "shared-blob"),
+            "member".into(),
+            None,
+            None,
+            |_, _| {}
+        ));
+    }
+
+    #[tokio::test]
+    async fn clearing_then_replaying_the_same_item_is_not_unlocked_by_old_playback_cleanup() {
+        let station_id = "clear-duplicate-request-test";
+        listener_joined(station_id);
+        let media = video_media("same-id", "same-blob");
+        let old_token = mark_playing(station_id, media.clone()).unwrap();
+        clear(station_id).await;
+        assert!(enqueue(
+            station_id,
+            media.clone(),
+            "member".into(),
+            None,
+            None,
+            |_, _| {}
+        ));
+        let request_id = list(station_id).await[0].id.clone();
+        take(station_id, &request_id).await.unwrap();
+        assert!(!enqueue(
+            station_id,
+            media.clone(),
+            "member".into(),
+            None,
+            None,
+            |_, _| {}
+        ));
+        let token = mark_playing(station_id, media.clone()).unwrap();
+        finish_playing(station_id, &old_token);
+        assert!(!enqueue(
+            station_id,
+            media.clone(),
+            "member".into(),
+            None,
+            None,
+            |_, _| {}
+        ));
+        finish_playing(station_id, &token);
+        assert!(enqueue(
+            station_id,
+            media,
+            "member".into(),
+            None,
+            None,
+            |_, _| {}
+        ));
+        listener_left(station_id);
+    }
+
+    #[tokio::test]
+    async fn taking_a_selected_request_preserves_the_rest_and_its_resume_position() {
+        let station_id = "selected-request-test";
+        for id in ["first", "selected", "last"] {
+            submit(
+                station_id,
+                RadioItemKind::Video,
+                id.into(),
+                "member".into(),
+                Some(12.0),
+            )
+            .await;
+        }
+
+        let request_id = list(station_id).await[1].id.clone();
+        let selected = take(station_id, &request_id).await.unwrap();
+        assert_eq!(selected.item_id, "selected");
+        assert_eq!(selected.start_position_seconds, Some(12.0));
+        assert_eq!(
+            list(station_id)
+                .await
+                .iter()
+                .map(|r| r.item_id.as_str())
+                .collect::<Vec<_>>(),
+            ["first", "last"]
+        );
+        assert!(take(station_id, &request_id).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn inserting_play_next_requests_preserves_batch_order_ahead_of_the_backlog() {
+        let station_id = "play-next-insertion-test";
+        submit(
+            station_id,
+            RadioItemKind::Song,
+            "old".into(),
+            "member".into(),
+            None,
+        )
+        .await;
+        for (index, id) in ["first", "second"].into_iter().enumerate() {
+            enqueue(
+                station_id,
+                RequestMedia {
+                    kind: RadioItemKind::Song,
+                    item_id: id.into(),
+                    media_blob_id: None,
+                },
+                "member".into(),
+                None,
+                Some(index),
+                |_, inserted| assert_eq!(inserted, index),
+            );
+        }
+        assert_eq!(
+            list(station_id)
+                .await
+                .iter()
+                .map(|r| r.item_id.as_str())
+                .collect::<Vec<_>>(),
+            ["first", "second", "old"]
+        );
+    }
 
     async fn submit(
         station_id: &str,
@@ -237,15 +570,18 @@ mod tests {
         requested_by: String,
         start_position_seconds: Option<f64>,
     ) {
-        super::submit(
+        enqueue(
             station_id,
-            kind,
-            item_id,
+            RequestMedia {
+                kind,
+                item_id,
+                media_blob_id: None,
+            },
             requested_by,
             start_position_seconds,
-            |_| {},
-        )
-        .await;
+            None,
+            |_, _| {},
+        );
     }
 
     #[tokio::test]
@@ -329,13 +665,17 @@ mod tests {
 
         // exercise submit as the first access after expiry.
         let mut events = queue_events::subscribe();
-        super::submit(
+        enqueue(
             station_id,
-            RadioItemKind::Song,
-            "song-2".to_string(),
+            RequestMedia {
+                kind: RadioItemKind::Song,
+                item_id: "song-2".to_string(),
+                media_blob_id: None,
+            },
             "user-a".to_string(),
             None,
-            |id| {
+            None,
+            |id, _| {
                 let removed: Vec<_> = std::iter::from_fn(|| events.try_recv().ok())
                     .filter(|event| event.station_id() == station_id)
                     .collect();
@@ -344,8 +684,7 @@ mod tests {
                     event, RadioQueueEvent::Removed { request_id, .. } if request_id != &id
                 )));
             },
-        )
-        .await;
+        );
         let next = pop_next(station_id).await.expect("new queue after drop");
         assert_eq!(next.item_id, "song-2");
         assert!(pop_next(station_id).await.is_none());

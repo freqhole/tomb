@@ -61,6 +61,7 @@ import { leaveRadio } from "../../../app/services/radio/radioService";
 import { clearCurrentRadioStation } from "../../../app/services/storage/currentRadioStation";
 import { registerStopMusic } from "../../../app/services/playbackCoordinator";
 import { toast } from "../../../components/feedback/Toast";
+import { queueToTunedStation } from "../../../app/services/radio/queueToTunedStation";
 
 // re-export queue state so consumers can import everything from queue.ts
 export {
@@ -480,6 +481,7 @@ export async function addToQueue(
   // unwrap SolidJS proxy objects before any IPC calls (Tauri structured clone)
   const unwrappedItems = prepareMediaItems(songs);
   assertCloneable(songsOnly(unwrappedItems), "addToQueue");
+  if (!options?.startPlaying && await queueToTunedStation(unwrappedItems, options?.position) === "handled") return;
   const availableIndex = findAvailableMediaIndex(unwrappedItems, 0);
   if (availableIndex < 0) {
     toast.error("all selected media is on offline storage", { title: "media offline" });
