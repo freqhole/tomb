@@ -1,5 +1,12 @@
 # freqhole-release
 
+## 0.3.29
+
+### Patch Changes
+
+- 74db5b4: fix some top nav scrolling and click-handler bugz && make full-width flyout on narrow viewz; try to improve request radio station logic and sidebar queue ux;
+- 94b8534: bump iroh crates to latest version
+
 ## 0.3.28
 
 ### Patch Changes

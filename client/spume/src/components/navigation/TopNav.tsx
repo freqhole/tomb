@@ -1106,9 +1106,8 @@ export function TopNav(props: TopNavProps) {
   const setupMobileMenuPanel = (panel: HTMLElement) => {
     const place = () => {
       const viewport = currentMenuViewport();
-      const anchor = mobileMenuTrigger?.getBoundingClientRect();
-      // leave room for the trigger's focus outline above the portaled panel.
-      const top = anchor ? Math.max(viewport.top, anchor.bottom + 3) : viewport.top;
+      const anchor = navEl?.getBoundingClientRect();
+      const top = Math.max(viewport.top, anchor?.bottom ?? viewport.top);
       panel.style.left = `${viewport.left}px`;
       panel.style.top = `${top}px`;
       panel.style.width = `${viewport.width}px`;
@@ -1129,12 +1128,15 @@ export function TopNav(props: TopNavProps) {
     onMount(() => {
       place();
       if (focusMobileMenu) panel.focus({ preventScroll: true });
+      const observer = new ResizeObserver(place);
+      if (navEl) observer.observe(navEl);
       window.addEventListener("resize", place);
       window.visualViewport?.addEventListener("resize", place);
       window.visualViewport?.addEventListener("scroll", place);
       document.addEventListener("pointerdown", dismissOutside, true);
       document.addEventListener("keydown", dismissOnEscape);
       onCleanup(() => {
+        observer.disconnect();
         window.removeEventListener("resize", place);
         window.visualViewport?.removeEventListener("resize", place);
         window.visualViewport?.removeEventListener("scroll", place);
@@ -1195,7 +1197,7 @@ export function TopNav(props: TopNavProps) {
             aria-label="main navigation"
             tabIndex={-1}
             ref={setupMobileMenuPanel}
-            class="fixed z-[1001] box-border overflow-x-hidden overflow-y-auto overscroll-contain touch-pan-y bg-[var(--color-bg-elevated)] border-y border-[var(--color-border-default)] shadow-xl"
+            class="fixed z-[1001] box-border overflow-x-hidden overflow-y-auto overscroll-contain touch-pan-y bg-[var(--color-bg-elevated)] border-b border-[var(--color-border-default)] shadow-xl"
             style={{ "padding-bottom": "var(--safe-area-bottom)" }}
           >
             {menu.children}
@@ -1221,9 +1223,9 @@ export function TopNav(props: TopNavProps) {
           // there's no device notch/status bar at all. matches the wide
           // floating variant's transparency, backdrop-blur skipped when
           // disable_backdrop_blur is set (perf on some linux compositors).
-          "fixed right-0 bg-black/20 backdrop-blur-sm px-3 py-0 border-b border-white/10":
+          "fixed right-0 bg-black/20 backdrop-blur-sm px-3 py-0":
             isNarrow() && !getDisableBackdropBlur(),
-          "fixed right-0 bg-black/80 px-3 py-0 border-b border-white/10":
+          "fixed right-0 bg-black/80 px-3 py-0":
             isNarrow() && getDisableBackdropBlur(),
           // wide: fixed top-left floating element, doesn't push content.
           "fixed bg-black/20 backdrop-blur-sm px-2 py-1.5 rounded-lg border border-white/10 shadow-lg":
@@ -1232,6 +1234,7 @@ export function TopNav(props: TopNavProps) {
             !isNarrow() && getDisableBackdropBlur(),
         }}
         style={{
+          "z-index": isNarrow() && mobileMenuOpen() ? 1003 : undefined,
           // narrow: sits flush at the very top of the window (left edge
           // starts past the traffic-light cluster instead of being pushed
           // down below it - see TitleBarStrip.tsx). wide: floats below the
