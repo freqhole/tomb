@@ -204,8 +204,8 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
                 </Show>
                 <Show when={!isCharnelMode()}>
                   <p class="text-sm text-[var(--color-text-primary)] mt-6 p-2">
-                    or open this in the freqhole desktop app (note: you can paste the link into the
-                    search input).
+                    or open this in the freqhole app (note: you can paste the link into the search
+                    input).
                   </p>
 
                   <a

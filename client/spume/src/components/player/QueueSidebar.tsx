@@ -734,12 +734,10 @@ export function QueueSidebar(props: QueueSidebarProps) {
                   }
                 }}
                 title={
-                  activeTab() === "queue"
-                    ? "clear the playback queue, not station requests"
-                    : "clear all queue history"
+                  activeTab() === "queue" ? "clear the playback queue" : "clear all queue history"
                 }
               >
-                {activeTab() === "queue" ? "clear local queue" : "clear"}
+                clear
               </button>
             </Show>
 
@@ -1057,7 +1055,12 @@ export function QueueSidebar(props: QueueSidebarProps) {
                               onDrop={() => handleRadioDrop(i())}
                               onHandlePointerDown={(e) => {
                                 e.stopPropagation();
-                                if (e.isPrimary && e.button === 0 && !pendingPointerDrag && !radioDrag) {
+                                if (
+                                  e.isPrimary &&
+                                  e.button === 0 &&
+                                  !pendingPointerDrag &&
+                                  !radioDrag
+                                ) {
                                   radioDrag = { pointerId: e.pointerId, requestId: row.id };
                                   pendingPointerDrag = {
                                     index: i(),
