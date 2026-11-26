@@ -13,106 +13,6 @@ use crate::response::GrimoireResponse;
 use super::images::resolve_sync_image_ref;
 use super::models::{SyncPlaylistRequest, SyncPlaylistResponse};
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    #[ignore = "needs its own process: touches the real db pool singleton"]
-    async fn syncing_empty_playlist_clears_previous_members() {
-        let tmp = tempfile::tempdir().unwrap();
-        let config_path = tmp.path().join("freqhole-config.toml");
-        std::fs::write(
-            &config_path,
-            format!(
-                "data_dir = \"{}\"\n[database]\nfilename = \"grimoire.db\"\n\
-                 [media]\nmax_fs_file_size = 104857600\nsupported_audio_formats = [\"mp3\", \"flac\"]\n\
-                 [musicbrainz]\nenabled = false\n[logging]\nlevel = \"warn\"\n",
-                tmp.path().display()
-            ),
-        )
-        .unwrap();
-        std::fs::write(tmp.path().join("grimoire.db"), b"").unwrap();
-        crate::config::init_config(Some(config_path)).unwrap();
-        crate::database::run_migrations().await.unwrap();
-        let pool = crate::database::connect().await.unwrap();
-        sqlx::query("INSERT INTO playlistz (id, title) VALUES ('synced-source-list', 'old')")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("INSERT INTO playlist_itemz (playlist_id, entity_type, entity_id, position) VALUES ('synced-source-list', 'song', 'old-song', 1)")
-            .execute(&pool)
-            .await
-            .unwrap();
-        let caller = Caller::new("user", "user", crate::users::UserRole::Member);
-        let response = sync_playlist(
-            &caller,
-            serde_json::json!({
-                "source_remote_id": "source",
-                "remote_playlist_id": "list",
-                "remote_name": "source",
-                "title": "updated",
-                "members": [],
-                "images": []
-            }),
-        )
-        .await;
-        assert!(response.success, "{}", response.message);
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM playlist_itemz WHERE playlist_id = 'synced-source-list'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(count, 0);
-
-        sqlx::query("INSERT INTO playlist_itemz (playlist_id, entity_type, entity_id, position) VALUES ('synced-source-list', 'song', 'old-song', 1)")
-            .execute(&pool)
-            .await
-            .unwrap();
-        let hash = "a".repeat(64);
-        sqlx::query(
-            "INSERT INTO media_blobz (id, size, mime, blob_type, blake3) VALUES ('video-blob', 1, 'video/mp4', 'original', ?)",
-        )
-        .bind(&hash)
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "INSERT INTO videoz (id, title, media_blob_id) VALUES ('video', 'video', 'video-blob')",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        let response = sync_playlist(
-            &caller,
-            serde_json::json!({
-                "source_remote_id": "source",
-                "remote_playlist_id": "list",
-                "remote_name": "source",
-                "title": "updated",
-                "members": [
-                    {"kind": "video", "blake3": hash},
-                    {"kind": "video", "blake3": "b".repeat(64)}
-                ],
-                "images": []
-            }),
-        )
-        .await;
-        assert!(response.success, "{}", response.message);
-        let data = response.data.unwrap();
-        assert_eq!(data["members_added"], 0);
-        assert_eq!(data["missing_member_blake3s"].as_array().unwrap().len(), 1);
-        let items: Vec<(String, String)> = sqlx::query_as(
-            "SELECT entity_type, entity_id FROM playlist_itemz WHERE playlist_id = 'synced-source-list'",
-        )
-        .fetch_all(&pool)
-        .await
-        .unwrap();
-        assert_eq!(items, vec![("song".to_string(), "old-song".to_string())]);
-    }
-}
-
 /// look up an existing (non-deleted) video by its media_blob_id - mirrors
 /// `video::importer`'s private helper of the same shape, kept separate
 /// since that one lives in a module this doesn't otherwise depend on.
@@ -424,4 +324,104 @@ pub async fn sync_playlist(caller: &Caller, body: JsonValue) -> GrimoireResponse
         ),
         serde_json::to_value(response).unwrap_or_default(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singleton"]
+    async fn syncing_empty_playlist_clears_previous_members() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_path = tmp.path().join("freqhole-config.toml");
+        std::fs::write(
+            &config_path,
+            format!(
+                "data_dir = \"{}\"\n[database]\nfilename = \"grimoire.db\"\n\
+                 [media]\nmax_fs_file_size = 104857600\nsupported_audio_formats = [\"mp3\", \"flac\"]\n\
+                 [musicbrainz]\nenabled = false\n[logging]\nlevel = \"warn\"\n",
+                tmp.path().display()
+            ),
+        )
+        .unwrap();
+        std::fs::write(tmp.path().join("grimoire.db"), b"").unwrap();
+        crate::config::init_config(Some(config_path)).unwrap();
+        crate::database::run_migrations().await.unwrap();
+        let pool = crate::database::connect().await.unwrap();
+        sqlx::query("INSERT INTO playlistz (id, title) VALUES ('synced-source-list', 'old')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO playlist_itemz (playlist_id, entity_type, entity_id, position) VALUES ('synced-source-list', 'song', 'old-song', 1)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let caller = Caller::new("user", "user", crate::users::UserRole::Member);
+        let response = sync_playlist(
+            &caller,
+            serde_json::json!({
+                "source_remote_id": "source",
+                "remote_playlist_id": "list",
+                "remote_name": "source",
+                "title": "updated",
+                "members": [],
+                "images": []
+            }),
+        )
+        .await;
+        assert!(response.success, "{}", response.message);
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM playlist_itemz WHERE playlist_id = 'synced-source-list'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 0);
+
+        sqlx::query("INSERT INTO playlist_itemz (playlist_id, entity_type, entity_id, position) VALUES ('synced-source-list', 'song', 'old-song', 1)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let hash = "a".repeat(64);
+        sqlx::query(
+            "INSERT INTO media_blobz (id, size, mime, blob_type, blake3) VALUES ('video-blob', 1, 'video/mp4', 'original', ?)",
+        )
+        .bind(&hash)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO videoz (id, title, media_blob_id) VALUES ('video', 'video', 'video-blob')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let response = sync_playlist(
+            &caller,
+            serde_json::json!({
+                "source_remote_id": "source",
+                "remote_playlist_id": "list",
+                "remote_name": "source",
+                "title": "updated",
+                "members": [
+                    {"kind": "video", "blake3": hash},
+                    {"kind": "video", "blake3": "b".repeat(64)}
+                ],
+                "images": []
+            }),
+        )
+        .await;
+        assert!(response.success, "{}", response.message);
+        let data = response.data.unwrap();
+        assert_eq!(data["members_added"], 0);
+        assert_eq!(data["missing_member_blake3s"].as_array().unwrap().len(), 1);
+        let items: Vec<(String, String)> = sqlx::query_as(
+            "SELECT entity_type, entity_id FROM playlist_itemz WHERE playlist_id = 'synced-source-list'",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(items, vec![("song".to_string(), "old-song".to_string())]);
+    }
 }

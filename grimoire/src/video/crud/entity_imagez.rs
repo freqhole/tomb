@@ -250,42 +250,6 @@ async fn add_waveform_image(
     GrimoireResponse::success_unit("waveform image added successfully")
 }
 
-#[cfg(test)]
-mod waveform_link_tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn concurrent_waveform_links_are_idempotent_and_preserve_poster() {
-        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        for statement in [
-            "CREATE TABLE videoz (id TEXT PRIMARY KEY, poster_blob_id TEXT)",
-            "CREATE TABLE entity_imagez (entity_type TEXT, entity_id TEXT, media_blob_id TEXT, is_primary INTEGER, blob_type TEXT, created_by TEXT)",
-            "INSERT INTO videoz VALUES ('v', 'poster')",
-            "INSERT INTO entity_imagez VALUES ('video', 'v', 'poster', 1, 'original', NULL)",
-        ] {
-            sqlx::query(statement).execute(&pool).await.unwrap();
-        }
-        let (first, second) = tokio::join!(
-            add_waveform_image(&pool, VideoEntityType::Video, "v", "wave", None),
-            add_waveform_image(&pool, VideoEntityType::Video, "v", "wave", None),
-        );
-        assert!(first.success, "{}", first.message);
-        assert!(second.success, "{}", second.message);
-        let links: Vec<(String, i64)> = sqlx::query_as(
-            "SELECT media_blob_id, is_primary FROM entity_imagez ORDER BY media_blob_id",
-        )
-        .fetch_all(&pool)
-        .await
-        .unwrap();
-        assert_eq!(links, vec![("poster".into(), 1), ("wave".into(), 0)]);
-        let poster: String = sqlx::query_scalar("SELECT poster_blob_id FROM videoz WHERE id = 'v'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(poster, "poster");
-    }
-}
-
 /// remove an image from an entity. when the removed image was primary,
 /// the most recently added remaining image (if any) is promoted.
 pub async fn remove_entity_image(
@@ -446,4 +410,40 @@ pub async fn set_primary_entity_image(
     }
 
     GrimoireResponse::success_unit("Primary image updated")
+}
+
+#[cfg(test)]
+mod waveform_link_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn concurrent_waveform_links_are_idempotent_and_preserve_poster() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        for statement in [
+            "CREATE TABLE videoz (id TEXT PRIMARY KEY, poster_blob_id TEXT)",
+            "CREATE TABLE entity_imagez (entity_type TEXT, entity_id TEXT, media_blob_id TEXT, is_primary INTEGER, blob_type TEXT, created_by TEXT)",
+            "INSERT INTO videoz VALUES ('v', 'poster')",
+            "INSERT INTO entity_imagez VALUES ('video', 'v', 'poster', 1, 'original', NULL)",
+        ] {
+            sqlx::query(statement).execute(&pool).await.unwrap();
+        }
+        let (first, second) = tokio::join!(
+            add_waveform_image(&pool, VideoEntityType::Video, "v", "wave", None),
+            add_waveform_image(&pool, VideoEntityType::Video, "v", "wave", None),
+        );
+        assert!(first.success, "{}", first.message);
+        assert!(second.success, "{}", second.message);
+        let links: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT media_blob_id, is_primary FROM entity_imagez ORDER BY media_blob_id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(links, vec![("poster".into(), 1), ("wave".into(), 0)]);
+        let poster: String = sqlx::query_scalar("SELECT poster_blob_id FROM videoz WHERE id = 'v'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(poster, "poster");
+    }
 }
