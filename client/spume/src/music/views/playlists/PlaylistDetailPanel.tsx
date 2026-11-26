@@ -451,12 +451,16 @@ export function PlaylistDetailPanel(props: PlaylistDetailPanelProps) {
               </>
             }
           >
-            <PlaylistEditor
-              playlist={props.playlist()!}
-              onSaved={handlePlaylistSaved}
-              onDeleted={handlePlaylistDeleted}
-              onCancelled={handlePlaylistEditCancelled}
-            />
+            <Show when={props.playlist()}>
+              {(playlist) => (
+                <PlaylistEditor
+                  playlist={playlist()}
+                  onSaved={handlePlaylistSaved}
+                  onDeleted={handlePlaylistDeleted}
+                  onCancelled={handlePlaylistEditCancelled}
+                />
+              )}
+            </Show>
           </Show>
 
           <Show when={!playlistSongsQuery.isLoading && !playlistVideoItemsQuery.isLoading}>
@@ -565,12 +569,14 @@ export function PlaylistDetailPanel(props: PlaylistDetailPanelProps) {
                 source={() => currentRemoteFull()}
                 buildSendPayload={buildPlaylistSendPayload}
               />
-              <Show when={playlistSongs().length > 0 || playlistVideoItems().length > 0}>
-                <DownloadPlaylistZipBundleButton
-                  playlist={props.playlist()!}
-                  songs={playlistSongs()}
-                  videos={playlistVideoItems().map((i) => i.video)}
-                />
+              <Show when={(playlistSongs().length > 0 || playlistVideoItems().length > 0) && props.playlist()}>
+                {(playlist) => (
+                  <DownloadPlaylistZipBundleButton
+                    playlist={playlist()}
+                    songs={playlistSongs()}
+                    videos={playlistVideoItems().map((i) => i.video)}
+                  />
+                )}
               </Show>
             </div>
           </Show>

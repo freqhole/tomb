@@ -23,6 +23,7 @@ const findExistingSongByContentHash = vi.fn(async (...args: unknown[]) => {
   void args;
   return undefined as Song | undefined;
 });
+const initMusicDB = vi.fn();
 
 vi.mock("../../services/storage/db", () => ({
   addAlbumTag: vi.fn(),
@@ -48,7 +49,7 @@ vi.mock("../../services/storage/db", () => ({
   getRating: vi.fn(),
   getSongById: (...a: unknown[]) => getSongById(...a),
   getSongsByIds: vi.fn(),
-  initMusicDB: vi.fn(),
+  initMusicDB: (...a: unknown[]) => initMusicDB(...a),
   queryAlbums: vi.fn(async () => []),
   queryArtists: vi.fn(async () => []),
   queryGenres: vi.fn(),
@@ -75,6 +76,41 @@ vi.mock("../../services/storage/playlists", () => ({
 }));
 
 import { LocalMusicDataSource } from "./localSource";
+
+it("searches local playlists before pagination", async () => {
+  const playlists = [
+    { playlist_id: "one", title: "other", description: null, updated_at: 3 },
+    { playlist_id: "two", title: "mix one", description: null, updated_at: 2 },
+    { playlist_id: "three", title: "mix two", description: null, updated_at: 1 },
+  ];
+  initMusicDB.mockResolvedValue({
+    getAll: vi.fn().mockResolvedValue(playlists),
+    getAllFromIndex: vi.fn().mockResolvedValue([]),
+  });
+  const source = new LocalMusicDataSource();
+  const result = await source.getPlaylists({ search: "MIX", limit: 1, offset: 1 });
+  expect(result.items.map((p) => p.playlist_id)).toEqual(["three"]);
+  expect(result.total).toBe(2);
+  expect(result.has_more).toBe(false);
+});
+
+it("preserves local and remote playlist image references", async () => {
+  const images = [
+    { local_blob_id: "local", is_primary: true, blob_type: "original" },
+    { remote_blob_id: "remote", remote_server_id: "friend", remote_url: "https://example.test/image", is_primary: false, blob_type: "preview" },
+    { blob_id: "legacy", is_primary: 1, type: "thumbnail" },
+  ];
+  initMusicDB.mockResolvedValue({
+    getAll: vi.fn().mockResolvedValue([{ playlist_id: "one", title: "mix", updated_at: 1, images }]),
+    getAllFromIndex: vi.fn().mockResolvedValue([]),
+  });
+  const result = await new LocalMusicDataSource().getPlaylists();
+  expect(result.items[0].images).toMatchObject([
+    images[0],
+    images[1],
+    { local_blob_id: "legacy", is_primary: true, blob_type: "thumbnail" },
+  ]);
+});
 
 function localSong(overrides: Partial<Song> = {}): Song {
   return {

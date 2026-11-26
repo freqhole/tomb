@@ -43,7 +43,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
   );
 
   const updatePlaylistMutation = useUpdatePlaylistMutation();
-  const deletePlaylistMutation = useDeletePlaylistMutation();
+  const deletePlaylistMutation = useDeletePlaylistMutation((playlistId) => props.onDeleted?.(playlistId));
   const queryClient = useQueryClient();
 
   const handleImageUpload = async (file: File) => {
@@ -249,19 +249,10 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
     setIsDeleting(true);
 
     try {
-      if (remote) {
-        // delete remote playlist
-        await deletePlaylistMutation.mutateAsync(playlistId);
-      } else {
-        // delete local playlist
-        const dataSource = getDataSource();
-        await dataSource.deletePlaylist?.(playlistId);
-
-        // invalidate queries
-        await queryClient.invalidateQueries({ queryKey: ["playlists"] });
-      }
-
-      props.onDeleted?.(playlistId);
+      await deletePlaylistMutation.mutateAsync({
+        playlistId,
+        sourceId: remote?.remote_id ?? "local",
+      });
     } catch (error) {
       errorLog("playlist.delete", "failed to delete playlist:", error);
       toast.error(error instanceof Error ? error.message : "failed to delete playlist", {

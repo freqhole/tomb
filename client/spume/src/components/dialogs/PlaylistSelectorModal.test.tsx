@@ -4,6 +4,7 @@ import type { JSX } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Remote } from "../../app/services/storage/schemas/remote";
+import type { ImageMetadata } from "../../music/services/storage/types";
 import { PlaylistSelectorModal } from "./PlaylistSelectorModal";
 
 const mocks = vi.hoisted(() => ({
@@ -11,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   active: null as { remote_id: string; name: string } | null,
   localRemote: null as Remote | null,
   localPlaylists: vi.fn(),
-  sourcePlaylists: [] as Array<{ playlist_id: string; title: string; song_count: number }>,
+  sourcePlaylists: [] as Array<{ playlist_id: string; title: string; song_count: number; images?: ImageMetadata[] }>,
   importItems: vi.fn(),
   addLocal: vi.fn(),
   addRemote: vi.fn(),
@@ -19,6 +20,12 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("../modals/Modal", () => ({ Modal: (props: { children: JSX.Element }) => props.children }));
 vi.mock("../icons/registry", () => ({ Icon: () => null, IconNames: { playlist: "playlist", add: "add" } }));
+vi.mock("../media/MediaImage", () => ({
+  MediaImage: (props: { images?: ImageMetadata[]; alt: string; domainType: string; thumbnailSize: number }) => (
+    <span data-testid="playlist-image" data-title={props.alt} data-domain={props.domainType}
+      data-size={props.thumbnailSize} data-images={JSON.stringify(props.images)} />
+  ),
+}));
 vi.mock("../buttons/Button", () => ({
   Button: (props: { children: JSX.Element; onClick?: () => void; disabled?: boolean }) =>
     <button onClick={props.onClick} disabled={props.disabled}>{props.children}</button>,
@@ -47,7 +54,12 @@ vi.mock("../../music/data/remote/remoteSource", () => ({
 }));
 vi.mock("../../music/queries/playlists", () => ({
   useRecentPlaylistsQuery: () => ({ get data() { return mocks.sourcePlaylists; } }),
-  usePlaylistsQuery: () => ({ data: { pages: [{ items: mocks.sourcePlaylists }] } }),
+  usePlaylistsQuery: (options: { search: () => string }) => ({
+    get data() {
+      const search = options.search().toLowerCase();
+      return { pages: [{ items: mocks.sourcePlaylists.filter((p) => p.title.toLowerCase().includes(search)) }] };
+    },
+  }),
   useCreatePlaylistMutation: () => ({ isPending: false }),
 }));
 vi.mock("../../video/queries/playlistItems", () => ({
@@ -101,8 +113,10 @@ it.each([false, true])("groups destinations and imports before adding locally (c
   mocks.localRemote = charnel ? local : null;
   const close = open(source);
   await vi.waitFor(() => expect(host.textContent).toContain("local list"));
-  expect(host.textContent).toContain("friend");
-  expect(host.textContent).toContain("local library");
+  const text = host.textContent ?? "";
+  expect(text.indexOf("friend")).toBeLessThan(text.indexOf("remote list"));
+  expect(text.indexOf("remote list")).toBeLessThan(text.indexOf("local library"));
+  expect(text.indexOf("local library")).toBeLessThan(text.indexOf("local list"));
   Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("local list"))?.click();
   await vi.waitFor(() => expect(close).toHaveBeenCalled());
   expect(mocks.importItems).toHaveBeenCalledWith(
@@ -117,6 +131,72 @@ it.each([false, true])("groups destinations and imports before adding locally (c
       { entity_type: "song", entity_id: "local-song" },
     ]);
   }
+});
+
+it("shows local playlists even when the remote has none", async () => {
+  mocks.sourcePlaylists = [];
+  open(source);
+  await vi.waitFor(() => expect(host.textContent).toContain("local list"));
+  expect(host.textContent).toContain("no playlists on this remote");
+  expect(host.textContent).toContain("local library");
+});
+
+it("passes each source's playlist artwork to the shared image component", async () => {
+  const remoteImages: ImageMetadata[] = [{
+    remote_blob_id: "remote-image", remote_server_id: "source", is_primary: true, blob_type: "original",
+  }];
+  const localImages: ImageMetadata[] = [{
+    local_blob_id: "local-image", is_primary: true, blob_type: "original",
+  }];
+  mocks.sourcePlaylists = [{ playlist_id: "remote-list", title: "remote list", song_count: 0, images: remoteImages }];
+  mocks.localPlaylists.mockResolvedValue({
+    items: [{ playlist_id: "local-list", title: "local list", song_count: 0, images: localImages }],
+  });
+  open(source);
+  await vi.waitFor(() => expect(host.querySelectorAll('[data-testid="playlist-image"]')).toHaveLength(2));
+  const images = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="playlist-image"]'));
+  expect(images.map((image) => [image.dataset.title, JSON.parse(image.dataset.images ?? "null")])).toEqual([
+    ["remote list", remoteImages], ["local list", localImages],
+  ]);
+  expect(images.every((image) => image.dataset.domain === "playlist" && image.dataset.size === "50")).toBe(true);
+});
+
+it("shows a local playlist loading error even when the remote has no results", async () => {
+  mocks.sourcePlaylists = [];
+  mocks.localPlaylists.mockRejectedValue(new Error("offline"));
+  open(source);
+  await vi.waitFor(() => expect(host.textContent).toContain("failed to load local playlists"));
+});
+
+it("keeps search results under their own source headings", async () => {
+  mocks.sourcePlaylists = [
+    { playlist_id: "one", title: "mix remote", song_count: 0 },
+    { playlist_id: "two", title: "unrelated", song_count: 0 },
+  ];
+  mocks.localPlaylists.mockImplementation(async ({ search }: { search?: string }) => ({
+    items: search ? [{ playlist_id: "local-list", title: "mix local", song_count: 0 }] : [],
+  }));
+  open(source);
+  const input = host.querySelector("input")!;
+  input.value = "mix";
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  await vi.waitFor(() => expect(host.textContent).toContain("mix local"));
+  const text = host.textContent ?? "";
+  expect(text.indexOf("friend")).toBeLessThan(text.indexOf("mix remote"));
+  expect(text.indexOf("mix remote")).toBeLessThan(text.indexOf("local library"));
+  expect(text.indexOf("local library")).toBeLessThan(text.indexOf("mix local"));
+  expect(text).not.toContain("unrelated");
+});
+
+it("adds to a remote playlist on the media source without importing it", async () => {
+  const close = open(source);
+  await vi.waitFor(() => expect(host.textContent).toContain("local list"));
+  Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("remote list"))?.click();
+  await vi.waitFor(() => expect(close).toHaveBeenCalled());
+  expect(mocks.addRemote).toHaveBeenCalledWith({
+    playlistId: "remote-list", items: [{ entity_type: "song", entity_id: "remote-song" }], remote: source,
+  });
+  expect(mocks.importItems).not.toHaveBeenCalled();
 });
 
 it("keeps the existing ungrouped layout for the local library", async () => {

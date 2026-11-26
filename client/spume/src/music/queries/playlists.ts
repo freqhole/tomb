@@ -6,9 +6,10 @@ import {
   useQueryClient,
 } from "@tanstack/solid-query";
 import type { Accessor } from "solid-js";
-import { getCurrentRemote, getDataSource } from "../data";
+import { getDataSource } from "../data";
 import { RemoteMusicDataSource } from "../data/remote/remoteSource";
-import type { MusicDataSource } from "../data/types";
+import type { MusicDataSource, PaginatedResponse, PlaylistSummary } from "../data/types";
+import type { InfiniteData } from "@tanstack/solid-query";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { ImageMetadata } from "../services/storage/types";
 import { queryKeys } from "./queryKeys";
@@ -33,8 +34,7 @@ export function useRecentPlaylistsQuery(
 ) {
   return createQuery(() => ({
     queryKey: [
-      ...queryKeys.playlists.recent(limit),
-      remote?.()?.remote_id ?? getCurrentRemote()?.remote_id ?? null,
+      ...queryKeys.playlists.recent(limit, remote?.()?.remote_id),
       ownedOrCollaborativeOnly,
     ] as const,
     queryFn: async () => {
@@ -68,6 +68,8 @@ interface UsePlaylistsQueryOptions {
   /** restrict results to the caller's own + collaborative playlists
    *  (no-op for admins/root - server always shows them everything). */
   ownedOrCollaborativeOnly?: Accessor<boolean>;
+  enabled?: Accessor<boolean>;
+  keepPreviousData?: boolean;
 }
 
 // infinite query hook for playlists
@@ -79,12 +81,12 @@ export function usePlaylistsQuery(options?: UsePlaylistsQueryOptions) {
 
   return createInfiniteQuery(() => ({
     queryKey: [
-      ...queryKeys.playlists.all(),
+      ...queryKeys.playlists.all(remote?.()?.remote_id),
       "infinite",
       search?.(),
-      remote?.()?.remote_id ?? getCurrentRemote()?.remote_id ?? null,
       ownedOrCollaborativeOnly?.() ?? false,
     ],
+    enabled: options?.enabled?.() ?? true,
     queryFn: async ({ pageParam }: { pageParam: number }) => {
       const dataSource = pickSource(remote?.());
 
@@ -114,7 +116,7 @@ export function usePlaylistsQuery(options?: UsePlaylistsQueryOptions) {
       if (!lastPage.has_more) return undefined;
       return lastPage.offset + lastPage.limit;
     },
-    placeholderData: (previousData) => previousData,
+    placeholderData: options?.keepPreviousData === false ? undefined : (previousData) => previousData,
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
     refetchOnMount: false,
@@ -194,10 +196,9 @@ export function useCreatePlaylistMutation() {
       const { remote: _remote, ...createParams } = params;
       return await dataSource.createPlaylist(createParams);
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       // invalidate and refetch playlists queries
-      queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
-      void queryClient.refetchQueries({ queryKey: queryKeys.playlists.all() });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all(variables.remote?.remote_id) });
     },
   }));
 }
@@ -238,11 +239,11 @@ export function useUpdatePlaylistMutation() {
 }
 
 // mutation hook for deleting playlists
-export function useDeletePlaylistMutation() {
+export function useDeletePlaylistMutation(onDeleted?: (playlistId: string) => void) {
   const queryClient = useQueryClient();
 
   return createMutation(() => ({
-    mutationFn: async (playlistId: string) => {
+    mutationFn: async ({ playlistId }: { playlistId: string; sourceId: string }) => {
       const dataSource = getDataSource();
 
       if (!dataSource.deletePlaylist) {
@@ -251,12 +252,31 @@ export function useDeletePlaylistMutation() {
 
       await dataSource.deletePlaylist(playlistId);
     },
-    onSuccess: (_, playlistId) => {
-      // invalidate and refetch playlists queries
-      queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
-      void queryClient.refetchQueries({ queryKey: queryKeys.playlists.all() });
-      // remove specific playlist queries from cache
+    onSuccess: async (_, { playlistId, sourceId }) => {
+      const sourceKey = queryKeys.playlists.all(sourceId);
+      await queryClient.cancelQueries({ queryKey: sourceKey });
+      onDeleted?.(playlistId);
+      queryClient.setQueriesData<InfiniteData<PaginatedResponse<PlaylistSummary>>>(
+        { queryKey: [...sourceKey, "infinite"] },
+        (data) => {
+          if (!data?.pages.some((page) => page.items.some((p) => p.playlist_id === playlistId))) return data;
+          return {
+            ...data,
+            pages: data.pages.map((page) => ({
+              ...page,
+              items: page.items.filter((p) => p.playlist_id !== playlistId),
+              total: Math.max(0, page.total - 1),
+            })),
+          };
+        }
+      );
+      queryClient.setQueriesData<PlaylistSummary[]>(
+        { queryKey: [...sourceKey, "recent"] },
+        (data) => data?.filter((p) => p.playlist_id !== playlistId)
+      );
+      queryClient.removeQueries({ queryKey: [...sourceKey, playlistId] });
       queryClient.removeQueries({ queryKey: ["playlists", playlistId] });
+      void queryClient.invalidateQueries({ queryKey: sourceKey });
     },
   }));
 }

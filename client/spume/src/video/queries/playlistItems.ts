@@ -202,7 +202,7 @@ export function useAddPlaylistItemsMutation() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.playlists.songs(variables.playlistId),
       });
-      queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all(variables.remote?.remote_id) });
     },
   }));
 }

@@ -105,10 +105,8 @@ function buildSongImages(song: Song): ImageMetadata[] {
 
 // helper to construct ImageMetadata from database image records
 function adaptDatabaseImages(
-  dbImages?: Array<{
+  dbImages?: Array<Omit<Partial<ImageMetadata>, "is_primary"> & {
     blob_id?: string;
-    local_blob_id?: string;
-    remote_url?: string | null;
     is_primary: number | boolean;
     type?: string;
   }>
@@ -117,9 +115,12 @@ function adaptDatabaseImages(
 
   return dbImages.map((img) => ({
     local_blob_id: img.local_blob_id || img.blob_id || undefined,
+    remote_blob_id: img.remote_blob_id,
     remote_url: img.remote_url ?? undefined,
+    remote_server_id: img.remote_server_id,
+    local_opfs_path: img.local_opfs_path,
     is_primary: typeof img.is_primary === "boolean" ? img.is_primary : img.is_primary === 1,
-    blob_type: (img.type as "thumbnail" | "waveform") || "thumbnail",
+    blob_type: img.blob_type || (img.type as "thumbnail" | "waveform") || "thumbnail",
   }));
 }
 
@@ -416,12 +417,19 @@ export class LocalMusicDataSource implements MusicDataSource {
 
     const db = await initMusicDB();
     const allPlaylists = await db.getAll(STORE_PLAYLISTS);
+    const search = params?.search?.trim().toLowerCase();
+    const matchingPlaylists = search
+      ? allPlaylists.filter((playlist) =>
+          (playlist.title || "").toLowerCase().includes(search) ||
+          playlist.description?.toLowerCase().includes(search)
+        )
+      : allPlaylists;
 
     // sort by updated_at desc
-    allPlaylists.sort((a, b) => b.updated_at - a.updated_at);
+    matchingPlaylists.sort((a, b) => b.updated_at - a.updated_at);
 
     // get song counts and build images array for each playlist
-    const playlistPromises = allPlaylists.map(async (playlist) => {
+    const playlistPromises = matchingPlaylists.map(async (playlist) => {
       try {
         if (!playlist.playlist_id) {
           console.warn("skipping playlist with missing id:", playlist);

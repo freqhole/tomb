@@ -8,9 +8,9 @@ use crate::music::crud::{
 };
 use crate::music::entities::playlists::{
     add_songs_to_playlist, create_playlist, delete_playlist as grimoire_delete_playlist,
-    get_playlist, get_playlist_images as grimoire_get_playlist_images, remove_songs_from_playlist,
-    update_playlist as grimoire_update_playlist, update_songs_position, AddSongsToPlaylistRequest,
-    CreatePlaylistRequest, DeletePlaylistRequest, GetPlaylistRequest,
+    get_playlist, get_playlist_images as grimoire_get_playlist_images, get_playlist_owner,
+    remove_songs_from_playlist, update_playlist as grimoire_update_playlist, update_songs_position,
+    AddSongsToPlaylistRequest, CreatePlaylistRequest, DeletePlaylistRequest, GetPlaylistRequest,
     RemoveSongsFromPlaylistRequest, ReorderPlaylistSongsRequest, UpdatePlaylistRequest,
 };
 use crate::offal::caller::Caller;
@@ -346,18 +346,14 @@ pub async fn delete(caller: &Caller, body: JsonValue) -> GrimoireResponse<JsonVa
         }
     };
 
-    // check ownership
-    let playlist_response = get_playlist(&req.playlist_id).await;
-    if let Some(playlist) = &playlist_response.data {
-        if let Err(resp) = crate::acl_bridge::require_owner_or_scope(
-            playlist.created_by_id.as_deref(),
-            caller,
-            "delete_playlist",
-        )
-        .await
-        {
-            return resp;
-        }
+    let owner = match get_playlist_owner(&req.playlist_id).await {
+        Ok(owner) => owner,
+        Err(e) => return GrimoireResponse::failure("failed to get playlist owner", vec![e.into()]),
+    };
+    if let Err(resp) =
+        crate::acl_bridge::require_owner_or_scope(owner.as_deref(), caller, "delete_playlist").await
+    {
+        return resp;
     }
 
     let response = grimoire_delete_playlist(&req.playlist_id, Some(caller.user_id.clone())).await;
