@@ -2529,7 +2529,7 @@ export async function tuneIntoRadio(
       const percent = (msg as { percent?: unknown }).percent;
       lastWarmupAtMs = Date.now();
       if (status() === "connecting" && !sawFirstChunk && typeof percent === "number") {
-        setConnectPhase(`station warming up ${percent}%`);
+        setConnectPhase(percent > 0 ? `station warming up ${percent}%` : "station preparing stream\u2026");
       }
       return true;
     }
@@ -2681,9 +2681,9 @@ export async function tuneIntoRadio(
   const initChunkBoundaries = new Map<number, number>();
   // most recent init_seq whose media the playhead has actually reached.
   let lastAppliedInit: number | null = null;
-  // track whether we have received real media data on the chunk stream.
-  // keeps the player status in "connecting" until bytes actually arrive.
+  // an init chunk configures the stream but contains no playable media.
   let sawFirstChunk = false;
+  let sawFirstMediaChunk = false;
   // last time the station reported warm-up progress (0 = never).
   let lastWarmupAtMs = 0;
   // the init chunk landing over the network says nothing about when the
@@ -3058,13 +3058,20 @@ export async function tuneIntoRadio(
     markControlActivity();
     if (!sawFirstChunk) {
       sawFirstChunk = true;
-      setConnectPhase(`receiving ${radioHasVideoCapability() ? "video" : "audio"}\u2026`);
+      const media = radioHasVideoCapability() ? "video" : "audio";
+      setConnectPhase(isInit ? `waiting for ${media} data\u2026` : `receiving ${media}\u2026`);
       if (!useTimelineMode() && !isInit) {
         tryStartChunkPlayback("first chunk");
       }
       console.info(
         `[radio] first chunk received (seq=${seq}, init=${isInit}, bytes=${bytes.byteLength})`
       );
+    }
+    if (!isInit && !sawFirstMediaChunk) {
+      sawFirstMediaChunk = true;
+      if (status() === "connecting") {
+        setConnectPhase(`receiving ${radioHasVideoCapability() ? "video" : "audio"}\u2026`);
+      }
     }
     const now = Date.now();
     const chunkGapMs = lastChunkAtMs !== null ? now - lastChunkAtMs : null;

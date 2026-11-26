@@ -6,7 +6,7 @@ use crate::error::ErrorDetail;
 use crate::offal::caller::Caller;
 use crate::response::GrimoireResponse;
 
-use super::images::resolve_sync_image_ref;
+use super::images::{resolve_sync_image_ref, sync_artist_images};
 use super::models::{SyncAlbumRequest, SyncAlbumResponse};
 
 /// sync an album shell to local grimoire storage.
@@ -151,6 +151,7 @@ pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
                     album.id,
                     e
                 );
+                missing_image_blake3s.push(img.blake3.clone());
                 None
             }
         };
@@ -169,9 +170,15 @@ pub async fn sync_album(caller: &Caller, body: JsonValue) -> GrimoireResponse<Js
                     album.id,
                     add_result.message
                 );
+                missing_image_blake3s.push(img.blake3.clone());
             }
         }
     }
+
+    let (artist_images_linked, artist_images_missing) =
+        sync_artist_images(&artist.id, &req.artist_images, source_node_id).await;
+    images_linked += artist_images_linked;
+    missing_image_blake3s.extend(artist_images_missing);
 
     // 5. attach tags (provenance + caller-supplied). idempotent.
     let mut tag_names: Vec<String> = Vec::with_capacity(1 + req.tags.len());

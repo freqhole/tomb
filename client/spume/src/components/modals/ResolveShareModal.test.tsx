@@ -9,6 +9,7 @@ import type { Remote } from "../../app/services/storage/schemas/remote";
 vi.mock("./Modal", () => ({ Modal: (props: { children: JSX.Element }) => props.children }));
 vi.mock("../icons/registry", () => ({ Icon: () => null }));
 vi.mock("../../utils/permalink", () => ({
+  DEFAULT_SHARE_WEB_HOST: "https://share.freqhole.net",
   decodeShareToken: () => ({ v: 1, k: "album", i: "album", t: "shared album", s: { n: "peer" } }),
 }));
 vi.mock("../../app/services/remotes/remoteManager", () => ({
@@ -50,5 +51,29 @@ it.each([false, true])("reopens received shares without auto-navigation (connect
   } finally {
     dispose();
     host.remove();
+  }
+});
+
+it("copies a shareable web link and shows confirmation", async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const dispose = render(() => <ResolveShareModal
+    token="saved-token"
+    autoNavigate={false}
+    onClose={vi.fn()}
+    onAddRemote={vi.fn()}
+  />, host);
+  try {
+    await vi.waitFor(() => expect(host.textContent).toContain("copy link"));
+    const button = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "copy link");
+    button?.click();
+    await vi.waitFor(() => expect(host.textContent).toContain("copied!"));
+    expect(writeText).toHaveBeenCalledWith("https://share.freqhole.net/?share=saved-token#");
+  } finally {
+    dispose();
+    host.remove();
+    Reflect.deleteProperty(navigator, "clipboard");
   }
 });

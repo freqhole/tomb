@@ -1,12 +1,7 @@
 // helpers to convert spume-side song / album / playlist view data into the
 // codegen `Sync*Request` shapes accepted by grimoire.
 //
-// song/album images are inlined as blake3 hash references (see
-// `syncImages.ts`'s `inlineImagesForSync` - resolved via a cheap metadata
-// lookup, never raw bytes) directly into these requests, so the
-// destination's background sync job can pull + attach them itself without
-// any synchronous id round-trip back to the caller. playlist images still
-// go through the older post-hoc `/api/upload/image` path for now.
+// images are carried as blake3 references, never raw bytes.
 
 import type {
   SyncAlbumRequest,
@@ -60,6 +55,7 @@ export interface SendCommonContext {
   sourceRemoteId?: string | null;
   /** source-side iroh node id (64-hex). required for audio pulls. */
   sourceNodeId: string;
+  localBrowserSource?: boolean;
 }
 
 export interface BuildSyncSongOptions extends SendCommonContext {
@@ -104,18 +100,27 @@ export async function buildSyncSongByBlake3Request(
       return `${title}.${ext}`;
     })();
 
-  const [songImages, albumImages] = await Promise.all([
+  const [songImages, albumImages, artistImages] = await Promise.all([
     inlineImagesForSync(
       toInlinableImages(song.images),
       opts.sourceTransport,
       opts.imageCache,
-      `[song "${song.title}"]`
+      `[song "${song.title}"]`,
+      opts.localBrowserSource
     ),
     inlineImagesForSync(
       toInlinableImages(song.album_images),
       opts.sourceTransport,
       opts.imageCache,
-      `[album "${song.album_title}"]`
+      `[album "${song.album_title}"]`,
+      opts.localBrowserSource
+    ),
+    inlineImagesForSync(
+      toInlinableImages(song.artist_images),
+      opts.sourceTransport,
+      opts.imageCache,
+      `[artist "${song.artist_name}"]`,
+      opts.localBrowserSource
     ),
   ]);
 
@@ -140,6 +145,7 @@ export async function buildSyncSongByBlake3Request(
     genre_name: opts.genreName ?? null,
     song_images: songImages,
     album_images: albumImages,
+    artist_images: artistImages,
     is_compilation: opts.isCompilation ?? false,
   };
 }
@@ -163,6 +169,7 @@ export interface BuildSyncAlbumOptions extends SendCommonContext {
   expectedSongBlake3s: string[];
   /** album-level images, inlined as blake3 refs (see `BuildSyncSongOptions`). */
   images?: ImageMetadata[];
+  artistImages?: ImageMetadata[];
   sourceTransport: Transport;
   imageCache: InlineImageCache;
 }
@@ -178,12 +185,22 @@ export type SyncAlbumTransferRequest = SyncAlbumRequest & {
 export async function buildSyncAlbumRequest(
   opts: BuildSyncAlbumOptions
 ): Promise<SyncAlbumTransferRequest> {
-  const images = await inlineImagesForSync(
-    toInlinableImages(opts.images),
-    opts.sourceTransport,
-    opts.imageCache,
-    `[album "${opts.title}"]`
-  );
+  const [images, artistImages] = await Promise.all([
+    inlineImagesForSync(
+      toInlinableImages(opts.images),
+      opts.sourceTransport,
+      opts.imageCache,
+      `[album "${opts.title}"]`,
+      opts.localBrowserSource
+    ),
+    inlineImagesForSync(
+      toInlinableImages(opts.artistImages),
+      opts.sourceTransport,
+      opts.imageCache,
+      `[artist "${opts.artistName}"]`,
+      opts.localBrowserSource
+    ),
+  ]);
   const metadata = parseAlbumMetadata(opts.metadata);
   return {
     source_remote_id: opts.sourceRemoteId ?? null,
@@ -203,6 +220,7 @@ export async function buildSyncAlbumRequest(
     mb_release_group_id: opts.mbReleaseGroupId ?? confirmedMbReleaseGroupId(metadata),
     tags: opts.tags ?? [],
     images,
+    artist_images: artistImages,
     expected_song_blake3s: opts.expectedSongBlake3s,
     remote_name: opts.remoteName,
   };
@@ -229,7 +247,8 @@ export async function buildSyncPlaylistRequest(
     toInlinableImages(opts.images),
     opts.sourceTransport,
     opts.imageCache,
-    `[playlist "${opts.title}"]`
+    `[playlist "${opts.title}"]`,
+    opts.localBrowserSource
   );
   return {
     source_remote_id: opts.sourceRemoteId ?? null,

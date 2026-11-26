@@ -633,6 +633,7 @@ async fn link_sync_entity_images(
                         entity_id,
                         e
                     );
+                    missing_image_blake3s.push(img.blake3.clone());
                     continue;
                 }
             };
@@ -663,6 +664,7 @@ async fn link_sync_entity_images(
                 entity_id,
                 image_resp.message
             );
+            missing_image_blake3s.push(img.blake3.clone());
         }
     }
 

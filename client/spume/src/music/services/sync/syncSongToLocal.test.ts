@@ -18,6 +18,16 @@ vi.mock("../../../app/services/charnel/mode", () => ({ isCharnelMode: () => isCh
 
 const getRemoteById = vi.fn();
 const getTauriManagedRemote = vi.fn();
+const extractNodeId = vi.fn((): string | null => null);
+const isP2P = vi.fn(() => false);
+const invoke = vi.fn();
+const waitForJobResult = vi.fn();
+const inlineImagesForSync = vi.fn();
+const toInlinableImages = vi.fn((images: unknown) => images);
+vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
+vi.mock("../../../app/services/jobs/jobService", () => ({
+  waitForJobResult: (...args: unknown[]) => waitForJobResult(...args),
+}));
 vi.mock("../../../app/services/remotes/remoteManager", () => ({
   getRemoteById: (...a: unknown[]) => getRemoteById(...a),
   getTauriManagedRemote: (...a: unknown[]) => getTauriManagedRemote(...a),
@@ -26,10 +36,10 @@ vi.mock("../../../app/services/remotes/remoteHealth", () => ({
   isOnlineNow: vi.fn(() => true),
 }));
 vi.mock("../../../app/services/remotes/peerAddr", () => ({
-  extractNodeIdStrict: vi.fn(() => null),
+  extractNodeIdStrict: () => extractNodeId(),
 }));
 vi.mock("../../../app/services/storage/schemas/remote", () => ({
-  isP2PRemote: vi.fn(() => false),
+  isP2PRemote: () => isP2P(),
 }));
 
 const blobMetadata = vi.fn(async (...args: unknown[]) => {
@@ -97,7 +107,7 @@ const canStartDownload = vi.fn((...args: unknown[]) => {
   void args;
   return true;
 });
-const getInProgressDownload = vi.fn((...args: unknown[]) => {
+const getInProgressDownload = vi.fn((...args: unknown[]): Promise<void> | undefined => {
   void args;
   return undefined;
 });
@@ -114,9 +124,9 @@ vi.mock("../opfs/helpers", () => ({
   openAudioOPFSChunkSink: vi.fn(),
 }));
 vi.mock("./syncImages", () => ({
-  inlineImagesForSync: vi.fn(),
+  inlineImagesForSync: (...args: unknown[]) => inlineImagesForSync(...args),
   inlineRawUrlForSync: vi.fn(),
-  toInlinableImages: vi.fn(() => []),
+  toInlinableImages: (images: unknown) => toInlinableImages(images),
 }));
 vi.mock("../../queries/cacheUpdates", () => ({ invalidateMusicLibraryQueries: vi.fn() }));
 
@@ -142,6 +152,8 @@ function song(overrides: Partial<SyncableSong> = {}): SyncableSong {
 beforeEach(() => {
   vi.clearAllMocks();
   isCharnelMode.mockReturnValue(false);
+  isP2P.mockReturnValue(false);
+  extractNodeId.mockReturnValue(null);
   getRemoteById.mockResolvedValue(remote);
   canStartDownload.mockReturnValue(true);
   getInProgressDownload.mockReturnValue(undefined);
@@ -151,6 +163,43 @@ beforeEach(() => {
   (globalThis as { fetch?: unknown }).fetch = vi.fn(
     async () => ({ ok: true, blob: async () => new Blob(["x"]) }) as unknown as Response
   );
+});
+
+describe("syncSongToLocal (charnel mode)", () => {
+  it("sends artist image hashes with the song sync request", async () => {
+    isCharnelMode.mockReturnValue(true);
+    isP2P.mockReturnValue(true);
+    extractNodeId.mockReturnValue("source-node");
+    const artistImages: NonNullable<Song["artist_images"]> = [
+      { remote_blob_id: "artist-image", blob_type: "original", is_primary: true },
+    ];
+    const ref = {
+      blake3: "artist-hash",
+      mime_type: "image/png",
+      is_primary: true,
+      blob_type: "original",
+    };
+    inlineImagesForSync.mockImplementation(async (images) =>
+      images === artistImages ? [ref] : []
+    );
+    invoke.mockResolvedValue({ success: true, data: { job_id: "job" } });
+    getTauriManagedRemote.mockResolvedValue(remote);
+    waitForJobResult.mockResolvedValue({ status: "completed", result: { song_id: "local-song" } });
+
+    const result = await syncSongToLocal(
+      song({ blake3: "b".repeat(64), artist_images: artistImages }),
+      undefined,
+      remote
+    );
+
+    expect(result.success).toBe(true);
+    expect(invoke).toHaveBeenCalledWith(
+      "api_call",
+      expect.objectContaining({
+        body: expect.objectContaining({ source_node_id: "source-node", artist_images: [ref] }),
+      })
+    );
+  });
 });
 
 describe("syncSongToLocal (browser mode, id/sha256 decoupling - session B)", () => {
@@ -189,5 +238,19 @@ describe("syncSongToLocal (browser mode, id/sha256 decoupling - session B)", () 
     // browser mode prefers sha256 (see syncTrackingKey's doc comment)
     expect(markSongSynced).toHaveBeenCalledWith(s.sha256);
     expect(markSongSynced).not.toHaveBeenCalledWith(result.localSongId);
+  });
+
+  it("uses blake3 for a browser import when sha256 is absent", async () => {
+    const s = song({ sha256: "", blake3: "b".repeat(64) });
+    const result = await syncSongToLocal(s, undefined, remote);
+    expect(result.success).toBe(true);
+    expect(markSongSynced).toHaveBeenCalledWith(s.blake3);
+  });
+
+  it("does not report success when an in-flight sync left no local row", async () => {
+    canStartDownload.mockReturnValue(false);
+    getInProgressDownload.mockReturnValue(Promise.resolve());
+    const result = await syncSongToLocal(song(), undefined, remote);
+    expect(result).toMatchObject({ success: false });
   });
 });

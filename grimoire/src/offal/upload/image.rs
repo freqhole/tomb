@@ -22,7 +22,7 @@ use super::models::UploadImageRequest;
 use super::{MAX_WAIT_DURATION, POLL_INTERVAL};
 
 /// max image size: 10MB
-const MAX_IMAGE_SIZE: u64 = 10 * 1024 * 1024;
+const MAX_IMAGE_SIZE: u64 = super::mime::MAX_IMAGE_INPUT_BYTES as u64;
 
 /// upload image from base64 data or file path
 ///
@@ -156,10 +156,6 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         );
     }
 
-    // compute blake3 - the real content identity (this path used to hash
-    // sha256 only, the one upload path that never got a blake3 at all)
-    let blake3_hash = crate::blobz::compute_blake3_from_bytes(&data);
-
     // detect mime type from filename extension and magic bytes
     let mime_type = detect_image_mime_type(&filename, &data);
     if !mime_type.starts_with("image/") {
@@ -173,6 +169,12 @@ pub async fn upload_image(caller: &Caller, body: JsonValue) -> GrimoireResponse<
         );
     }
 
+    let (data, mime_type) = match super::mime::normalize_image_upload(data, &mime_type).await {
+        Ok(image) => image,
+        Err(e) => return GrimoireResponse::failure("invalid image", vec![ErrorDetail::from(e)]),
+    };
+
+    let blake3_hash = crate::blobz::compute_blake3_from_bytes(&data);
     let size = data.len() as i64;
 
     // check for existing blob by blake3

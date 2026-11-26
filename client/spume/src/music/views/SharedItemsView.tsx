@@ -279,46 +279,34 @@ export function SharedItemsView() {
                       </Show>
                     </button>
                     <div class="flex items-center gap-1 flex-shrink-0">
+                      <Show when={item.kind === "radio_station"}>
+                        <button
+                          type="button"
+                          class="min-w-11 min-h-11 flex items-center justify-center rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+                          onClick={() => void openRemoteItem(item)}
+                          title="play radio station"
+                          aria-label="play radio station"
+                        >
+                          <Icon name="radioTower" size={20} />
+                        </button>
+                      </Show>
                       <button
                         type="button"
-                        class="p-2 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
-                        onClick={() => void openRemoteItem(item)}
-                        title={item.kind === "radio_station" ? "play radio station" : "open item"}
-                        aria-label={
-                          item.kind === "radio_station" ? "play radio station" : "open item"
-                        }
-                      >
-                        <Icon
-                          name={item.kind === "radio_station" ? "radioTower" : "arrowRight"}
-                          size={16}
-                        />
-                      </button>
-                      {/* <button
-                        type="button"
-                        class="p-2 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
-                        onClick={() => openShare(item.token)}
-                        title="open"
-                        aria-label="open"
-                      >
-                        <Icon name="externalLink" size={16} />
-                      </button> */}
-                      <button
-                        type="button"
-                        class="p-2 rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+                        class="min-w-11 min-h-11 flex items-center justify-center rounded hover:bg-[var(--color-bg-hover)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
                         onClick={() => openShareModalFor(item)}
                         title="share"
                         aria-label="share"
                       >
-                        <Icon name="share" size={16} />
+                        <Icon name="share" size={20} />
                       </button>
                       <button
                         type="button"
-                        class="p-2 rounded hover:bg-red-500/15 text-[var(--color-text-secondary)] hover:text-red-400"
+                        class="min-w-11 min-h-11 flex items-center justify-center rounded hover:bg-red-500/15 text-[var(--color-text-secondary)] hover:text-red-400"
                         onClick={() => void deleteSharedItem(item.id)}
                         title="remove"
                         aria-label="remove"
                       >
-                        <Icon name="close" size={16} />
+                        <Icon name="close" size={20} />
                       </button>
                     </div>
                   </div>

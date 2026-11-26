@@ -81,11 +81,12 @@ describe("syncTrackingKey", () => {
     expect(syncTrackingKey({ sha256: "", blake3: "blake3-1" })).toBe("blake3-1");
   });
 
-  it('browser mode: falls back to id when sha256 is empty (never silently collides on "")', () => {
+  it("browser mode: uses blake3 when sha256 is empty", () => {
     isCharnelModeMock.mockReturnValue(false);
     const a = syncTrackingKey({ sha256: "", blake3: "blake3-1", id: "song-a" });
     const b = syncTrackingKey({ sha256: "", blake3: "blake3-2", id: "song-b" });
-    expect(a).not.toBe(b);
+    expect(a).toBe("blake3-1");
+    expect(b).toBe("blake3-2");
   });
 
   it("falls back to media_blob_id for a pre-sync SyncableSong shape (no id field at all)", () => {

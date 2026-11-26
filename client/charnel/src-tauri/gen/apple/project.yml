@@ -64,6 +64,11 @@ targets:
         NSCameraUsageDescription: freqhole uses the camera to scan QR codes for pairing with remote libraries.
         UIBackgroundModes: [audio]
         NSLocalNetworkUsageDescription: freqhole connects to freqhole servers on your local network to stream and sync your music library.
+        NSBonjourServices: ["_irohv1._udp."]
+        CFBundleURLTypes:
+          - CFBundleURLName: net.freqhole.charnel
+            CFBundleTypeRole: Viewer
+            CFBundleURLSchemes: [freqhole]
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         # declares the app only uses standard/exempt encryption (https/tls

@@ -390,6 +390,111 @@ level = "warn"
         row.0.is_some()
     }
 
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singleton"]
+    async fn test_music_video_default_album_inherits_poster() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_test_env(tmp.path()).await;
+        let pool = database::connect().await.expect("connect");
+        let v1 = new_video(&pool, 1).await;
+        let v2 = new_video(&pool, 2).await;
+        let v3 = new_video(&pool, 3).await;
+        for id in ["poster-1", "poster-2"] {
+            sqlx::query(
+                "INSERT INTO media_blobz (id, size, mime, blob_type, blake3) VALUES (?, 1, 'image/webp', 'original', ?)",
+            )
+            .bind(id)
+            .bind(reliquary::hash_bytes(id.as_bytes()))
+            .execute(&pool)
+            .await
+            .expect("insert poster");
+        }
+
+        assert!(
+            update_videos(UpdateVideosRequest {
+                video_ids: vec![v1.clone()],
+                content_type: Some("music_video".to_string()),
+                artist_name: Some("test artist".to_string()),
+                ..Default::default()
+            })
+            .await
+            .success
+        );
+        let album_id = video(&v1).await.album_id.expect("default album");
+        assert!(
+            crate::video::add_entity_image(
+                crate::video::VideoEntityType::Video,
+                &v1,
+                "poster-1",
+                Some(true),
+                crate::media_blobz::BlobType::Original,
+                None,
+            )
+            .await
+            .success
+        );
+        assert!(
+            update_videos(UpdateVideosRequest {
+                video_ids: vec![v2.clone()],
+                content_type: Some("music_video".to_string()),
+                artist_name: Some("test artist".to_string()),
+                ..Default::default()
+            })
+            .await
+            .success
+        );
+        assert!(
+            crate::video::add_entity_image(
+                crate::video::VideoEntityType::Video,
+                &v2,
+                "poster-2",
+                Some(true),
+                crate::media_blobz::BlobType::Original,
+                None,
+            )
+            .await
+            .success
+        );
+        let images: Vec<(String, i64)> =
+            sqlx::query_as("SELECT media_blob_id, is_primary FROM album_imagez WHERE album_id = ?")
+                .bind(album_id)
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(images, vec![("poster-1".to_string(), 1)]);
+
+        assert!(
+            crate::video::add_entity_image(
+                crate::video::VideoEntityType::Video,
+                &v3,
+                "poster-2",
+                Some(true),
+                crate::media_blobz::BlobType::Original,
+                None,
+            )
+            .await
+            .success
+        );
+        assert!(
+            update_videos(UpdateVideosRequest {
+                video_ids: vec![v3.clone()],
+                content_type: Some("music_video".to_string()),
+                artist_name: Some("another artist".to_string()),
+                ..Default::default()
+            })
+            .await
+            .success
+        );
+        let album_id = video(&v3).await.album_id.expect("default album");
+        let image: (String, i64) =
+            sqlx::query_as("SELECT media_blob_id, is_primary FROM album_imagez WHERE album_id = ?")
+                .bind(album_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(image, ("poster-2".to_string(), 1));
+    }
+
     // touches the real db pool singleton - run one at a time, own process:
     // cargo test -p grimoire --lib -- --ignored --exact video::crud::update::tests::test_music_video_artist_album_lifecycle
     #[tokio::test]

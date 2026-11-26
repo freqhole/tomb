@@ -7400,6 +7400,12 @@ export const SyncAlbumRequestSchema = z.object({
   is_primary: z.boolean(),
   blob_type: z.string().nullish()
 })),
+  artist_images: z.array(z.object({
+  blake3: z.string(),
+  mime_type: z.string(),
+  is_primary: z.boolean(),
+  blob_type: z.string().nullish()
+})),
   expected_song_blake3s: z.array(z.string()),
   remote_name: z.string()
 });
@@ -7501,6 +7507,12 @@ export const SyncSongByBlake3RequestSchema = z.object({
   blob_type: z.string().nullish()
 })),
   album_images: z.array(z.object({
+  blake3: z.string(),
+  mime_type: z.string(),
+  is_primary: z.boolean(),
+  blob_type: z.string().nullish()
+})),
+  artist_images: z.array(z.object({
   blake3: z.string(),
   mime_type: z.string(),
   is_primary: z.boolean(),

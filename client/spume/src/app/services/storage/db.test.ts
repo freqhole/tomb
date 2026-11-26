@@ -10,7 +10,7 @@ import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { openDB } from "idb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { addWaveformToQueuedMedia, appState, closeAppDB, loadAppState, migrateLegacyCurrentItemKey, updateQueueAvailability } from "./db";
+import { addWaveformToQueuedMedia, appState, applyHistoryArtwork, closeAppDB, loadAppState, migrateLegacyCurrentItemKey, setQueue, updateQueueAvailability } from "./db";
 import { APP_DB_NAME, STORE_APP_STATE, type AppState } from "./types";
 import { refreshQueuedAvailability } from "../../../music/services/queue/refreshAvailability";
 
@@ -154,6 +154,39 @@ describe("app_state upgrade-time migration (v13 -> v14)", () => {
     expect((await loadAppState()).queue).toEqual(updated.queue);
     await updateQueueAvailability("one", new Map([["song:first", false], ["video:film", false]]));
     expect(appState()?.queue[0]).toMatchObject({ song: { id: "first", is_offline: false } });
+  });
+
+  it("refreshes only unchanged history queue entries and preserves newer queue changes", async () => {
+    const oldImage = { remote_blob_id: "old", is_primary: true, blob_type: "thumbnail" as const };
+    const freshImage = { remote_blob_id: "fresh", is_primary: true, blob_type: "thumbnail" as const };
+    await seedPreMigrationDb({
+      ...baseState(),
+      current_item_key: "song",
+      queue: [
+        { kind: "song", song: { id: "song", queue_entry_id: "history-1", images: [oldImage] } },
+        { kind: "song", song: { id: "song", queue_entry_id: "history-2", images: [oldImage] } },
+      ],
+    });
+    const original = await loadAppState();
+    const first = original.queue[0];
+    const second = original.queue[1];
+    if (first.kind !== "song" || second.kind !== "song") throw new Error("expected songs");
+    const updates = new Map([
+      ["history-1", { before: first, after: { ...first, song: { ...first.song, images: [freshImage] } } }],
+      ["history-2", { before: second, after: { ...second, song: { ...second.song, images: [freshImage] } } }],
+    ]);
+    await setQueue([
+      { ...second, song: { ...second.song, images: [{ ...oldImage, remote_blob_id: "newer" }] } },
+      first,
+    ]);
+    await applyHistoryArtwork(updates);
+    expect(appState()?.queue[0]).toMatchObject({ song: { images: [{ remote_blob_id: "newer" }] } });
+    expect(appState()?.queue[1]).toMatchObject({ song: { images: [{ remote_blob_id: "fresh" }] } });
+    expect(appState()?.current_item_key).toBe("song");
+    expect((await loadAppState()).queue).toEqual(appState()?.queue);
+    await setQueue([]);
+    await applyHistoryArtwork(updates);
+    expect(appState()?.queue).toEqual([]);
   });
 
   it("refreshes persisted mixed queues with batched songs and rejects probe failures without hiding media", async () => {

@@ -45,6 +45,36 @@ pub struct ResolvedMusicLink {
     pub album_id: Option<String>,
 }
 
+/// use the first available video poster for an otherwise imageless default
+/// music-videos album. a single insert keeps concurrent imports from
+/// replacing an image already chosen for the album.
+pub(crate) async fn inherit_default_album_poster(
+    pool: &sqlx::SqlitePool,
+    video_id: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        r#"INSERT INTO album_imagez (album_id, media_blob_id, is_primary)
+           SELECT v.album_id, v.poster_blob_id, 1
+           FROM videoz v
+           JOIN albumz a ON a.id = v.album_id AND a.deleted_at IS NULL
+           JOIN media_blobz b ON b.id = v.poster_blob_id AND b.deleted_at IS NULL
+           WHERE v.id = ? AND v.deleted_at IS NULL
+             AND v.content_type = 'music_video'
+             AND lower(a.title) = 'music videos'
+             AND b.mime LIKE 'image/%' AND b.blob_type IN ('original', 'thumbnail', 'preview')
+             AND NOT EXISTS (
+               SELECT 1 FROM entity_imagez e
+               WHERE e.entity_type = 'video' AND e.entity_id = v.id
+                 AND e.media_blob_id = v.poster_blob_id AND e.blob_type = 'waveform'
+             )
+             AND NOT EXISTS (SELECT 1 FROM album_imagez ai WHERE ai.album_id = v.album_id)"#,
+        video_id
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 fn non_blank(s: &Option<String>) -> Option<&str> {
     s.as_deref().map(str::trim).filter(|s| !s.is_empty())
 }
@@ -219,10 +249,56 @@ pub async fn cleanup_orphaned_music_links(album_ids: &[String], artist_ids: &[St
             let _ = delete_feed_events_for_album(album_id).await;
         }
     }
+
     let mut seen = std::collections::HashSet::new();
     for artist_id in artist_ids.iter().filter(|id| seen.insert(id.as_str())) {
         if delete_artist_if_unused(artist_id).await.data == Some(true) {
             let _ = delete_feed_events_for_artist(artist_id).await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn default_album_inherits_first_poster_without_replacing_art() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        for statement in [
+                "CREATE TABLE albumz (id TEXT PRIMARY KEY, title TEXT, deleted_at INTEGER)",
+                "CREATE TABLE media_blobz (id TEXT PRIMARY KEY, mime TEXT, blob_type TEXT, deleted_at INTEGER)",
+                "CREATE TABLE videoz (id TEXT PRIMARY KEY, album_id TEXT, poster_blob_id TEXT, content_type TEXT, deleted_at INTEGER)",
+                "CREATE TABLE entity_imagez (entity_type TEXT, entity_id TEXT, media_blob_id TEXT, blob_type TEXT)",
+                "CREATE TABLE album_imagez (album_id TEXT, media_blob_id TEXT, is_primary INTEGER, UNIQUE(album_id, media_blob_id))",
+                "INSERT INTO albumz VALUES ('default', 'music videos', NULL), ('custom', 'other', NULL), ('wave-album', 'music videos', NULL)",
+                "INSERT INTO media_blobz VALUES ('first', 'image/webp', 'original', NULL), ('second', 'image/webp', 'original', NULL), ('wave', 'image/webp', 'waveform', NULL)",
+                "INSERT INTO videoz VALUES ('v1', 'default', 'wave', 'music_video', NULL), ('v2', 'default', 'second', 'music_video', NULL), ('v3', 'custom', 'first', 'music_video', NULL), ('v4', 'wave-album', 'first', 'music_video', NULL)",
+                "INSERT INTO entity_imagez VALUES ('video', 'v4', 'first', 'waveform')",
+        ] {
+            sqlx::query(statement).execute(&pool).await.unwrap();
+        }
+
+        inherit_default_album_poster(&pool, "v1").await.unwrap();
+        inherit_default_album_poster(&pool, "v3").await.unwrap();
+        inherit_default_album_poster(&pool, "v4").await.unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM album_imagez")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+
+        sqlx::query("UPDATE videoz SET poster_blob_id = 'first' WHERE id = 'v1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        inherit_default_album_poster(&pool, "v1").await.unwrap();
+        inherit_default_album_poster(&pool, "v2").await.unwrap();
+        let images: Vec<(String, String, i64)> =
+            sqlx::query_as("SELECT album_id, media_blob_id, is_primary FROM album_imagez")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(images, vec![("default".into(), "first".into(), 1)]);
     }
 }

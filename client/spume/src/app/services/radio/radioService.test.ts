@@ -126,6 +126,7 @@ import {
   radioNowPlaying,
   radioTrackPositionMs,
   radioElapsedMs,
+  radioConnectPhase,
   applyTimelineNowPlaying,
   markTimelinePlaybackStarted,
 } from "./radioService";
@@ -213,6 +214,24 @@ afterEach(() => {
 });
 
 describe("radio display follows buffered playback", () => {
+  it("distinguishes station preparation from an init-only stream and playable video data", async () => {
+    await tuneIntoRadio("a".repeat(64), { stationId: "station" });
+    mocks.hello!(JSON.stringify({
+      init_seq: 10,
+      codec: 'video/mp4; codecs="avc1.42E01E,mp4a.40.2"',
+      broadcaster_timeline_only: false,
+    }));
+    await vi.advanceTimersByTimeAsync(1500);
+    mocks.meta!(JSON.stringify({ type: "warmup", percent: 0 }));
+    expect(radioConnectPhase()).toBe("station preparing stream…");
+    mocks.meta!(JSON.stringify({ type: "warmup", percent: 25 }));
+    expect(radioConnectPhase()).toBe("station warming up 25%");
+    mocks.chunk!(10, true, new Uint8Array([0]));
+    expect(radioConnectPhase()).toBe("waiting for video data…");
+    mocks.chunk!(11, false, new Uint8Array([1]));
+    expect(radioConnectPhase()).toBe("receiving video…");
+  });
+
   it.each(["song", "video"] as const)("clears skipped %s metadata immediately, including pending boundaries", async (kind) => {
     await tune(kind);
     await tick(15);

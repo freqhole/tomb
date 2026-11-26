@@ -131,6 +131,10 @@ pub async fn add_entity_image(
 
     let entity_type_str = entity_type.as_str();
 
+    if blob_type == BlobType::Waveform && !is_primary_hint.unwrap_or(false) {
+        return add_waveform_image(&pool, entity_type, entity_id, media_blob_id, created_by).await;
+    }
+
     let existing_count = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM entity_imagez WHERE entity_type = ? AND entity_id = ?",
         entity_type_str,
@@ -184,9 +188,102 @@ pub async fn add_entity_image(
                 vec![ErrorDetail::from(e)],
             );
         }
+        if entity_type == VideoEntityType::Video {
+            if let Err(e) = super::music_link::inherit_default_album_poster(&pool, entity_id).await
+            {
+                tracing::warn!(video_id = %entity_id, error = %e, "failed to inherit video poster for album");
+            }
+        }
     }
 
     GrimoireResponse::success_unit("Entity image added successfully")
+}
+
+async fn add_waveform_image(
+    pool: &sqlx::SqlitePool,
+    entity_type: VideoEntityType,
+    entity_id: &str,
+    media_blob_id: &str,
+    created_by: Option<&str>,
+) -> GrimoireResponse<()> {
+    let entity_type_str = entity_type.as_str();
+    let inserted_primary: Option<bool> = match sqlx::query_scalar!(
+        r#"INSERT INTO entity_imagez (entity_type, entity_id, media_blob_id, is_primary, blob_type, created_by)
+           SELECT ?, ?, ?, NOT EXISTS (
+               SELECT 1 FROM entity_imagez WHERE entity_type = ? AND entity_id = ?
+           ), 'waveform', ?
+           WHERE NOT EXISTS (
+               SELECT 1 FROM entity_imagez WHERE entity_type = ? AND entity_id = ? AND media_blob_id = ?
+           )
+           RETURNING is_primary as "is_primary!: bool""#,
+        entity_type_str,
+        entity_id,
+        media_blob_id,
+        entity_type_str,
+        entity_id,
+        created_by,
+        entity_type_str,
+        entity_id,
+        media_blob_id
+    )
+    .fetch_optional(pool)
+    .await
+    {
+        Ok(inserted) => inserted,
+        Err(error) => {
+            return GrimoireResponse::failure(
+                "failed to add waveform image",
+                vec![ErrorDetail::from(crate::error::GrimoireError::from(error))],
+            );
+        }
+    };
+    if inserted_primary == Some(true) {
+        if let Err(error) =
+            sync_poster_blob_id(pool, entity_type, entity_id, Some(media_blob_id)).await
+        {
+            return GrimoireResponse::failure(
+                "failed to sync poster blob id",
+                vec![ErrorDetail::from(error)],
+            );
+        }
+    }
+    GrimoireResponse::success_unit("waveform image added successfully")
+}
+
+#[cfg(test)]
+mod waveform_link_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn concurrent_waveform_links_are_idempotent_and_preserve_poster() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        for statement in [
+            "CREATE TABLE videoz (id TEXT PRIMARY KEY, poster_blob_id TEXT)",
+            "CREATE TABLE entity_imagez (entity_type TEXT, entity_id TEXT, media_blob_id TEXT, is_primary INTEGER, blob_type TEXT, created_by TEXT)",
+            "INSERT INTO videoz VALUES ('v', 'poster')",
+            "INSERT INTO entity_imagez VALUES ('video', 'v', 'poster', 1, 'original', NULL)",
+        ] {
+            sqlx::query(statement).execute(&pool).await.unwrap();
+        }
+        let (first, second) = tokio::join!(
+            add_waveform_image(&pool, VideoEntityType::Video, "v", "wave", None),
+            add_waveform_image(&pool, VideoEntityType::Video, "v", "wave", None),
+        );
+        assert!(first.success, "{}", first.message);
+        assert!(second.success, "{}", second.message);
+        let links: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT media_blob_id, is_primary FROM entity_imagez ORDER BY media_blob_id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(links, vec![("poster".into(), 1), ("wave".into(), 0)]);
+        let poster: String = sqlx::query_scalar("SELECT poster_blob_id FROM videoz WHERE id = 'v'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(poster, "poster");
+    }
 }
 
 /// remove an image from an entity. when the removed image was primary,

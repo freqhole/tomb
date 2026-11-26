@@ -59,8 +59,9 @@ vi.mock("../../../music/services/download", () => ({
     run: (onProgress: (p: number | null) => void) => Promise<unknown>
   ) => run(() => {}),
 }));
+const getSyncQueueToLocal = vi.fn(() => true);
 vi.mock("../../../app/services/storage/db", () => ({
-  getSyncQueueToLocal: vi.fn(() => true),
+  getSyncQueueToLocal: () => getSyncQueueToLocal(),
 }));
 const markVideoSynced = vi.fn((...args: unknown[]) => void args);
 vi.mock("../syncState", () => ({ markVideoSynced: (...a: unknown[]) => markVideoSynced(...a) }));
@@ -138,6 +139,7 @@ function video(over: Partial<QueuedVideo> = {}): QueuedVideo {
 beforeEach(() => {
   vi.clearAllMocks();
   isCharnelMode.mockReturnValue(true);
+  getSyncQueueToLocal.mockReturnValue(true);
   getRemoteById.mockResolvedValue(remote);
   // blobMetadata fetch is best-effort and swallows failures into an empty
   // object - simulate the exact live case (unreachable/timed-out peer).
@@ -272,6 +274,21 @@ describe("syncVideoToLocal (charnel mode)", () => {
     expect(secondBlobId).toBe(v.media_blob_id);
     expect(secondBlake3).toBe("original-blake3");
   });
+
+  it("does not substitute a rendition when explicitly importing the original", async () => {
+    syncVideoViaLocalGrimoire.mockResolvedValue({ success: false, error: "original unavailable" });
+    const v = video({
+      blake3: "original-blake3",
+      renditions: [{
+        blob_id: RENDITION_BLOB_ID, label: "compatible", mime: null,
+        blake3: null, width: null, height: null,
+      }],
+    });
+    const result = await syncVideoToLocal(v, remote, { force: true, originalOnly: true });
+    expect(result.success).toBe(false);
+    expect(syncVideoViaLocalGrimoire).toHaveBeenCalledTimes(1);
+    expect(syncVideoViaLocalGrimoire.mock.calls[0][2]).toBe(v.media_blob_id);
+  });
 });
 
 // regression coverage for the dedup fix: two different remotes' copies of
@@ -301,6 +318,7 @@ describe("syncVideoToLocal (browser mode, content-based dedup)", () => {
     const result = await syncVideoToLocal(v, httpRemote);
 
     expect(result.success).toBe(true);
+    expect(result.videoId).toBe("existing-row");
     expect(streamVideoToOPFSWithResume).not.toHaveBeenCalled();
     expect(addLocalVideo).not.toHaveBeenCalled();
     expect(markVideoSynced).toHaveBeenCalledWith(v.id);
@@ -322,6 +340,7 @@ describe("syncVideoToLocal (browser mode, content-based dedup)", () => {
     const result = await syncVideoToLocal(v, httpRemote);
 
     expect(result.success).toBe(true);
+    expect(result.videoId).toBe("existing-row-2");
     expect(streamVideoToOPFSWithResume).toHaveBeenCalledTimes(1);
     expect(deleteVideoFromOPFS).toHaveBeenCalledWith("opfs://video.mp4");
     expect(addLocalVideo).not.toHaveBeenCalled();
@@ -339,7 +358,23 @@ describe("syncVideoToLocal (browser mode, content-based dedup)", () => {
     const result = await syncVideoToLocal(v, httpRemote);
 
     expect(result.success).toBe(true);
+    expect(result.videoId).toBe(v.id);
     expect(addLocalVideo).toHaveBeenCalledTimes(1);
     expect(deleteVideoFromOPFS).not.toHaveBeenCalled();
+  });
+
+  it("allows explicit imports when automatic queue syncing is disabled", async () => {
+    getSyncQueueToLocal.mockReturnValue(false);
+    getVideoByBlake3.mockResolvedValueOnce({
+      id: "existing-local",
+      series_id: null,
+      season_id: null,
+    });
+    const v = video({ blake3: "known-hash" });
+    expect(await syncVideoToLocal(v, httpRemote)).toMatchObject({ success: false });
+    expect(await syncVideoToLocal(v, httpRemote, { force: true })).toMatchObject({
+      success: true,
+      videoId: "existing-local",
+    });
   });
 });

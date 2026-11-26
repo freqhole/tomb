@@ -1191,7 +1191,7 @@ pub(crate) async fn extract_video_poster(
         });
     }
 
-    let webp_data = crate::blob_data::convert_to_webp(&jpeg_data)?;
+    let webp_data = crate::blob_data::convert_artwork_to_webp(jpeg_data).await?;
     let blake3 = reliquary::hash_bytes(&webp_data);
 
     let blob = create_media_blob(CreateMediaBlobRequest {

@@ -7,9 +7,100 @@ use crate::error::{ErrorDetail, GrimoireError};
 use crate::media_blobz::{self, BlobType, CreateMediaBlobRequest};
 use crate::response::GrimoireResponse;
 use image::ImageOutputFormat;
+use std::collections::HashMap;
+use std::future::Future;
 use std::io::Cursor;
 use std::path::Path;
 use std::process::Stdio;
+use std::sync::{Arc, Mutex, OnceLock, Weak};
+use tokio::sync::OnceCell;
+
+type WaveformGeneration = OnceCell<GrimoireResponse<String>>;
+static WAVEFORM_GENERATIONS: OnceLock<Mutex<HashMap<String, Weak<WaveformGeneration>>>> =
+    OnceLock::new();
+
+async fn coalesce_waveform<F, Fut>(source_blob_id: &str, generate: F) -> GrimoireResponse<String>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = GrimoireResponse<String>>,
+{
+    let generation = {
+        let mut generations = WAVEFORM_GENERATIONS
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        generations.retain(|_, generation| generation.strong_count() > 0);
+        if let Some(generation) = generations.get(source_blob_id).and_then(Weak::upgrade) {
+            generation
+        } else {
+            let generation = Arc::new(OnceCell::new());
+            generations.insert(source_blob_id.to_string(), Arc::downgrade(&generation));
+            generation
+        }
+    };
+    generation.get_or_init(generate).await.clone()
+}
+
+#[cfg(test)]
+mod waveform_coordination_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::sync::oneshot;
+
+    #[tokio::test]
+    async fn concurrent_generations_share_result_and_other_sources_do_not_wait() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (started_tx, started_rx) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel();
+        let first_calls = calls.clone();
+        let first = tokio::spawn(async move {
+            coalesce_waveform("coordination-source", || async move {
+                first_calls.fetch_add(1, Ordering::SeqCst);
+                started_tx.send(()).unwrap();
+                release_rx.await.unwrap();
+                GrimoireResponse::success("generated", "waveform-id".to_string())
+            })
+            .await
+        });
+        started_rx.await.unwrap();
+
+        let second_calls = calls.clone();
+        let second = coalesce_waveform("coordination-source", || async move {
+            second_calls.fetch_add(1, Ordering::SeqCst);
+            GrimoireResponse::success("generated", "unexpected-id".to_string())
+        });
+        tokio::pin!(second);
+        tokio::select! {
+            biased;
+            _ = &mut second => panic!("second request completed before generation"),
+            _ = tokio::task::yield_now() => {}
+        }
+
+        let other = coalesce_waveform("coordination-other-source", || async {
+            GrimoireResponse::success("generated", "other-id".to_string())
+        })
+        .await;
+        assert_eq!(other.data.as_deref(), Some("other-id"));
+        release_tx.send(()).unwrap();
+        assert_eq!(first.await.unwrap().data.as_deref(), Some("waveform-id"));
+        assert_eq!(second.await.data.as_deref(), Some("waveform-id"));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn unsuccessful_generation_can_be_retried() {
+        let failed = coalesce_waveform("coordination-retry", || async {
+            GrimoireResponse::failure("failed", vec![])
+        })
+        .await;
+        assert!(!failed.success);
+        let retried = coalesce_waveform("coordination-retry", || async {
+            GrimoireResponse::success("generated", "waveform-id".to_string())
+        })
+        .await;
+        assert_eq!(retried.data.as_deref(), Some("waveform-id"));
+    }
+}
 
 /// get directory image blob IDs from scan cache (database-backed)
 async fn get_cached_directory_images(session_id: &str, dir_path: &str) -> Option<Vec<String>> {
@@ -183,8 +274,8 @@ pub async fn create_audio_thumbnail_blob(
         Ok(webp_data) => {
             return create_album_art_blob(webp_data, "embedded_album_art", created_by).await;
         }
-        Err(_) => {
-            // Continue to next method
+        Err(e) => {
+            tracing::debug!("embedded album art extraction failed for {audio_file_path}: {e}");
         }
     }
 
@@ -216,20 +307,50 @@ pub async fn create_audio_waveform_blob(
     config: &GrimoireConfig,
     created_by: Option<String>,
 ) -> GrimoireResponse<String> {
-    let webp_data = match generate_waveform_to_webp(audio_file_path, config).await {
-        Ok(data) => data,
-        Err(e) => {
-            return GrimoireResponse::failure(
-                "Failed to generate waveform",
-                vec![ErrorDetail::new(
-                    "waveform_generation_failed",
-                    "Waveform Generation Failed",
-                    e.to_string(),
-                )],
-            )
+    coalesce_waveform(source_blob_id, || async {
+        let pool = match crate::database::connect().await {
+            Ok(pool) => pool,
+            Err(error) => {
+                return GrimoireResponse::failure(
+                    "failed to connect to database for waveform lookup",
+                    vec![error.into()],
+                );
+            }
+        };
+        let existing: Option<String> = match sqlx::query_scalar!(
+            r#"SELECT id as "id!" FROM media_blobz WHERE parent_blob_id = ? AND blob_type = 'waveform' AND deleted_at IS NULL LIMIT 1"#,
+            source_blob_id
+        )
+        .fetch_optional(&pool)
+        .await
+        {
+            Ok(existing) => existing,
+            Err(error) => {
+                return GrimoireResponse::failure(
+                    "failed to look up existing waveform",
+                    vec![GrimoireError::from(error).into()],
+                );
+            }
+        };
+        if let Some(id) = existing {
+            return GrimoireResponse::success("existing waveform found", id);
         }
-    };
-    create_waveform_blob_from_webp_data(source_blob_id, webp_data, created_by).await
+        let webp_data = match generate_waveform_to_webp(audio_file_path, config).await {
+            Ok(data) => data,
+            Err(e) => {
+                return GrimoireResponse::failure(
+                    "failed to generate waveform",
+                    vec![ErrorDetail::new(
+                        "waveform_generation_failed",
+                        "waveform generation failed",
+                        e.to_string(),
+                    )],
+                )
+            }
+        };
+        create_waveform_blob_from_webp_data(source_blob_id, webp_data, created_by).await
+    })
+    .await
 }
 
 /// extract album art from audio file and convert to webp
@@ -300,7 +421,7 @@ async fn extract_album_art_to_webp(
     }
 
     // Convert JPEG to WebP
-    convert_to_webp(&jpeg_data)
+    convert_artwork_to_webp(jpeg_data).await
 }
 
 /// find album art image file in directory and convert to webp
@@ -343,7 +464,7 @@ async fn find_album_art_in_directory_to_webp(
                     message: format!("failed to read album art: {}", e),
                 }
             })?;
-            return convert_to_webp(&image_data);
+            return convert_artwork_to_webp(image_data).await;
         }
     }
 
@@ -373,7 +494,7 @@ async fn find_album_art_in_directory_to_webp(
                             message: format!("failed to read image file: {}", e),
                         }
                     })?;
-                    return convert_to_webp(&image_data);
+                    return convert_artwork_to_webp(image_data).await;
                 }
             }
         }
@@ -412,7 +533,8 @@ async fn generate_waveform_to_webp(
     cmd.arg("-hide_banner")
         .args(args)
         .stdout(Stdio::null())
-        .stderr(Stdio::piped());
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
     crate::process_ext::hide_console_window(&mut cmd);
 
     let output = tokio::time::timeout(tokio::time::Duration::from_secs(60), cmd.output())
@@ -446,7 +568,59 @@ async fn generate_waveform_to_webp(
     let _ = tokio::fs::remove_file(&temp_file).await;
 
     // Convert PNG to WebP
-    convert_to_webp(&png_data)
+    convert_to_webp_async(png_data).await
+}
+
+async fn convert_to_webp_async(image_data: Vec<u8>) -> Result<Vec<u8>, GrimoireError> {
+    tokio::task::spawn_blocking(move || convert_to_webp(&image_data))
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("image conversion task failed: {e}"),
+        })?
+}
+
+pub const MAX_ARTWORK_DIMENSION: u32 = 4096;
+pub const MAX_ARTWORK_BYTES: usize = 9 * 1024 * 1024;
+
+pub fn artwork_needs_normalization(image_data: &[u8]) -> Result<bool, GrimoireError> {
+    if image_data.len() > MAX_ARTWORK_BYTES {
+        return Ok(true);
+    }
+    let (width, height) = image::io::Reader::new(Cursor::new(image_data))
+        .with_guessed_format()
+        .map_err(|e| GrimoireError::ImageDecodeFailed {
+            reason: e.to_string(),
+        })?
+        .into_dimensions()
+        .map_err(|e| GrimoireError::ImageDecodeFailed {
+            reason: e.to_string(),
+        })?;
+    Ok(width.max(height) > MAX_ARTWORK_DIMENSION)
+}
+
+pub async fn convert_artwork_to_webp(image_data: Vec<u8>) -> Result<Vec<u8>, GrimoireError> {
+    tokio::task::spawn_blocking(move || {
+        let image =
+            image::load_from_memory(&image_data).map_err(|e| GrimoireError::ImageDecodeFailed {
+                reason: e.to_string(),
+            })?;
+        let rgba = image.to_rgba8();
+        reliquary::media::artwork_rgba_to_webp(
+            rgba.into_raw(),
+            image.width(),
+            image.height(),
+            MAX_ARTWORK_DIMENSION,
+            MAX_ARTWORK_BYTES,
+        )
+        .map(|(bytes, _, _)| bytes)
+        .map_err(|e| GrimoireError::ImageDecodeFailed {
+            reason: e.to_string(),
+        })
+    })
+    .await
+    .map_err(|e| GrimoireError::ProcessingFailed {
+        message: format!("artwork conversion task failed: {e}"),
+    })?
 }
 
 /// convert any image format to webp
@@ -809,7 +983,7 @@ async fn process_directory_image(
                 message: format!("failed to read image file: {}", e),
             })?;
 
-    let webp_data = convert_to_webp(&image_data)?;
+    let webp_data = convert_artwork_to_webp(image_data).await?;
 
     let filename = image_path
         .file_name()

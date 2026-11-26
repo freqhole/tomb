@@ -15,6 +15,7 @@ use reliquary::blobz::{BlobStore, BlobType as ReliquaryBlobType, NewBlobMeta, Sq
 use sqlx::SqlitePool;
 
 use super::models::{BlobType, MediaBlob};
+use crate::error::{GrimoireError, GrimoireResult};
 use crate::{config, database};
 
 /// map grimoire's blob_type enum onto reliquary's - both had the same four
@@ -86,6 +87,38 @@ async fn build_new_blob_meta(blob: &MediaBlob) -> NewBlobMeta {
 async fn reliquary_store() -> Option<SqliteBlobStore> {
     let pool = database::connect_reliquary().await.ok()?;
     Some(SqliteBlobStore::new(pool, &config::get_config().data_dir))
+}
+
+pub(super) async fn store_replacement_bytes(blob: &MediaBlob, bytes: &[u8]) -> GrimoireResult<()> {
+    let pool = database::connect_reliquary().await?;
+    let store = SqliteBlobStore::new(pool, &config::get_config().data_dir);
+    let record = store
+        .insert(bytes, build_new_blob_meta(blob).await)
+        .await
+        .map_err(|e| GrimoireError::ProcessingFailed {
+            message: format!("failed to store replacement blob bytes: {e}"),
+        })?;
+    if Some(record.blake3.as_str()) != blob.blake3.as_deref() {
+        return Err(GrimoireError::ProcessingFailed {
+            message: format!("replacement blob hash mismatch for {}", blob.id),
+        });
+    }
+    let stored =
+        store
+            .read_bytes(&record.blake3)
+            .await
+            .map_err(|e| GrimoireError::ProcessingFailed {
+                message: format!("failed to verify replacement blob bytes: {e}"),
+            })?;
+    if stored.as_deref() != Some(bytes) {
+        return Err(GrimoireError::ProcessingFailed {
+            message: format!(
+                "replacement blob bytes are missing or corrupt for {}",
+                blob.id
+            ),
+        });
+    }
+    Ok(())
 }
 
 /// mirror a newly-created, data-backed blob into reliquary. a no-op (no

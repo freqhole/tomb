@@ -65,17 +65,18 @@ pub struct SyncSongByBlake3Request {
     /// genre name
     #[serde(default)]
     pub genre_name: Option<String>,
-    /// optional song images. each ref is either inline base64 (decoded +
-    /// deduped by blake3) or a pure reference (existing blob looked up by
-    /// blake3). missing referenced blobs are skipped, not fatal.
+    /// optional song images addressed by blake3.
     #[serde(default)]
     pub song_images: Vec<SyncImageRef>,
     /// optional album images. linked to the song's album row on import.
-    /// same inline-or-reference shape as `song_images`. used when syncing
+    /// same hash-reference shape as `song_images`. used when syncing
     /// individual songs from a remote so the album row gets cover art on
     /// the destination without a separate `/api/sync/album` round-trip.
     #[serde(default)]
     pub album_images: Vec<SyncImageRef>,
+    /// artist images addressed by blake3.
+    #[serde(default)]
+    pub artist_images: Vec<SyncImageRef>,
     /// is this song part of a compilation
     #[serde(default)]
     pub is_compilation: bool,
@@ -88,9 +89,7 @@ pub struct SyncSongByBlake3Response {
     pub song_id: String,
     /// destination media blob id
     pub media_blob_id: String,
-    /// destination artist id the song is linked to - lets callers (e.g.
-    /// send-to-remote's per-song artist-image upload) attach artist images
-    /// without a separate lookup round-trip.
+    /// destination artist id the song is linked to.
     pub artist_id: String,
     /// final on-disk path of the audio file
     pub file_path: String,
@@ -98,7 +97,7 @@ pub struct SyncSongByBlake3Response {
     pub blake3: String,
     /// true if the song row already existed before this call
     pub existing: bool,
-    /// number of song images linked (existing-by-blake3 or newly pulled)
+    /// number of song, album, and artist images linked
     pub images_linked: i64,
     /// image blake3s that couldn't be pulled/found - skipped, not fatal.
     pub missing_image_blake3s: Vec<String>,
@@ -130,8 +129,8 @@ pub struct SyncPlaylistMember {
 /// expected to have already received each member via
 /// `POST /api/sync/song-by-blake3` / `/video-by-blake3` (or to have a
 /// pre-existing row keyed by the same blake3). missing blake3s are
-/// reported in the response but are not fatal — a partial playlist is
-/// created.
+/// reported in the response but are not fatal — a new playlist may be
+/// partial, while an existing playlist retains its previous membership.
 ///
 /// the destination playlist id is deterministic:
 /// `synced-{source_remote_id}-{remote_playlist_id}` (or
@@ -265,6 +264,9 @@ pub struct SyncAlbumRequest {
     /// album cover images
     #[serde(default)]
     pub images: Vec<SyncImageRef>,
+    /// album artist images addressed by blake3.
+    #[serde(default)]
+    pub artist_images: Vec<SyncImageRef>,
     /// blake3 hashes of the songs the source plans to send next. hint only;
     /// the destination does not enforce or pre-create song rows here.
     #[serde(default)]

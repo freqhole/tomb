@@ -11,8 +11,7 @@ use crate::database;
 use crate::error::GrimoireError;
 use crate::jobs::{Job, JobError};
 use crate::media_blobz::{
-    get_media_blob_with_data, mirror_insert_bytes, set_blob_local_path_or_purge_duplicate,
-    update_blob_content,
+    get_media_blob_with_data, replace_blob_content, set_blob_local_path_or_purge_duplicate,
 };
 use crate::music::analytics::feed_events::upsert_album_feed_event;
 use crate::music::entities::albums::add_album_image;
@@ -32,10 +31,9 @@ use tracing::{debug, error, info, warn};
 /// - associate_with (optional): { entity_type: "album"|"playlist"|"song"|"artist", entity_id: "..." }
 ///
 /// steps:
-/// 1. check if the blob's mime is already "image/webp" (conversion already happened)
-/// 2. if not, get the original image bytes and convert to WebP
-/// 3. update the blob's registered blake3/mime/size to match the webp bytes,
-///    then mirror the new bytes into reliquary's content-addressed blob store
+/// 1. load the image bytes and check whether an existing WebP fits the limits
+/// 2. convert or resize as needed
+/// 3. store the webp bytes before updating the blob's registered identity
 /// 4. if associate_with is present, insert images into entity's *_imagez junction table
 pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobError> {
     info!("processing ConvertWebp job: {}", job.id);
@@ -72,7 +70,28 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
                     reason: format!("failed to load blob {}: {}", blob_id, e),
                 })?;
 
-        let already_converted = blob.mime.as_deref() == Some("image/webp");
+        let image_data = match blob_bytes {
+            Some(bytes) => bytes,
+            None => {
+                let local =
+                    blob.local_path
+                        .as_deref()
+                        .ok_or_else(|| JobError::ProcessingFailed {
+                            reason: format!("blob {} has no data and no local_path", blob_id),
+                        })?;
+                tokio::fs::read(local)
+                    .await
+                    .map_err(|e| JobError::ProcessingFailed {
+                        reason: format!("failed to read local_path {}: {}", local, e),
+                    })?
+            }
+        };
+        let already_converted = blob.mime.as_deref() == Some("image/webp")
+            && !blob_data::artwork_needs_normalization(&image_data).map_err(|e| {
+                JobError::ProcessingFailed {
+                    reason: format!("failed to inspect image: {}", e),
+                }
+            })?;
 
         if !already_converted {
             crate::jobs::job_events::emit_stage_from_job(
@@ -81,48 +100,17 @@ pub async fn process_convert_webp_job(job: &Job) -> Result<Option<Value>, JobErr
                 Some("converting to webp"),
             );
 
-            let image_data = match blob_bytes {
-                Some(bytes) => bytes,
-                None => {
-                    let local =
-                        blob.local_path
-                            .as_deref()
-                            .ok_or_else(|| JobError::ProcessingFailed {
-                                reason: format!("blob {} has no data and no local_path", blob_id),
-                            })?;
-                    info!(
-                        "ConvertWebp {}: no stored bytes, reading from local_path={}",
-                        blob_id, local
-                    );
-                    tokio::fs::read(local)
-                        .await
-                        .map_err(|e| JobError::ProcessingFailed {
-                            reason: format!("failed to read local_path {}: {}", local, e),
-                        })?
-                }
-            };
-
-            // convert to WebP (sync function, not async)
-            let webp_data = blob_data::convert_to_webp(&image_data).map_err(|e| {
-                JobError::ProcessingFailed {
+            let webp_data = blob_data::convert_artwork_to_webp(image_data)
+                .await
+                .map_err(|e| JobError::ProcessingFailed {
                     reason: format!("webp conversion failed: {}", e),
-                }
-            })?;
+                })?;
 
-            // the converted bytes are different content from the original,
-            // so the blob's registered content identity has to move with
-            // them before they're mirrored into the content-addressed
-            // reliquary store.
-            let blake3 = reliquary::hash_bytes(&webp_data);
-
-            let updated_blob =
-                update_blob_content(blob_id, &blake3, "image/webp", webp_data.len() as i64)
-                    .await
-                    .map_err(|e| JobError::ProcessingFailed {
-                        reason: format!("failed to update blob content: {}", e),
-                    })?;
-
-            mirror_insert_bytes(&updated_blob, &webp_data).await;
+            replace_blob_content(blob_id, "image/webp", &webp_data)
+                .await
+                .map_err(|e| JobError::ProcessingFailed {
+                    reason: format!("failed to update blob content: {}", e),
+                })?;
 
             info!("converted image to webp: blob_id={}", blob_id);
         } else {

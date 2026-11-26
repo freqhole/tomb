@@ -110,21 +110,13 @@ async function syncSongViaLocalGrimoire(
     // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
 
-    // pull image bytes from source transport and inline as base64. without
-    // this the dest grimoire receives an empty `song_images` array and no
-    // images get persisted (audio path uses iroh-blobs but image path is
-    // currently inline-base64 only). skipped entirely when the source
-    // remote is known offline: grimoire's own "song already linked to this
-    // blake3" shortcut (see sync/song.rs) doesn't need fresh images for a
-    // song that's already local, but this per-image P2P fetch runs BEFORE
-    // that shortcut even gets a chance to fire - so for an already-synced
-    // song, every one of these fetches was doomed to fail/time out for
-    // nothing, adding real seconds of delay before playback could start.
-    // `isOnlineNow` returns `undefined` when status isn't known yet, which
-    // deliberately still attempts the fetch (don't assume offline).
+    // resolve image hashes for the destination to fetch from the source.
+    // skip metadata lookups when the source is known offline; an existing
+    // local song can still use grimoire's already-linked shortcut.
     const sourceIsOffline = isOnlineNow(remote.remote_id) === false;
     let songImagesBody: Awaited<ReturnType<typeof inlineImagesForSync>> = [];
     let albumImagesBody: Awaited<ReturnType<typeof inlineImagesForSync>> = [];
+    let artistImagesBody: Awaited<ReturnType<typeof inlineImagesForSync>> = [];
     if (!sourceIsOffline) {
       const sourceTransport = await getTransportForRemote(remote);
       const inlineCache: InlineImageCache = new Map();
@@ -139,6 +131,12 @@ async function syncSongViaLocalGrimoire(
         sourceTransport,
         inlineCache,
         `[album "${song.album_title}"]`
+      );
+      artistImagesBody = await inlineImagesForSync(
+        toInlinableImages(song.artist_images),
+        sourceTransport,
+        inlineCache,
+        `[artist "${song.artist_name}"]`
       );
     } else {
       debug(
@@ -164,6 +162,9 @@ async function syncSongViaLocalGrimoire(
     for (const img of rawUrlOnly(song.album_images)) {
       const ref = await inlineRawUrlForSync(img.remote_url, !!img.is_primary, img.blob_type);
       if (ref) albumImagesBody.push(ref);
+    }
+    if (rawUrlOnly(song.artist_images).length > 0) {
+      warn("syncSongViaLocalGrimoire", "cannot sync artist images without source blob ids");
     }
 
     // build SyncSongByBlake3Request shape (matches grimoire offal/sync types).
@@ -192,6 +193,7 @@ async function syncSongViaLocalGrimoire(
       genre_name: song.album_taxons?.find((t) => t.kind_slug === "genre")?.label ?? null,
       song_images: songImagesBody,
       album_images: albumImagesBody,
+      artist_images: artistImagesBody,
       is_compilation: false,
     };
 
@@ -303,6 +305,9 @@ function finishSyncResult(
     }
     return { success: false, error: message };
   }
+  if (!data?.song_id) {
+    return { success: false, error: "song sync completed without a local song id" };
+  }
 
   // this path is only ever reached via syncSongViaLocalGrimoire (charnel
   // mode) - no local IDB row exists for this song, so blake3-preferring
@@ -329,7 +334,7 @@ function finishSyncResult(
   }
   return {
     success: true,
-    localSongId: data?.song_id ?? song.sha256,
+    localSongId: data.song_id,
     localMediaBlobId: data?.media_blob_id,
     localPath: data?.file_path,
     skipped: data?.existing ?? false,
@@ -572,18 +577,8 @@ export async function syncSongToLocal(
 ): Promise<SyncResult> {
   const { sha256, media_blob_id, remote_server_id } = song;
 
-  // browser mode's content-hash dedup (`findExistingSongByContentHash`)
-  // needs at least one real hash to check against - `blake3` isn't always
-  // known yet, so `sha256` is the required fallback there. charnel mode
-  // never touches OPFS/IDB (delegates to syncSongViaLocalGrimoire, which
-  // only needs song.blake3) - an empty sha256 there is the deliberate
-  // "unknown, let iroh-blobs verify by blake3 instead" sentinel
-  // mediaRefResolve.ts sets when the source peer couldn't be queried for
-  // the real one, not an error. rejecting it here made every such queue
-  // push unplayable on charnel with a misleading "song missing sha256"
-  // failure.
-  if (!sha256 && !isCharnelMode()) {
-    return { success: false, error: "song missing sha256" };
+  if (!sha256 && !song.blake3 && !isCharnelMode()) {
+    return { success: false, error: "song missing content hash" };
   }
 
   if (!media_blob_id) {
@@ -612,7 +607,8 @@ export async function syncSongToLocal(
       await inFlight;
       if (!isCharnelMode()) {
         const synced = await findExistingSongByContentHash(song);
-        return { success: true, localSongId: synced?.id ?? sha256, skipped: true };
+        if (synced) return { success: true, localSongId: synced.id, skipped: true };
+        return { success: false, error: "in-flight song sync did not create a local song" };
       }
     }
     // song is already marked as synced locally - resolve its real local id
@@ -625,7 +621,8 @@ export async function syncSongToLocal(
     if (!isCharnelMode()) {
       debug("syncSongToLocal", `skipping ${downloadKey.slice(0, 8)}... (already synced)`);
       const synced = await findExistingSongByContentHash(song);
-      return { success: true, localSongId: synced?.id ?? sha256, skipped: true };
+      if (synced) return { success: true, localSongId: synced.id, skipped: true };
+      return { success: false, error: "song marked as synced but not found in local library" };
     }
     debug(
       "syncSongToLocal",
@@ -639,18 +636,6 @@ export async function syncSongToLocal(
   // wrap the actual sync work in a promise we can register
   const syncPromise = (async (): Promise<SyncResult> => {
     try {
-      const db = await initMusicDB();
-
-      // content-based dedup, not a raw primary-key lookup by sha256:
-      // double-checks in case another sync completed between our check and
-      // registration (see `findExistingSongByContentHash`'s own doc comment
-      // for why blake3/sha256, not `id`, is the right thing to dedup on).
-      const existingSong = await findExistingSongByContentHash(song);
-      if (existingSong) {
-        debug("syncSongToLocal", `song already exists locally: ${existingSong.id.slice(0, 8)}...`);
-        return { success: true, localSongId: existingSong.id, skipped: true };
-      }
-
       // get the remote configuration
       const remote = remoteOverride ?? (await getRemoteById(remote_server_id));
       if (!remote) {
@@ -667,6 +652,14 @@ export async function syncSongToLocal(
       // iroh node id by blake3; no audio bytes cross the IPC boundary.
       if (isCharnelMode()) {
         return syncSongViaLocalGrimoire(song, remote, onProgress);
+      }
+      const storageHash = sha256 || song.blake3;
+      if (!storageHash) return { success: false, error: "song missing content hash" };
+      const db = await initMusicDB();
+      const existingSong = await findExistingSongByContentHash(song);
+      if (existingSong) {
+        debug("syncSongToLocal", `song already exists locally: ${existingSong.id.slice(0, 8)}...`);
+        return { success: true, localSongId: existingSong.id, skipped: true };
       }
 
       // browser mode: fetch via transport and persist to OPFS + IDB.
@@ -702,7 +695,7 @@ export async function syncSongToLocal(
       let opfsPath: string;
       let fileSize: number;
       if (transport.streamBlobToSink && song.blake3) {
-        const sink = await openAudioOPFSChunkSink(sha256, extension);
+        const sink = await openAudioOPFSChunkSink(storageHash, extension);
         let result: { opfsPath: string; size: number };
         try {
           await transport.streamBlobToSink(
@@ -746,8 +739,8 @@ export async function syncSongToLocal(
 
         const blob = await readTransportBlobUrl(blobUrl);
 
-        // save to OPFS using sha256 as filename
-        opfsPath = await writeAudioToOPFS(blob, sha256, extension);
+        // use the available content hash as the OPFS filename
+        opfsPath = await writeAudioToOPFS(blob, storageHash, extension);
         fileSize = blob.size;
       }
 
@@ -897,7 +890,7 @@ export async function syncSongToLocal(
 export function canSyncSong(song: Song): song is Song & SyncableSong {
   return (
     song.source_type === "remote" &&
-    !!song.sha256 &&
+    (!!song.sha256 || !!song.blake3) &&
     !!song.media_blob_id &&
     !!song.remote_server_id
   );

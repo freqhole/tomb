@@ -17,7 +17,10 @@ import {
   completeBlobTransfer,
 } from "../../../app/services/transfers/blobTransferRegistry";
 import { initMusicDB } from "../storage/db";
-import { upsertLocalPlaylistWithSongs } from "../storage/playlists";
+import { upsertLocalPlaylistWithItems } from "../storage/playlists";
+import { findExistingSongByContentHash } from "../storage/db/songs";
+import { getLocalVideoById, getVideoByBlake3 } from "../../../video/services/storage/db/videos";
+import { syncVideoToLocal } from "../../../video/services/sync/syncVideoToLocal";
 import { debug, error as logError } from "../../../utils/logger";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
 import type { Song } from "../storage/types";
@@ -37,6 +40,9 @@ export async function sendToLocalLibrary(
   const retrySet = opts.retryBlake3s ? new Set(opts.retryBlake3s) : null;
 
   const songs = payload.kind === "song" ? [payload.song] : payload.songs;
+  const videos = payload.kind === "playlist" ? payload.videos ?? [] : [];
+  const songIds = new Map<string, string>();
+  const videoIds = new Map<string, string>();
 
   const progress: SendProgress = {
     phase: "preparing",
@@ -47,7 +53,7 @@ export async function sendToLocalLibrary(
     errors: [],
     syncedBlake3s: [],
     failedBlake3s: [],
-    totalVideos: 0,
+    totalVideos: videos.length,
     syncedVideos: 0,
     skippedVideos: 0,
     failedVideos: 0,
@@ -82,6 +88,10 @@ export async function sendToLocalLibrary(
   }
   // totalSongs reflects what THIS run will attempt (matters for retries).
   progress.totalSongs = eligibleSongs.length;
+  const eligibleVideos = retrySet
+    ? videos.filter((video) => video.blake3 && retrySet.has(video.blake3))
+    : videos;
+  progress.totalVideos = eligibleVideos.length;
   emit();
 
   progress.phase = "syncing-songs";
@@ -108,16 +118,18 @@ export async function sendToLocalLibrary(
         } as unknown as Parameters<typeof syncSongToLocal>[0],
         blake3
           ? (received, total) => updateBlobTransferProgress(blake3, received, total || undefined)
-          : undefined
+          : undefined,
+        source
       );
-      if (result.success) {
+      if (result.success && result.localSongId) {
+        songIds.set(song.id, result.localSongId);
         if (result.skipped) progress.skippedSongs += 1;
         else progress.syncedSongs += 1;
         if (blake3) progress.syncedBlake3s.push(blake3);
       } else {
         progress.failedSongs += 1;
         if (blake3) progress.failedBlake3s.push(blake3);
-        progress.errors.unshift(`sync ${song.title} failed: ${result.error ?? "unknown"}`);
+        progress.errors.unshift(`sync ${song.title} failed: ${result.error ?? "local song id missing"}`);
       }
     } catch (e) {
       progress.failedSongs += 1;
@@ -130,9 +142,35 @@ export async function sendToLocalLibrary(
     }
   });
 
+  await runWithConcurrency(eligibleVideos, concurrency, async (video) => {
+    const blake3 = video.blake3 ?? null;
+    try {
+      const result = await syncVideoToLocal(
+        { ...video, source_type: "remote", remote_server_id: source.remote_id },
+        source,
+        { force: true, originalOnly: true }
+      );
+      if (!result.success || !result.videoId) {
+        progress.failedVideos += 1;
+        if (blake3) progress.failedVideoBlake3s.push(blake3);
+        progress.errors.unshift(`sync ${video.title} failed: ${result.error ?? "local video id missing"}`);
+      } else {
+        videoIds.set(video.id, result.videoId);
+        progress.syncedVideos += 1;
+        if (blake3) progress.syncedVideoBlake3s.push(blake3);
+      }
+    } catch (e) {
+      progress.failedVideos += 1;
+      if (blake3) progress.failedVideoBlake3s.push(blake3);
+      progress.errors.unshift(`sync ${video.title} failed: ${String(e)}`);
+      logError("sendToLocalLibrary", `video sync failed: ${String(e)}`);
+    } finally {
+      emit();
+    }
+  });
+
   // playlist envelope: create/update the local playlist row + song refs.
-  // skip on retry runs (the playlist row already exists).
-  if (payload.kind === "playlist" && !retrySet) {
+  if (payload.kind === "playlist") {
     progress.phase = "syncing-playlist";
     emit();
     try {
@@ -148,9 +186,30 @@ export async function sendToLocalLibrary(
             ? [firstWithImg.images[0]]
             : undefined
         : undefined;
-      // use the prefixed id pattern that mirrors syncPlaylistToLocalFromQueue.
+      const refsByHash = new Map<string, { entity_type: "song" | "video"; entity_id: string }>();
+      const refs: Array<{ entity_type: "song" | "video"; entity_id: string }> = [];
+      for (const song of payload.songs) {
+        const id = songIds.get(song.id) ?? (await findExistingSongByContentHash(song))?.id;
+        if (!id) throw new Error(`song not available locally: ${song.title}`);
+        const ref = { entity_type: "song" as const, entity_id: id };
+        refs.push(ref);
+        if (song.blake3) refsByHash.set(`song:${song.blake3}`, ref);
+      }
+      for (const video of videos) {
+        const id = videoIds.get(video.id) ?? (video.blake3
+          ? await getVideoByBlake3(video.blake3)
+          : await getLocalVideoById(video.id))?.id;
+        if (!id) throw new Error(`video not available locally: ${video.title}`);
+        const ref = { entity_type: "video" as const, entity_id: id };
+        refs.push(ref);
+        if (video.blake3) refsByHash.set(`video:${video.blake3}`, ref);
+      }
+      const orderedRefs = payload.memberOrder?.map((member) => refsByHash.get(`${member.kind}:${member.blake3}`));
+      if (orderedRefs && (orderedRefs.length !== refs.length || orderedRefs.some((ref) => !ref))) {
+        throw new Error("playlist membership could not be resolved in source order");
+      }
       const localPlaylistId = `synced-${payload.playlistId}`;
-      await upsertLocalPlaylistWithSongs(
+      await upsertLocalPlaylistWithItems(
         db,
         {
           playlist_id: localPlaylistId,
@@ -158,7 +217,7 @@ export async function sendToLocalLibrary(
           description: payload.description ?? null,
           images: sourceImages,
         },
-        payload.songs as unknown as Song[]
+        orderedRefs ? orderedRefs.filter((ref) => ref !== undefined) : refs
       );
       debug(
         "sendToLocalLibrary",

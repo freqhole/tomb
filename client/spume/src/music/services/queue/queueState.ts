@@ -2,9 +2,11 @@
 // lives in its own module to avoid circular imports
 import { appState } from "../../../app/services/storage/db";
 import { findAvailableMediaIndex, mediaItemKey } from "../../../app/services/storage/mediaItem";
+import { createSignal } from "solid-js";
 
 // track if playback has ended (all songs in queue finished)
 let playbackEnded = false;
+export const [isQueueClearing, setQueueClearing] = createSignal(false);
 
 export function markPlaybackEnded(): void {
   playbackEnded = true;

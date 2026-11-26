@@ -13,6 +13,106 @@ use crate::response::GrimoireResponse;
 use super::images::resolve_sync_image_ref;
 use super::models::{SyncPlaylistRequest, SyncPlaylistResponse};
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    #[ignore = "needs its own process: touches the real db pool singleton"]
+    async fn syncing_empty_playlist_clears_previous_members() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config_path = tmp.path().join("freqhole-config.toml");
+        std::fs::write(
+            &config_path,
+            format!(
+                "data_dir = \"{}\"\n[database]\nfilename = \"grimoire.db\"\n\
+                 [media]\nmax_fs_file_size = 104857600\nsupported_audio_formats = [\"mp3\", \"flac\"]\n\
+                 [musicbrainz]\nenabled = false\n[logging]\nlevel = \"warn\"\n",
+                tmp.path().display()
+            ),
+        )
+        .unwrap();
+        std::fs::write(tmp.path().join("grimoire.db"), b"").unwrap();
+        crate::config::init_config(Some(config_path)).unwrap();
+        crate::database::run_migrations().await.unwrap();
+        let pool = crate::database::connect().await.unwrap();
+        sqlx::query("INSERT INTO playlistz (id, title) VALUES ('synced-source-list', 'old')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO playlist_itemz (playlist_id, entity_type, entity_id, position) VALUES ('synced-source-list', 'song', 'old-song', 1)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let caller = Caller::new("user", "user", crate::users::UserRole::Member);
+        let response = sync_playlist(
+            &caller,
+            serde_json::json!({
+                "source_remote_id": "source",
+                "remote_playlist_id": "list",
+                "remote_name": "source",
+                "title": "updated",
+                "members": [],
+                "images": []
+            }),
+        )
+        .await;
+        assert!(response.success, "{}", response.message);
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM playlist_itemz WHERE playlist_id = 'synced-source-list'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 0);
+
+        sqlx::query("INSERT INTO playlist_itemz (playlist_id, entity_type, entity_id, position) VALUES ('synced-source-list', 'song', 'old-song', 1)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let hash = "a".repeat(64);
+        sqlx::query(
+            "INSERT INTO media_blobz (id, size, mime, blob_type, blake3) VALUES ('video-blob', 1, 'video/mp4', 'original', ?)",
+        )
+        .bind(&hash)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO videoz (id, title, media_blob_id) VALUES ('video', 'video', 'video-blob')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let response = sync_playlist(
+            &caller,
+            serde_json::json!({
+                "source_remote_id": "source",
+                "remote_playlist_id": "list",
+                "remote_name": "source",
+                "title": "updated",
+                "members": [
+                    {"kind": "video", "blake3": hash},
+                    {"kind": "video", "blake3": "b".repeat(64)}
+                ],
+                "images": []
+            }),
+        )
+        .await;
+        assert!(response.success, "{}", response.message);
+        let data = response.data.unwrap();
+        assert_eq!(data["members_added"], 0);
+        assert_eq!(data["missing_member_blake3s"].as_array().unwrap().len(), 1);
+        let items: Vec<(String, String)> = sqlx::query_as(
+            "SELECT entity_type, entity_id FROM playlist_itemz WHERE playlist_id = 'synced-source-list'",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(items, vec![("song".to_string(), "old-song".to_string())]);
+    }
+}
+
 /// look up an existing (non-deleted) video by its media_blob_id - mirrors
 /// `video::importer`'s private helper of the same shape, kept separate
 /// since that one lives in a module this doesn't otherwise depend on.
@@ -150,7 +250,8 @@ pub async fn sync_playlist(caller: &Caller, body: JsonValue) -> GrimoireResponse
 
     let existing = crate::music::entities::playlists::get_playlist(&synced_playlist_id).await;
 
-    let playlist_id = if existing.success && existing.data.is_some() {
+    let already_exists = existing.success && existing.data.is_some();
+    let playlist_id = if already_exists {
         tracing::info!(
             "sync_playlist: updating existing synced playlist {} ({})",
             req.title,
@@ -210,7 +311,9 @@ pub async fn sync_playlist(caller: &Caller, body: JsonValue) -> GrimoireResponse
 
     // replace the playlist's full membership with the resolved refs, in
     // order (one shared position space across song+video).
-    if !resolved_refs.is_empty() {
+    let replace_members = (!already_exists || missing_member_blake3s.is_empty())
+        && (req.members.is_empty() || !resolved_refs.is_empty());
+    if replace_members {
         let set_result = crate::playlists::set_playlist_items(
             &playlist.id,
             &resolved_refs,
@@ -223,6 +326,7 @@ pub async fn sync_playlist(caller: &Caller, body: JsonValue) -> GrimoireResponse
                 playlist.id,
                 set_result.message
             );
+            return GrimoireResponse::failure("failed to set playlist members", set_result.errors);
         }
     }
 
@@ -252,6 +356,7 @@ pub async fn sync_playlist(caller: &Caller, body: JsonValue) -> GrimoireResponse
                     playlist.id,
                     e
                 );
+                missing_image_blake3s.push(img.blake3.clone());
                 None
             }
         };
@@ -266,6 +371,13 @@ pub async fn sync_playlist(caller: &Caller, body: JsonValue) -> GrimoireResponse
             .await;
             if add_result.success {
                 images_linked += 1;
+            } else {
+                tracing::warn!(
+                    "sync_playlist: failed to link image {}: {}",
+                    img.blake3,
+                    add_result.message
+                );
+                missing_image_blake3s.push(img.blake3.clone());
             }
         }
     }
@@ -280,7 +392,11 @@ pub async fn sync_playlist(caller: &Caller, body: JsonValue) -> GrimoireResponse
 
     let response = SyncPlaylistResponse {
         playlist_id: playlist.id.clone(),
-        members_added: resolved_refs.len() as i64,
+        members_added: if replace_members {
+            resolved_refs.len() as i64
+        } else {
+            0
+        },
         missing_member_blake3s,
         song_stubs_created,
         images_linked,
@@ -292,7 +408,7 @@ pub async fn sync_playlist(caller: &Caller, body: JsonValue) -> GrimoireResponse
         caller.username,
         req.title,
         playlist.id,
-        resolved_refs.len(),
+        response.members_added,
         song_stubs_created,
         response.missing_member_blake3s.len(),
         images_linked,
@@ -302,7 +418,7 @@ pub async fn sync_playlist(caller: &Caller, body: JsonValue) -> GrimoireResponse
     GrimoireResponse::success(
         format!(
             "playlist synced with {} members ({} missing, {} stubbed)",
-            resolved_refs.len(),
+            response.members_added,
             response.missing_member_blake3s.len(),
             song_stubs_created,
         ),

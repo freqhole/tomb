@@ -1,10 +1,17 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
-import { useQueryClient } from "@tanstack/solid-query";
+import { createQuery, useQueryClient } from "@tanstack/solid-query";
 import type { PlaylistSummary } from "../../music/data/types";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { PlaylistSelectorItem } from "../../music/hooks/playlistSelectorState";
 import { canCreatePlaylist } from "../../music/data/permissions";
-import { getCurrentUser, isLocalSourceActive } from "../../music/data";
+import { getCurrentRemote, getCurrentUser, isLocalSourceActive } from "../../music/data";
+import { localDataSource } from "../../music/data/local/localSource";
+import { RemoteMusicDataSource } from "../../music/data/remote/remoteSource";
+import { isCharnelMode } from "../../app/services/charnel";
+import { getRemoteById, getTauriManagedRemote } from "../../app/services/remotes/remoteManager";
+import { initMusicDB } from "../../music/services/storage/db/init";
+import { addPlaylistItemsToLocal } from "../../music/services/storage/playlists";
+import { importPlaylistItemsToLocal } from "../../music/services/sync/importPlaylistItemsToLocal";
 import {
   useCreatePlaylistMutation,
   usePlaylistsQuery,
@@ -37,6 +44,8 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
   const [searchQuery, setSearchQuery] = createSignal("");
   const [isCreatingNew, setIsCreatingNew] = createSignal(false);
   const [newPlaylistName, setNewPlaylistName] = createSignal("");
+  const [importing, setImporting] = createSignal(false);
+  const [localError, setLocalError] = createSignal("");
 
   const queryClient = useQueryClient();
 
@@ -63,6 +72,36 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
     remote: () => props.remote,
     ownedOrCollaborativeOnly: restrictToOwnedOrCollaborative,
   });
+  const sourceRemote = () => props.remote ?? getCurrentRemote();
+  const localLibraryQuery = createQuery(() => ({
+    queryKey: ["playlist-selector", "local-library"],
+    enabled: props.isOpen && !!sourceRemote(),
+    queryFn: async () => {
+      if (!isCharnelMode()) return { remote: null };
+      const remote = await getTauriManagedRemote();
+      if (!remote) throw new Error("local library is unavailable");
+      return { remote };
+    },
+  }));
+  const hasSeparateLocalLibrary = () =>
+    !!sourceRemote() &&
+    !!localLibraryQuery.data &&
+    localLibraryQuery.data.remote?.remote_id !== sourceRemote()?.remote_id;
+  const localPlaylistsQuery = createQuery(() => ({
+    queryKey: ["playlist-selector", "local-playlists", localLibraryQuery.data?.remote?.remote_id, searchQuery()],
+    enabled: props.isOpen && hasSeparateLocalLibrary(),
+    queryFn: async () => {
+      const local = localLibraryQuery.data;
+      if (!local) throw new Error("local library is unavailable");
+      const source = local.remote ? new RemoteMusicDataSource(local.remote) : localDataSource;
+      const response = await source.getPlaylists({
+        offset: 0,
+        limit: searchQuery() ? 100 : 5,
+        search: searchQuery() || undefined,
+      });
+      return response.items;
+    },
+  }));
 
   const addItemsMutation = useAddPlaylistItemsMutation();
   const createPlaylistMutation = useCreatePlaylistMutation();
@@ -112,8 +151,6 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
     try {
       await addItemsToPlaylist(playlist.playlist_id);
 
-      toast.success(`added ${itemCount()} ${itemLabel()} to "${playlist.title}"`);
-
       props.onClose();
     } catch (error) {
       if (error instanceof PlaylistItemDuplicateError) {
@@ -131,6 +168,38 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
     }
   };
 
+  const handleSelectLocalPlaylist = async (playlist: PlaylistSummary) => {
+    setImporting(true);
+    setLocalError("");
+    try {
+      const sourceInfo = sourceRemote();
+      const selectedItems = props.items.slice();
+      const target = localLibraryQuery.data;
+      if (!sourceInfo?.remote_id) throw new Error("source remote is unavailable");
+      if (!target) throw new Error("local library is unavailable");
+      const source = props.remote ?? await getRemoteById(sourceInfo.remote_id);
+      if (!source) throw new Error(`source remote not found: ${sourceInfo.remote_id}`);
+      const items = await importPlaylistItemsToLocal(selectedItems, source);
+      if (target.remote) {
+        await addItemsMutation.mutateAsync({ playlistId: playlist.playlist_id, items, remote: target.remote });
+      } else {
+        const db = await initMusicDB();
+        await addPlaylistItemsToLocal(db, playlist.playlist_id, items);
+        void queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
+      }
+      props.onClose();
+    } catch (error) {
+      if (error instanceof PlaylistItemDuplicateError) {
+        setLocalError(`already in "${playlist.title}"`);
+      } else {
+        console.error(`failed to add ${itemLabel()} to local playlist:`, error);
+        setLocalError(`failed to add ${itemLabel()}: ${error instanceof Error ? error.message : "unknown error"}`);
+      }
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const handleCreatePlaylist = async () => {
     // use search input value if present, otherwise use new playlist name input, or generate default
     const name = searchQuery().trim() || newPlaylistName().trim() || `new playlist ${Date.now()}`;
@@ -144,8 +213,6 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
 
       // immediately add the items to the newly created playlist
       await addItemsToPlaylist(newPlaylist.playlist_id);
-
-      toast.success(`created "${name}" and added ${itemCount()} ${itemLabel()}`);
 
       // close modal immediately - don't wait for query invalidation
       props.onClose();
@@ -165,15 +232,16 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
     setSearchQuery("");
     setIsCreatingNew(false);
     setNewPlaylistName("");
+    setLocalError("");
     props.onClose();
   };
 
-  const isLoading = () => addItemsMutation.isPending || createPlaylistMutation.isPending;
+  const isLoading = () => addItemsMutation.isPending || createPlaylistMutation.isPending || importing();
 
   return (
     <Modal
       isOpen={props.isOpen}
-      onClose={handleClose}
+      onClose={() => { if (!isLoading()) handleClose(); }}
       title={isCreatingNew() ? "create new playlist" : "add to playlist"}
       size="md"
     >
@@ -245,20 +313,67 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
                     when={searchQuery()}
                     fallback={
                       <div>
-                        <p>no playlists yet</p>
-                        <p class="mt-2">create one to get started</p>
+                        <p>{hasSeparateLocalLibrary() ? "no playlists on this remote" : "no playlists yet"}</p>
+                        <Show when={!hasSeparateLocalLibrary()}>
+                          <p class="mt-2">create one to get started</p>
+                        </Show>
                       </div>
                     }
                   >
-                    no playlists found matching "{searchQuery()}"
+                    {hasSeparateLocalLibrary() ? "no matching playlists on this remote" : `no playlists found matching "${searchQuery()}"`}
                   </Show>
                 </div>
               }
             >
-              <Show when={!searchQuery()}>
+              <Show when={hasSeparateLocalLibrary()}>
+                <div class="body-xs text-[var(--color-text-tertiary)] px-3 py-2">
+                  {sourceRemote()?.name}
+                </div>
+              </Show>
+              <Show when={!searchQuery() && !hasSeparateLocalLibrary()}>
                 <div class="body-xs text-[var(--color-text-tertiary)] px-3 py-2">
                   recent playlists
                 </div>
+              </Show>
+              <Show when={localLibraryQuery.isError}>
+                <div role="alert" class="body-sm text-[var(--color-text-secondary)] px-3 py-2">
+                  failed to load local library
+                </div>
+              </Show>
+              <Show when={hasSeparateLocalLibrary()}>
+                <div class="body-xs text-[var(--color-text-tertiary)] px-3 py-2">local library</div>
+                <Show when={localPlaylistsQuery.isError}>
+                  <div class="body-sm text-[var(--color-text-secondary)] px-3 py-2">
+                    failed to load local playlists
+                  </div>
+                </Show>
+                <For each={localPlaylistsQuery.data ?? []}>
+                  {(playlist) => (
+                    <button
+                      type="button"
+                      onClick={() => handleSelectLocalPlaylist(playlist)}
+                      disabled={isLoading()}
+                      class="w-full flex items-center gap-3 px-3 py-2 rounded hover:bg-[var(--color-bg-hover)] active:bg-[var(--color-bg-active)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left"
+                    >
+                      <Icon name={IconNames.playlist} className="w-5 h-5 text-[var(--color-text-tertiary)] flex-shrink-0" />
+                      <div class="flex-1 min-w-0">
+                        <div class="body-sm text-[var(--color-text-primary)] truncate">{playlist.title}</div>
+                        <Show when={playlist.song_count > 0}>
+                          <div class="body-xs text-[var(--color-text-tertiary)]">
+                            {playlist.song_count} {playlist.song_count === 1 ? "song" : "songs"}
+                          </div>
+                        </Show>
+                      </div>
+                      <Icon name={IconNames.add} className="w-4 h-4 text-[var(--color-text-tertiary)] flex-shrink-0" />
+                    </button>
+                  )}
+                </For>
+              </Show>
+              <Show when={importing()}>
+                <div class="body-sm text-[var(--color-text-secondary)] px-3 py-2">adding to local library…</div>
+              </Show>
+              <Show when={localError()}>
+                <div role="alert" class="body-sm text-[var(--color-text-secondary)] px-3 py-2">{localError()}</div>
               </Show>
 
               <For each={filteredPlaylists()}>

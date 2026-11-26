@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MediaItem, QueuedVideo } from "../../../app/services/storage/mediaItem";
 import { mediaItemKey } from "../../../app/services/storage/mediaItem";
+import { beginMediaLoad, isMediaLoadCurrent } from "../../../app/services/media/loadGuard";
 import type { Song } from "../storage/types";
 import type { PlayerEventListener } from "./backend";
 
@@ -29,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   stopVideoTracking: vi.fn(),
   stopSession: vi.fn(),
   mirrorClear: vi.fn(),
+  clearRadio: vi.fn(),
   stationQueue: vi.fn(async () => "local"),
 }));
 vi.mock("./backends/htmlAudio", () => ({
@@ -124,6 +126,10 @@ vi.mock("../../../app/services/storage/db", () => ({
   setQueue: mocks.persistQueue,
   setQueueOpen: vi.fn(),
 }));
+vi.mock("../../../app/services/media/historyArtwork", () => ({
+  newHistoryQueueItems: (items: MediaItem[]) => items,
+  startHistoryArtworkRefresh: vi.fn(),
+}));
 vi.mock("../../data", () => ({ getDataSource: () => ({ getSongById: mocks.getSong }) }));
 vi.mock("../../queries/favorites", () => ({ toggleSongFavoriteDirect: vi.fn() }));
 vi.mock("../../../components/feedback/Toast", () => ({ toast: { error: mocks.toast } }));
@@ -150,7 +156,7 @@ vi.mock("../../../app/services/radio/queueToTunedStation", () => ({
   queueToTunedStation: mocks.stationQueue,
 }));
 vi.mock("../../../app/services/storage/currentRadioStation", () => ({
-  clearCurrentRadioStation: vi.fn(),
+  clearCurrentRadioStation: mocks.clearRadio,
 }));
 
 import {
@@ -246,6 +252,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   mocks.load.mockResolvedValue(undefined);
   mocks.send.mockResolvedValue(undefined);
+  mocks.clearRadio.mockResolvedValue(undefined);
   mocks.remote = false;
   mocks.stationQueue.mockResolvedValue("local");
   mocks.activePlayer = false;
@@ -424,11 +431,47 @@ describe("shared player availability", () => {
   it("explicit queue clearing still mirrors the controller's stop and abandons the session", async () => {
     mocks.state.queue = [item("current")];
     mocks.state.current_item_key = "current";
-    await clearQueue();
+    const generation = beginMediaLoad("current");
+    const clearing = clearQueue();
+    expect(isMediaLoadCurrent("current", generation)).toBe(false);
+    expect(mocks.send).toHaveBeenCalledWith({ kind: "stop" });
+    await clearing;
     expect(mocks.mirrorClear).toHaveBeenCalledOnce();
     expect(mocks.stopSession).toHaveBeenCalledWith("abandoned");
     expect(mocks.state.queue).toEqual([]);
     expect(mocks.state.current_item_key).toBeNull();
+  });
+
+  it("does not advance when stopping emits ended while the queue is being cleared", async () => {
+    const current = item("current");
+    mocks.state.queue = [current, item("next")];
+    mocks.state.current_item_key = "current";
+    await playMediaItem(current);
+    mocks.load.mockClear();
+    let finishRadioClear!: () => void;
+    mocks.clearRadio.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      finishRadioClear = resolve;
+    }));
+    const clearing = clearQueue();
+    mocks.listeners.get("song")?.({ kind: "ended" });
+    await Promise.resolve();
+    expect(mocks.load).not.toHaveBeenCalled();
+    finishRadioClear();
+    await clearing;
+    expect(mocks.state.queue).toEqual([]);
+  });
+
+  it("shares an in-flight queue clear instead of starting another", async () => {
+    let finishRadioClear!: () => void;
+    mocks.clearRadio.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      finishRadioClear = resolve;
+    }));
+    const first = clearQueue();
+    const second = clearQueue();
+    expect(second).toBe(first);
+    expect(mocks.clearRadio).toHaveBeenCalledOnce();
+    finishRadioClear();
+    await Promise.all([first, second]);
   });
 
   it("rejects direct song/video loads before radio takeover, backend loading or pre-cache", async () => {
