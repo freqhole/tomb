@@ -1,5 +1,13 @@
 # freqhole-release
 
+## 0.3.31
+
+### Patch Changes
+
+- 13542fe: add max_lines to logging config for rathole
+- 3d3d232: try to improve adding media to local library playlistz
+- 15b2145: fix playback and queue clearing; improve artwork image validation and sharing; sync playlistz and artist imagez across libraries;
+
 ## 0.3.30
 
 ### Patch Changes
