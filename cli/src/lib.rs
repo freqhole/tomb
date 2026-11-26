@@ -323,17 +323,13 @@ pub async fn run_with(mut cli: Cli) -> Result<()> {
     let is_tui_command = matches!(cli.command, Commands::Rathole { action: None, .. });
     if is_tui_command && needs_init {
         let log_path = grimoire::config::get_config().data_dir.join("rathole.log");
-        if let Some(parent) = log_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        match std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-        {
+        match grimoire::log_file::LogFile::open(
+            &log_path,
+            grimoire::config::get_config().logging.max_lines,
+        ) {
             Ok(file) => {
                 let file_layer = tracing_subscriber::fmt::layer()
-                    .with_writer(std::sync::Mutex::new(file))
+                    .with_writer(file)
                     .with_ansi(false);
                 // mirror into rathole's in-memory ring buffer so
                 // the `/logs` slash command can show recent log

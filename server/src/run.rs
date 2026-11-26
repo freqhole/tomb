@@ -40,34 +40,6 @@ impl Default for ServerOptions {
     }
 }
 
-/// truncate log file if it exceeds max_lines, keeping only the last max_lines
-fn truncate_log_file_if_needed(path: &std::path::Path, max_lines: usize) {
-    use std::io::{BufRead, BufReader, Write};
-
-    let file = match std::fs::File::open(path) {
-        Ok(f) => f,
-        Err(_) => return, // file doesn't exist, nothing to truncate
-    };
-
-    let reader = BufReader::new(file);
-    let lines: Vec<String> = reader.lines().map_while(Result::ok).collect();
-
-    if lines.len() <= max_lines {
-        return; // file is within limit
-    }
-
-    // keep only the last max_lines
-    let keep_from = lines.len() - max_lines;
-    let truncated: Vec<&str> = lines[keep_from..].iter().map(|s| s.as_str()).collect();
-
-    // write truncated content back
-    if let Ok(mut file) = std::fs::File::create(path) {
-        for line in truncated {
-            let _ = writeln!(file, "{}", line);
-        }
-    }
-}
-
 /// Run the freqhole server
 ///
 /// This is the main entry point for starting the server.
@@ -240,36 +212,22 @@ pub async fn run_server(options: ServerOptions) -> anyhow::Result<()> {
     // if log_file is configured and opens successfully → file only
     // if log_file is empty or fails to open → stdout only
     if let Some(log_path) = config.log_file_path() {
-        // truncate log file if it exceeds ~10,000 lines
-        truncate_log_file_if_needed(&log_path, 10_000);
-
-        // create parent directory if needed
-        if let Some(parent) = log_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-
-        // set up file appender
-        let file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-            .ok();
-
-        if let Some(file) = file {
+        let file = grimoire::log_file::LogFile::open(&log_path, config.logging.max_lines);
+        if let Ok(file) = file {
             // file logging only (no stdout)
             let file_layer = tracing_subscriber::fmt::layer()
-                .with_writer(std::sync::Mutex::new(file))
+                .with_writer(file)
                 .with_ansi(false);
 
             tracing_subscriber::registry()
                 .with(filter)
                 .with(file_layer)
                 .init();
-        } else {
+        } else if let Err(e) = file {
             // file failed to open, fall back to stdout
             eprintln!(
-                "warning: could not open log file {:?}, falling back to stdout",
-                log_path
+                "warning: could not open log file {:?}: {e}; falling back to stdout",
+                log_path,
             );
             tracing_subscriber::registry()
                 .with(filter)

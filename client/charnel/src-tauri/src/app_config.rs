@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// charnel app config filename
-const APP_CONFIG_FILENAME: &str = "charnel-config.toml";
+pub(crate) const APP_CONFIG_FILENAME: &str = "charnel-config.toml";
 
 /// logging configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,7 +19,7 @@ pub struct LoggingConfig {
     #[serde(default = "default_log_file")]
     pub file: String,
 
-    /// max lines before auto-truncate (default: 10000)
+    /// maximum lines in the app log; old lines are trimmed in batches (default: 10000)
     #[serde(default = "default_max_lines")]
     pub max_lines: usize,
 }

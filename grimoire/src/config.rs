@@ -722,6 +722,13 @@ pub struct LoggingConfig {
     /// set to empty string "" to disable file logging
     #[serde(default = "default_log_file")]
     pub log_file: String,
+    /// maximum lines retained in each log file
+    #[serde(default = "default_log_max_lines")]
+    pub max_lines: usize,
+}
+
+fn default_log_max_lines() -> usize {
+    10_000
 }
 
 fn default_log_file() -> String {
@@ -1185,6 +1192,7 @@ pub fn init_config_for_tests() {
         logging: LoggingConfig {
             level: "info".to_string(),
             log_file: String::new(),
+            max_lines: default_log_max_lines(),
         },
         server: None,
         federation: None,
@@ -2886,6 +2894,7 @@ mod tests {
             logging: LoggingConfig {
                 level: "info".to_string(),
                 log_file: "freqhole.log".to_string(),
+                max_lines: default_log_max_lines(),
             },
             server: None,
             federation: None,
@@ -2940,6 +2949,7 @@ mod tests {
             logging: LoggingConfig {
                 level: "invalid".to_string(),
                 log_file: "freqhole.log".to_string(),
+                max_lines: default_log_max_lines(),
             },
             server: None,
             federation: None,
@@ -2992,6 +3002,7 @@ mod tests {
             logging: LoggingConfig {
                 level: "info".to_string(),
                 log_file: "freqhole.log".to_string(),
+                max_lines: default_log_max_lines(),
             },
             server: None,
             federation: None,
