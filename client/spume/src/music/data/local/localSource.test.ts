@@ -94,6 +94,24 @@ it("searches local playlists before pagination", async () => {
   expect(result.has_more).toBe(false);
 });
 
+it("preserves local and remote playlist image references", async () => {
+  const images = [
+    { local_blob_id: "local", is_primary: true, blob_type: "original" },
+    { remote_blob_id: "remote", remote_server_id: "friend", remote_url: "https://example.test/image", is_primary: false, blob_type: "preview" },
+    { blob_id: "legacy", is_primary: 1, type: "thumbnail" },
+  ];
+  initMusicDB.mockResolvedValue({
+    getAll: vi.fn().mockResolvedValue([{ playlist_id: "one", title: "mix", updated_at: 1, images }]),
+    getAllFromIndex: vi.fn().mockResolvedValue([]),
+  });
+  const result = await new LocalMusicDataSource().getPlaylists();
+  expect(result.items[0].images).toMatchObject([
+    images[0],
+    images[1],
+    { local_blob_id: "legacy", is_primary: true, blob_type: "thumbnail" },
+  ]);
+});
+
 function localSong(overrides: Partial<Song> = {}): Song {
   return {
     id: "fallback-id",

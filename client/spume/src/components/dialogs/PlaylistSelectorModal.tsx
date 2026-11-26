@@ -25,6 +25,7 @@ import { Badge } from "../badges/Badge";
 import { toast } from "../feedback/Toast";
 import { TextInput } from "../forms/TextInput";
 import { Icon, IconNames } from "../icons/registry";
+import { MediaImage } from "../media/MediaImage";
 import { Modal } from "../modals/Modal";
 
 export interface PlaylistSelectorModalProps {
@@ -239,7 +240,13 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
       disabled={isLoading()}
       class="w-full flex items-center gap-3 px-3 py-2 rounded hover:bg-[var(--color-bg-hover)] active:bg-[var(--color-bg-active)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left"
     >
-      <Icon name={IconNames.playlist} className="w-5 h-5 text-[var(--color-text-tertiary)] flex-shrink-0" />
+      <MediaImage
+        images={row.playlist.images}
+        alt={row.playlist.title}
+        domainType="playlist"
+        thumbnailSize={50}
+        class="w-12 h-12 rounded flex-shrink-0"
+      />
       <div class="flex-1 min-w-0">
         <div class="body-sm text-[var(--color-text-primary)] flex items-center gap-2">
           <span class="truncate min-w-0 flex-1">{row.playlist.title}</span>
@@ -264,11 +271,11 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
       title={isCreatingNew() ? "create new playlist" : "add to playlist"}
       size="md"
     >
-      <div class="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+      <div class="flex-1 min-h-0 flex flex-col overflow-hidden p-4 space-y-4">
         <Show
           when={!isCreatingNew()}
           fallback={
-            <div class="space-y-4">
+            <div class="min-h-0 overflow-y-auto space-y-4">
               <TextInput
                 value={newPlaylistName()}
                 onInput={(e) => setNewPlaylistName(e.currentTarget.value)}
@@ -297,16 +304,18 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
           }
         >
           {/* search input */}
-          <TextInput
-            value={searchQuery()}
-            onInput={(e) => setSearchQuery(e.currentTarget.value)}
-            placeholder="search playlists..."
-            autofocus
-          />
+          <div class="flex-shrink-0">
+            <TextInput
+              value={searchQuery()}
+              onInput={(e) => setSearchQuery(e.currentTarget.value)}
+              placeholder="search or create new playlist..."
+              autofocus
+            />
+          </div>
 
           {/* create new button - before playlists list */}
           <Show when={canCreatePlaylist()}>
-            <div class="pb-2 border-b border-[var(--color-border-default)]">
+            <div class="flex-shrink-0 pb-2 border-b border-[var(--color-border-default)]">
               <Button
                 variant="ghost"
                 onClick={handleCreatePlaylist}
@@ -323,7 +332,7 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
           </Show>
 
           {/* playlists list */}
-          <div class="max-h-[400px] overflow-y-auto space-y-1">
+          <div class="flex-1 min-h-0 overflow-y-auto space-y-1">
             <Show when={hasSeparateLocalLibrary()}>
               <div class="body-xs text-[var(--color-text-tertiary)] px-3 py-2">
                 {sourceRemote()?.name}

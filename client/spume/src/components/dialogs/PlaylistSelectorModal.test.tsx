@@ -4,6 +4,7 @@ import type { JSX } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Remote } from "../../app/services/storage/schemas/remote";
+import type { ImageMetadata } from "../../music/services/storage/types";
 import { PlaylistSelectorModal } from "./PlaylistSelectorModal";
 
 const mocks = vi.hoisted(() => ({
@@ -11,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   active: null as { remote_id: string; name: string } | null,
   localRemote: null as Remote | null,
   localPlaylists: vi.fn(),
-  sourcePlaylists: [] as Array<{ playlist_id: string; title: string; song_count: number }>,
+  sourcePlaylists: [] as Array<{ playlist_id: string; title: string; song_count: number; images?: ImageMetadata[] }>,
   importItems: vi.fn(),
   addLocal: vi.fn(),
   addRemote: vi.fn(),
@@ -19,6 +20,12 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("../modals/Modal", () => ({ Modal: (props: { children: JSX.Element }) => props.children }));
 vi.mock("../icons/registry", () => ({ Icon: () => null, IconNames: { playlist: "playlist", add: "add" } }));
+vi.mock("../media/MediaImage", () => ({
+  MediaImage: (props: { images?: ImageMetadata[]; alt: string; domainType: string; thumbnailSize: number }) => (
+    <span data-testid="playlist-image" data-title={props.alt} data-domain={props.domainType}
+      data-size={props.thumbnailSize} data-images={JSON.stringify(props.images)} />
+  ),
+}));
 vi.mock("../buttons/Button", () => ({
   Button: (props: { children: JSX.Element; onClick?: () => void; disabled?: boolean }) =>
     <button onClick={props.onClick} disabled={props.disabled}>{props.children}</button>,
@@ -132,6 +139,26 @@ it("shows local playlists even when the remote has none", async () => {
   await vi.waitFor(() => expect(host.textContent).toContain("local list"));
   expect(host.textContent).toContain("no playlists on this remote");
   expect(host.textContent).toContain("local library");
+});
+
+it("passes each source's playlist artwork to the shared image component", async () => {
+  const remoteImages: ImageMetadata[] = [{
+    remote_blob_id: "remote-image", remote_server_id: "source", is_primary: true, blob_type: "original",
+  }];
+  const localImages: ImageMetadata[] = [{
+    local_blob_id: "local-image", is_primary: true, blob_type: "original",
+  }];
+  mocks.sourcePlaylists = [{ playlist_id: "remote-list", title: "remote list", song_count: 0, images: remoteImages }];
+  mocks.localPlaylists.mockResolvedValue({
+    items: [{ playlist_id: "local-list", title: "local list", song_count: 0, images: localImages }],
+  });
+  open(source);
+  await vi.waitFor(() => expect(host.querySelectorAll('[data-testid="playlist-image"]')).toHaveLength(2));
+  const images = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="playlist-image"]'));
+  expect(images.map((image) => [image.dataset.title, JSON.parse(image.dataset.images ?? "null")])).toEqual([
+    ["remote list", remoteImages], ["local list", localImages],
+  ]);
+  expect(images.every((image) => image.dataset.domain === "playlist" && image.dataset.size === "50")).toBe(true);
 });
 
 it("shows a local playlist loading error even when the remote has no results", async () => {
