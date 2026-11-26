@@ -1,10 +1,10 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
-import { createQuery, useQueryClient } from "@tanstack/solid-query";
+import { createInfiniteQuery, createQuery, useQueryClient } from "@tanstack/solid-query";
 import type { PlaylistSummary } from "../../music/data/types";
 import type { Remote } from "../../app/services/storage/schemas/remote";
 import type { PlaylistSelectorItem } from "../../music/hooks/playlistSelectorState";
 import { canCreatePlaylist } from "../../music/data/permissions";
-import { getCurrentRemote, getCurrentUser, isLocalSourceActive } from "../../music/data";
+import { getCurrentRemote } from "../../music/data";
 import { localDataSource } from "../../music/data/local/localSource";
 import { RemoteMusicDataSource } from "../../music/data/remote/remoteSource";
 import { isCharnelMode } from "../../app/services/charnel";
@@ -49,28 +49,19 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
 
   const queryClient = useQueryClient();
 
-  // for non-admin remote members, restrict to playlists they can actually
-  // add items to: their own, or any marked collaborative. applied server-
-  // side (via own_or_collaborative_only) so pagination reflects the
-  // already-filtered set rather than filtering after the fact - local mode
-  // and admin/root still see every playlist regardless.
-  const restrictToOwnedOrCollaborative = () => {
-    if (isLocalSourceActive()) return false;
-    const user = getCurrentUser();
-    return !!user && user.role !== "admin" && user.role !== "root";
-  };
-
   const recentPlaylistsQuery = useRecentPlaylistsQuery(
     5,
-    () => true,
+    () => props.isOpen && !searchQuery().trim(),
     () => props.remote,
-    restrictToOwnedOrCollaborative()
+    true
   );
   const allPlaylistsQuery = usePlaylistsQuery({
-    search: searchQuery,
+    search: () => searchQuery().trim(),
     pageSize: 100,
     remote: () => props.remote,
-    ownedOrCollaborativeOnly: restrictToOwnedOrCollaborative,
+    ownedOrCollaborativeOnly: () => true,
+    enabled: () => props.isOpen && !!searchQuery().trim(),
+    keepPreviousData: false,
   });
   const sourceRemote = () => props.remote ?? getCurrentRemote();
   const localLibraryQuery = createQuery(() => ({
@@ -87,20 +78,26 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
     !!sourceRemote() &&
     !!localLibraryQuery.data &&
     localLibraryQuery.data.remote?.remote_id !== sourceRemote()?.remote_id;
-  const localPlaylistsQuery = createQuery(() => ({
-    queryKey: ["playlist-selector", "local-playlists", localLibraryQuery.data?.remote?.remote_id, searchQuery()],
+  const localPlaylistsQuery = createInfiniteQuery(() => ({
+    queryKey: [
+      ...queryKeys.playlists.all(localLibraryQuery.data?.remote?.remote_id ?? "local"),
+      "infinite", "selector", searchQuery().trim(),
+    ],
     enabled: props.isOpen && hasSeparateLocalLibrary(),
-    queryFn: async () => {
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }: { pageParam: number }) => {
       const local = localLibraryQuery.data;
       if (!local) throw new Error("local library is unavailable");
       const source = local.remote ? new RemoteMusicDataSource(local.remote) : localDataSource;
-      const response = await source.getPlaylists({
-        offset: 0,
-        limit: searchQuery() ? 100 : 5,
-        search: searchQuery() || undefined,
+      return source.getPlaylists({
+        offset: pageParam,
+        limit: searchQuery().trim() ? 100 : 5,
+        search: searchQuery().trim() || undefined,
+        own_or_collaborative_only: true,
       });
-      return response.items;
     },
+    getNextPageParam: (lastPage) =>
+      lastPage.has_more ? lastPage.offset + lastPage.limit : undefined,
   }));
 
   const addItemsMutation = useAddPlaylistItemsMutation();
@@ -138,13 +135,10 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
   // filter playlists based on search query - ownership/collaborative
   // visibility is already applied server-side (see restrictToOwnedOrCollaborative).
   const filteredPlaylists = createMemo(() => {
-    const query = searchQuery().toLowerCase().trim();
-    if (!query) {
+    if (!searchQuery().trim()) {
       return recentPlaylistsQuery.data || [];
     }
-
-    const allPlaylists = allPlaylistsQuery.data?.pages.flatMap((page) => page.items) || [];
-    return allPlaylists.filter((playlist) => playlist.title.toLowerCase().includes(query));
+    return allPlaylistsQuery.data?.pages.flatMap((page) => page.items) || [];
   });
 
   const handleSelectPlaylist = async (playlist: PlaylistSummary) => {
@@ -185,7 +179,7 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
       } else {
         const db = await initMusicDB();
         await addPlaylistItemsToLocal(db, playlist.playlist_id, items);
-        void queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all("local") });
       }
       props.onClose();
     } catch (error) {
@@ -218,7 +212,7 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
       props.onClose();
 
       // invalidate queries in background (fire-and-forget)
-      void queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all() });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.playlists.all(props.remote?.remote_id) });
     } catch (error) {
       console.error("failed to create playlist:", error);
       const errorMessage = error instanceof Error ? error.message : "unknown error";
@@ -237,6 +231,31 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
   };
 
   const isLoading = () => addItemsMutation.isPending || createPlaylistMutation.isPending || importing();
+
+  const PlaylistRow = (row: { playlist: PlaylistSummary; local: boolean }) => (
+    <button
+      type="button"
+      onClick={() => row.local ? handleSelectLocalPlaylist(row.playlist) : handleSelectPlaylist(row.playlist)}
+      disabled={isLoading()}
+      class="w-full flex items-center gap-3 px-3 py-2 rounded hover:bg-[var(--color-bg-hover)] active:bg-[var(--color-bg-active)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left"
+    >
+      <Icon name={IconNames.playlist} className="w-5 h-5 text-[var(--color-text-tertiary)] flex-shrink-0" />
+      <div class="flex-1 min-w-0">
+        <div class="body-sm text-[var(--color-text-primary)] flex items-center gap-2">
+          <span class="truncate min-w-0 flex-1">{row.playlist.title}</span>
+          <Show when={row.playlist.collaborative}>
+            <Badge variant="default" size="sm">collaborative</Badge>
+          </Show>
+        </div>
+        <Show when={row.playlist.song_count > 0}>
+          <div class="body-xs text-[var(--color-text-tertiary)]">
+            {row.playlist.song_count} {row.playlist.song_count === 1 ? "song" : "songs"}
+          </div>
+        </Show>
+      </div>
+      <Icon name={IconNames.add} className="w-4 h-4 text-[var(--color-text-tertiary)] flex-shrink-0" />
+    </button>
+  );
 
   return (
     <Modal
@@ -305,125 +324,91 @@ export function PlaylistSelectorModal(props: PlaylistSelectorModalProps) {
 
           {/* playlists list */}
           <div class="max-h-[400px] overflow-y-auto space-y-1">
+            <Show when={hasSeparateLocalLibrary()}>
+              <div class="body-xs text-[var(--color-text-tertiary)] px-3 py-2">
+                {sourceRemote()?.name}
+              </div>
+            </Show>
+            <Show when={!searchQuery().trim() && !hasSeparateLocalLibrary() && filteredPlaylists().length > 0}>
+              <div class="body-xs text-[var(--color-text-tertiary)] px-3 py-2">
+                recent playlists
+              </div>
+            </Show>
             <Show
               when={filteredPlaylists().length > 0}
               fallback={
-                <div class="text-center py-8 text-[var(--color-text-secondary)] body-sm">
-                  <Show
-                    when={searchQuery()}
-                    fallback={
-                      <div>
-                        <p>{hasSeparateLocalLibrary() ? "no playlists on this remote" : "no playlists yet"}</p>
-                        <Show when={!hasSeparateLocalLibrary()}>
-                          <p class="mt-2">create one to get started</p>
+                <Show
+                  when={searchQuery().trim() ? allPlaylistsQuery.isPending : recentPlaylistsQuery.isPending}
+                  fallback={
+                    <Show when={!(searchQuery().trim() ? allPlaylistsQuery.isError : recentPlaylistsQuery.isError)}>
+                      <div class="text-center py-8 text-[var(--color-text-secondary)] body-sm">
+                        <Show
+                          when={searchQuery().trim()}
+                          fallback={
+                            <div>
+                              <p>{hasSeparateLocalLibrary() ? "no playlists on this remote" : "no playlists yet"}</p>
+                              <Show when={!hasSeparateLocalLibrary()}>
+                                <p class="mt-2">create one to get started</p>
+                              </Show>
+                            </div>
+                          }
+                        >
+                          {hasSeparateLocalLibrary() ? "no matching playlists on this remote" : `no playlists found matching "${searchQuery()}"`}
                         </Show>
                       </div>
-                    }
-                  >
-                    {hasSeparateLocalLibrary() ? "no matching playlists on this remote" : `no playlists found matching "${searchQuery()}"`}
-                  </Show>
-                </div>
+                    </Show>
+                  }
+                >
+                  <div class="body-sm text-[var(--color-text-secondary)] px-3 py-2">loading playlists...</div>
+                </Show>
               }
             >
-              <Show when={hasSeparateLocalLibrary()}>
-                <div class="body-xs text-[var(--color-text-tertiary)] px-3 py-2">
-                  {sourceRemote()?.name}
-                </div>
-              </Show>
-              <Show when={!searchQuery() && !hasSeparateLocalLibrary()}>
-                <div class="body-xs text-[var(--color-text-tertiary)] px-3 py-2">
-                  recent playlists
-                </div>
-              </Show>
-              <Show when={localLibraryQuery.isError}>
-                <div role="alert" class="body-sm text-[var(--color-text-secondary)] px-3 py-2">
-                  failed to load local library
-                </div>
-              </Show>
-              <Show when={hasSeparateLocalLibrary()}>
-                <div class="body-xs text-[var(--color-text-tertiary)] px-3 py-2">local library</div>
-                <Show when={localPlaylistsQuery.isError}>
-                  <div class="body-sm text-[var(--color-text-secondary)] px-3 py-2">
-                    failed to load local playlists
-                  </div>
-                </Show>
-                <For each={localPlaylistsQuery.data ?? []}>
-                  {(playlist) => (
-                    <button
-                      type="button"
-                      onClick={() => handleSelectLocalPlaylist(playlist)}
-                      disabled={isLoading()}
-                      class="w-full flex items-center gap-3 px-3 py-2 rounded hover:bg-[var(--color-bg-hover)] active:bg-[var(--color-bg-active)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-left"
-                    >
-                      <Icon name={IconNames.playlist} className="w-5 h-5 text-[var(--color-text-tertiary)] flex-shrink-0" />
-                      <div class="flex-1 min-w-0">
-                        <div class="body-sm text-[var(--color-text-primary)] truncate">{playlist.title}</div>
-                        <Show when={playlist.song_count > 0}>
-                          <div class="body-xs text-[var(--color-text-tertiary)]">
-                            {playlist.song_count} {playlist.song_count === 1 ? "song" : "songs"}
-                          </div>
-                        </Show>
-                      </div>
-                      <Icon name={IconNames.add} className="w-4 h-4 text-[var(--color-text-tertiary)] flex-shrink-0" />
-                    </button>
-                  )}
-                </For>
-              </Show>
-              <Show when={importing()}>
-                <div class="body-sm text-[var(--color-text-secondary)] px-3 py-2">adding to local library…</div>
-              </Show>
-              <Show when={localError()}>
-                <div role="alert" class="body-sm text-[var(--color-text-secondary)] px-3 py-2">{localError()}</div>
-              </Show>
-
               <For each={filteredPlaylists()}>
-                {(playlist) => (
-                  <button
-                    type="button"
-                    onClick={() => handleSelectPlaylist(playlist)}
-                    disabled={isLoading()}
-                    class="
-                      w-full
-                      flex
-                      items-center
-                      gap-3
-                      px-3
-                      py-2
-                      rounded
-                      hover:bg-[var(--color-bg-hover)]
-                      active:bg-[var(--color-bg-active)]
-                      disabled:opacity-50
-                      disabled:cursor-not-allowed
-                      transition-colors
-                      text-left
-                    "
-                  >
-                    <Icon
-                      name={IconNames.playlist}
-                      className="w-5 h-5 text-[var(--color-text-tertiary)] flex-shrink-0"
-                    />
-                    <div class="flex-1 min-w-0">
-                      <div class="body-sm text-[var(--color-text-primary)] flex items-center gap-2">
-                        <span class="truncate min-w-0 flex-1">{playlist.title}</span>
-                        <Show when={playlist.collaborative}>
-                          <Badge variant="default" size="sm">
-                            collaborative
-                          </Badge>
-                        </Show>
-                      </div>
-                      <Show when={playlist.song_count > 0}>
-                        <div class="body-xs text-[var(--color-text-tertiary)]">
-                          {playlist.song_count} {playlist.song_count === 1 ? "song" : "songs"}
-                        </div>
-                      </Show>
-                    </div>
-                    <Icon
-                      name={IconNames.add}
-                      className="w-4 h-4 text-[var(--color-text-tertiary)] flex-shrink-0"
-                    />
-                  </button>
-                )}
+                {(playlist) => <PlaylistRow playlist={playlist} local={false} />}
               </For>
+            </Show>
+            <Show when={searchQuery().trim() ? allPlaylistsQuery.isError : recentPlaylistsQuery.isError}>
+              <div role="alert" class="body-sm text-[var(--color-text-secondary)] px-3 py-2">
+                failed to load playlists
+              </div>
+            </Show>
+            <Show when={searchQuery().trim() && allPlaylistsQuery.hasNextPage}>
+              <Button variant="ghost" disabled={allPlaylistsQuery.isFetchingNextPage} onClick={() => void allPlaylistsQuery.fetchNextPage()}>
+                show more
+              </Button>
+            </Show>
+
+            <Show when={localLibraryQuery.isError}>
+              <div role="alert" class="body-sm text-[var(--color-text-secondary)] px-3 py-2">
+                failed to load local library
+              </div>
+            </Show>
+            <Show when={hasSeparateLocalLibrary()}>
+              <div class="body-xs text-[var(--color-text-tertiary)] px-3 py-2">local library</div>
+              <Show when={localPlaylistsQuery.isError}>
+                <div role="alert" class="body-sm text-[var(--color-text-secondary)] px-3 py-2">
+                  failed to load local playlists
+                </div>
+              </Show>
+              <For each={localPlaylistsQuery.data?.pages.flatMap((page) => page.items) ?? []}>
+                {(playlist) => <PlaylistRow playlist={playlist} local={true} />}
+              </For>
+              <Show when={!localPlaylistsQuery.isPending && !localPlaylistsQuery.isError && !localPlaylistsQuery.data?.pages.some((page) => page.items.length > 0)}>
+                <div class="body-sm text-[var(--color-text-secondary)] px-3 py-2">
+                  {searchQuery().trim() ? "no matching local playlists" : "no local playlists yet"}
+                </div>
+              </Show>
+              <Show when={localPlaylistsQuery.hasNextPage}>
+                <Button variant="ghost" disabled={localPlaylistsQuery.isFetchingNextPage} onClick={() => void localPlaylistsQuery.fetchNextPage()}>
+                  show more
+                </Button>
+              </Show>
+            </Show>
+            <Show when={importing()}>
+              <div class="body-sm text-[var(--color-text-secondary)] px-3 py-2">adding to local library…</div>
+            </Show>
+            <Show when={localError()}>
+              <div role="alert" class="body-sm text-[var(--color-text-secondary)] px-3 py-2">{localError()}</div>
             </Show>
           </div>
         </Show>

@@ -74,11 +74,11 @@ export const queryKeys = {
 
   // playlists
   playlists: {
-    all: () => ["playlists", getDataSourceKey()] as const,
+    all: (sourceId: string = getDataSourceKey()) => ["playlists", sourceId] as const,
     lists: () => [...queryKeys.playlists.all(), "list"] as const,
     list: () => [...queryKeys.playlists.lists()] as const,
-    recent: (limit: number) =>
-      [...queryKeys.playlists.all(), "recent", limit] as const,
+    recent: (limit: number, sourceId?: string) =>
+      [...queryKeys.playlists.all(sourceId), "recent", limit] as const,
     detail: (id: string) => [...queryKeys.playlists.all(), id] as const,
     songs: (playlistId: string) => ["playlists", playlistId, "songs"] as const,
   },

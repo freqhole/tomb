@@ -3,6 +3,7 @@
 
 mod models;
 mod repository;
+pub(crate) use repository::get_playlist_owner;
 
 // re-export public types
 pub use models::{

@@ -3,7 +3,7 @@
 
 use super::models::{CreatePlaylistRequest, Playlist, PlaylistSong, UpdatePlaylistRequest};
 use crate::database;
-use crate::error::{ErrorDetail, GrimoireError};
+use crate::error::{ErrorDetail, GrimoireError, GrimoireResult};
 use crate::music::analytics::feed_events::upsert_playlist_feed_event;
 use crate::music::crud::ImageMetadata;
 use crate::music::EntityUrl;
@@ -411,6 +411,26 @@ pub async fn update_playlist(id: &str, req: UpdatePlaylistRequest) -> GrimoireRe
 
     // Fetch and return the updated playlist
     get_playlist(id).await
+}
+
+/// fetch the owner without loading playlist contents or artwork
+pub(crate) async fn get_playlist_owner(id: &str) -> GrimoireResult<Option<String>> {
+    let pool = database::connect().await?;
+    get_playlist_owner_with_pool(&pool, id).await
+}
+
+async fn get_playlist_owner_with_pool(
+    pool: &sqlx::SqlitePool,
+    id: &str,
+) -> GrimoireResult<Option<String>> {
+    let row = sqlx::query!(
+        "SELECT created_by_id FROM playlistz WHERE id = ? AND deleted_at IS NULL",
+        id
+    )
+    .fetch_optional(pool)
+    .await?;
+    row.map(|playlist| playlist.created_by_id)
+        .ok_or_else(|| GrimoireError::PlaylistNotFound { id: id.to_string() })
 }
 
 /// soft delete a playlist
@@ -1305,4 +1325,41 @@ pub async fn compute_playlist_etag(playlist_id: &str) -> GrimoireResponse<String
     let etag = format!("W/\"{}\"", etag_timestamp);
 
     GrimoireResponse::success("ETag computed", etag)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn owner_lookup_handles_unowned_deleted_and_missing_playlists() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query(
+            "CREATE TABLE playlistz (id TEXT PRIMARY KEY, created_by_id TEXT, deleted_at INTEGER)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO playlistz VALUES ('owned', 'user-1', NULL), ('unowned', NULL, NULL), ('deleted', 'user-1', 1)")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            get_playlist_owner_with_pool(&pool, "owned").await.unwrap(),
+            Some("user-1".into())
+        );
+        assert_eq!(
+            get_playlist_owner_with_pool(&pool, "unowned")
+                .await
+                .unwrap(),
+            None
+        );
+        for id in ["deleted", "missing"] {
+            assert!(matches!(
+                get_playlist_owner_with_pool(&pool, id).await,
+                Err(GrimoireError::PlaylistNotFound { .. })
+            ));
+        }
+    }
 }
