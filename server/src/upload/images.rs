@@ -20,7 +20,7 @@ use crate::auth::{check_role, AuthenticatedUser};
 use crate::error::ApiError;
 use crate::AppState;
 
-const MAX_IMAGE_SIZE: u64 = 10 * 1024 * 1024; // 10MB
+const MAX_IMAGE_SIZE: u64 = grimoire::offal::upload::mime::MAX_IMAGE_INPUT_BYTES as u64;
 
 /// upload image handler
 ///
@@ -98,9 +98,6 @@ pub async fn upload_image_handler(
         )));
     }
 
-    // compute blake3 - the real content identity
-    let blake3_hash = grimoire::blobz::compute_blake3_from_bytes(&data);
-
     // detect mime type
     let mime_type = detect_image_mime_type(&filename, &data);
 
@@ -110,6 +107,11 @@ pub async fn upload_image_handler(
         ));
     }
 
+    let (data, mime_type) = grimoire::offal::upload::mime::normalize_image_upload(data, &mime_type)
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("invalid image: {e}")))?;
+
+    let blake3_hash = grimoire::blobz::compute_blake3_from_bytes(&data);
     let size = data.len() as i64;
 
     // determine blob_type: defaults to Original, but the sync pipeline can pass

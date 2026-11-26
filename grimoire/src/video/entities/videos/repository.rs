@@ -246,6 +246,12 @@ pub async fn create_video(req: CreateVideoRequest) -> GrimoireResponse<Video> {
         }
     };
 
+    if let Err(e) =
+        crate::video::crud::music_link::inherit_default_album_poster(&pool, &video.id).await
+    {
+        tracing::warn!(video_id = %video.id, error = %e, "failed to inherit video poster for album");
+    }
+
     // a freshly created movie may already have extras waiting on it (see
     // migration 087's doc comment) - a plain clip/series episode can never
     // be somebody's stashed parent, so skip the lookup entirely for those.
@@ -1245,6 +1251,12 @@ pub async fn update_video(req: UpdateVideoRequest) -> GrimoireResponse<Video> {
             return GrimoireResponse::failure("Failed to update video", vec![ErrorDetail::from(e)])
         }
     };
+
+    if let Err(e) =
+        crate::video::crud::music_link::inherit_default_album_poster(&pool, &video.id).await
+    {
+        tracing::warn!(video_id = %video.id, error = %e, "failed to inherit video poster for album");
+    }
 
     // e.g. a clip retroactively reclassified as this movie, or a re-sync
     // that just resolved series/season for a row that's actually a movie -

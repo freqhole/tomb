@@ -6,14 +6,14 @@
 // iroh-blobs verified-streaming mechanism used for the main audio/video
 // blob. this file's job is just to resolve each image's blake3 hash - via
 // a cheap metadata lookup (no bytes fetched client-side) for an already-
-// known blob id, or by staging raw bytes into this device's own P2P-
-// servable store for the one case (`inlineRawUrlForSync`) where there's no
-// blob id to look up at all.
+// known remote blob id, or by staging locally held image bytes into this
+// device's P2P-servable store.
 
 import { FreqholeClient } from "@freqhole/api-client";
 import type { Transport } from "@freqhole/api-client";
 import { getMiddenNode } from "../../../app/api/client";
 import { debug, warn } from "../../../utils/logger";
+import { getBlob } from "../storage/blobs";
 
 /** shape sent to grimoire for each image, matching `SyncImageRef`. */
 export interface SyncImageRefBody {
@@ -28,6 +28,7 @@ export interface SyncImageRefBody {
  * `images[].blob_id`) onto this. */
 export interface InlinableImage {
   blobId: string | null | undefined;
+  localBlobId?: string | null;
   isPrimary: boolean;
   blobType: string | null | undefined;
 }
@@ -44,6 +45,7 @@ export function toInlinableImages(
   images:
     | Array<{
         remote_blob_id?: string | null;
+        local_blob_id?: string | null;
         is_primary?: boolean | null;
         blob_type?: string | null;
       }>
@@ -51,6 +53,7 @@ export function toInlinableImages(
 ): InlinableImage[] {
   return (images ?? []).map((img) => ({
     blobId: img.remote_blob_id,
+    localBlobId: img.local_blob_id,
     isPrimary: !!img.is_primary,
     blobType: img.blob_type,
   }));
@@ -61,13 +64,15 @@ export function toInlinableImages(
  * blob metadata - a single small JSON round trip per image, no bytes ever
  * fetched or re-encoded client-side. per-image lookup failures, or a blob
  * with no blake3 computed yet, are skipped (logged as warn) so a missing/
- * not-yet-hashed blob never blocks the sync itself.
+ * not-yet-hashed blob never blocks the sync itself. browser-library images
+ * are staged on the browser node instead of looked up on a remote.
  */
 export async function inlineImagesForSync(
   images: InlinableImage[] | undefined,
   sourceTransport: Transport,
   cache: InlineImageCache,
-  logPrefix: string
+  logPrefix: string,
+  localBrowserSource = false
 ): Promise<SyncImageRefBody[]> {
   if (!images || images.length === 0) return [];
   const out: SyncImageRefBody[] = [];
@@ -75,6 +80,35 @@ export async function inlineImagesForSync(
   const client = new FreqholeClient(sourceTransport);
   for (let idx = 0; idx < images.length; idx++) {
     const img = images[idx];
+    if (localBrowserSource) {
+      if (!img.localBlobId) {
+        warn("syncImages", `${logPrefix} [img ${idx}] no local blob id, skipping`);
+        continue;
+      }
+      const cacheKey = `local:${img.localBlobId}`;
+      let entry = cache.get(cacheKey);
+      if (!entry) {
+        try {
+          const blob = await getBlob(img.localBlobId);
+          if (!blob) throw new Error("local image blob not found");
+          const node = await getMiddenNode();
+          if (!node.import_blob) throw new Error("local P2P store cannot stage image blobs");
+          const blake3 = await node.import_blob(new Uint8Array(await blob.arrayBuffer()));
+          entry = { blake3, mime: blob.type || "image/jpeg" };
+          cache.set(cacheKey, entry);
+        } catch (e) {
+          warn("syncImages", `${logPrefix} [img ${idx}] failed to stage local image: ${String(e)}`);
+          continue;
+        }
+      }
+      out.push({
+        blake3: entry.blake3,
+        mime_type: entry.mime,
+        is_primary: anyPrimary ? img.isPrimary : idx === 0,
+        blob_type: img.blobType ?? "original",
+      });
+      continue;
+    }
     const blobId = img.blobId;
     if (!blobId) {
       debug("syncImages", `${logPrefix} [img ${idx}] no blob id, skipping`);

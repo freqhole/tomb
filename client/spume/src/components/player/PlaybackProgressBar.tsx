@@ -55,9 +55,21 @@ export interface PlaybackProgressBarProps {
 }
 
 export function PlaybackProgressBar(props: PlaybackProgressBarProps) {
-  const [waveformError, setWaveformError] = createSignal(false);
+  const [failedWaveform, setFailedWaveform] = createSignal<string>();
   const progress = () => (props.duration > 0 ? (props.currentTime / props.duration) * 100 : 0);
-  const showWaveform = () => !!props.waveformImage && !waveformError();
+  const waveformKey = () => {
+    const image = props.waveformImage;
+    return image
+      ? JSON.stringify([
+          image.local_blob_id,
+          image.remote_blob_id,
+          image.remote_server_id,
+          image.remote_url,
+          image.local_opfs_path,
+        ])
+      : undefined;
+  };
+  const showWaveform = () => !!props.waveformImage && waveformKey() !== failedWaveform();
   const showPlayhead = () => props.showPlayhead !== false;
 
   let isDragging = false;
@@ -129,6 +141,7 @@ export function PlaybackProgressBar(props: PlaybackProgressBarProps) {
             <Show when={showWaveform()}>
               {(() => {
                 const waveform = props.waveformImage!;
+                const key = waveformKey();
                 return (
                   <>
                     {/* dim waveform background (unplayed portion) */}
@@ -142,7 +155,7 @@ export function PlaybackProgressBar(props: PlaybackProgressBarProps) {
                           alt=""
                           class="w-full h-full object-cover mix-blend-screen"
                           showFallback={false}
-                          onError={() => setWaveformError(true)}
+                          onError={() => setFailedWaveform(key)}
                         />
                       </div>
                     </div>

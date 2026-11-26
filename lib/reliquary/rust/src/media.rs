@@ -71,6 +71,10 @@ const WEBP_QUALITY: f32 = 75.0;
 /// crate's libwebp bindings - the `image` crate's own webp encoder path is
 /// lossless-only and produces much larger files for photographic content.
 fn image_to_webp(img: &DynamicImage) -> Result<Vec<u8>, MediaError> {
+    image_to_webp_with_quality(img, WEBP_QUALITY)
+}
+
+fn image_to_webp_with_quality(img: &DynamicImage, quality: f32) -> Result<Vec<u8>, MediaError> {
     // `webp::Encoder::from_image` only handles `ImageRgb8`/`ImageRgba8` -
     // every other color type (grayscale, 16-bit, float, ...) returns
     // `Err("Unimplemented")`. source images can legitimately decode to any
@@ -80,7 +84,47 @@ fn image_to_webp(img: &DynamicImage) -> Result<Vec<u8>, MediaError> {
     let rgba = DynamicImage::ImageRgba8(img.to_rgba8());
     let encoder =
         webp::Encoder::from_image(&rgba).map_err(|e| MediaError::Encode(e.to_string()))?;
-    Ok(encoder.encode(WEBP_QUALITY).to_vec())
+    let bytes = encoder.encode(quality).to_vec();
+    if bytes.is_empty() {
+        return Err(MediaError::Encode("webp encoder returned no data".into()));
+    }
+    Ok(bytes)
+}
+
+/// preserve resolution up to `max_dim`, reducing it only when the encoded
+/// image would exceed `max_bytes`.
+pub fn artwork_rgba_to_webp(
+    rgba: Vec<u8>,
+    width: u32,
+    height: u32,
+    max_dim: u32,
+    max_bytes: usize,
+) -> Result<(Vec<u8>, u32, u32), MediaError> {
+    if max_dim == 0 || max_bytes == 0 {
+        return Err(MediaError::Encode("invalid artwork size limit".into()));
+    }
+    let original = image::RgbaImage::from_raw(width, height, rgba)
+        .ok_or_else(|| MediaError::Decode("invalid artwork pixel data".into()))?;
+    let original = DynamicImage::ImageRgba8(original);
+    let mut limit = original.width().max(original.height()).min(max_dim);
+    loop {
+        let resized = if original.width().max(original.height()) > limit {
+            original.resize(limit, limit, FilterType::Lanczos3)
+        } else {
+            original.clone()
+        };
+        let bytes = image_to_webp_with_quality(&resized, 90.0)?;
+        if bytes.len() <= max_bytes {
+            return Ok((bytes, resized.width(), resized.height()));
+        }
+        if limit <= 1 {
+            return Err(MediaError::Encode(
+                "artwork cannot fit within size limit".into(),
+            ));
+        }
+        let ratio = ((max_bytes as f64 / bytes.len() as f64).sqrt() * 0.95).min(0.9);
+        limit = ((limit as f64 * ratio) as u32).max(1);
+    }
 }
 
 /// decode any format the `image` crate understands and re-encode as webp,
@@ -212,6 +256,39 @@ mod tests {
         assert!(!webp.is_empty(), "webp output should not be empty");
         assert_eq!(&webp[0..4], b"RIFF", "expected RIFF header");
         assert_eq!(&webp[8..12], b"WEBP", "expected WEBP signature");
+    }
+
+    #[test]
+    fn artwork_preserves_resolution_when_it_fits() {
+        let png = wide_png(128, 64);
+        let rgba = image::load_from_memory(&png).unwrap().to_rgba8();
+        let (webp, width, height) =
+            artwork_rgba_to_webp(rgba.into_raw(), 128, 64, 4096, 9 * 1024 * 1024).unwrap();
+        assert_eq!((width, height), (128, 64));
+        assert_eq!(
+            image::load_from_memory(&webp).unwrap().dimensions(),
+            (128, 64)
+        );
+    }
+
+    #[test]
+    fn artwork_respects_dimension_and_byte_limits() {
+        let image = image::RgbImage::from_fn(256, 256, |x, y| {
+            let mut n = x.wrapping_add(y * 256).wrapping_mul(0x9e3779b9);
+            n ^= n >> 16;
+            n = n.wrapping_mul(0x85ebca6b);
+            image::Rgb([n as u8, (n >> 8) as u8, (n >> 16) as u8])
+        });
+        let rgba = DynamicImage::ImageRgb8(image).to_rgba8().into_raw();
+        let (webp, width, height) =
+            artwork_rgba_to_webp(rgba.clone(), 256, 256, 128, 4_096).unwrap();
+        assert!(width <= 128 && height <= 128);
+        assert!(webp.len() <= 4_096);
+        assert_eq!(
+            image::load_from_memory(&webp).unwrap().dimensions(),
+            (width, height)
+        );
+        assert!(artwork_rgba_to_webp(rgba, 256, 256, 128, 8).is_err());
     }
 
     #[test]

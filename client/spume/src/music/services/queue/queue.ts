@@ -13,6 +13,7 @@ import {
   type MediaItem,
 } from "../../../app/services/storage/mediaItem";
 import { initQueueDeparturePurge } from "./purgeDepartedMedia";
+import { cancelMediaLoads } from "../../../app/services/media/loadGuard";
 import { registerQueueDeparture } from "../../../app/services/media/queueDeparture";
 import { triggerPreCache } from "./triggerPreCache";
 import {
@@ -23,7 +24,7 @@ import {
   seek,
   stop,
 } from "../audio/player";
-import { hasPlaybackEnded } from "./queueState";
+import { hasPlaybackEnded, setQueueClearing } from "./queueState";
 import { clearQueueState } from "./clearQueueState";
 import { addHistoryEntry, updateHistoryEntrySongs, unwrapSongs } from "./queueHistory";
 import { unwrapVideos } from "../../../video/services/queue/videoQueueHistory";
@@ -62,6 +63,7 @@ import { clearCurrentRadioStation } from "../../../app/services/storage/currentR
 import { registerStopMusic } from "../../../app/services/playbackCoordinator";
 import { toast } from "../../../components/feedback/Toast";
 import { queueToTunedStation } from "../../../app/services/radio/queueToTunedStation";
+import { newHistoryQueueItems, startHistoryArtworkRefresh } from "../../../app/services/media/historyArtwork";
 
 // re-export queue state so consumers can import everything from queue.ts
 export {
@@ -817,13 +819,26 @@ export async function reorderQueue(fromIndex: number, toIndex: number): Promise<
 // clear the entire queue and stop playback
 // evicts all cached remote songs from the queue
 // clears any pending up-next song
-export async function clearQueue(reason: "abandoned" | "completed" = "abandoned"): Promise<void> {
+let pendingQueueClear: Promise<void> | null = null;
+
+export function clearQueue(reason: "abandoned" | "completed" = "abandoned"): Promise<void> {
+  if (pendingQueueClear) return pendingQueueClear;
+  setQueueClearing(true);
+  pendingQueueClear = clearQueueOnce(reason).finally(() => {
+    pendingQueueClear = null;
+    setQueueClearing(false);
+  });
+  return pendingQueueClear;
+}
+
+async function clearQueueOnce(reason: "abandoned" | "completed"): Promise<void> {
   const state = appState();
   debug(
     "queue",
     `clearQueue: len=${state?.queue?.length ?? 0} current=${state?.current_item_key?.slice(0, 8) ?? null}`
   );
 
+  cancelMediaLoads((state?.queue ?? []).map(mediaItemKey));
   stop();
   if (reason === "abandoned") mirrorClearQueue();
 
@@ -840,11 +855,25 @@ export async function clearQueue(reason: "abandoned" | "completed" = "abandoned"
 export { setQueueOpen };
 
 // resume a history entry from where it left off
+export async function queueHistorySongs(entry: QueueHistoryEntry, startPlaying: boolean): Promise<void> {
+  const items = newHistoryQueueItems(entry.songs.map(songToMediaItem));
+  await addToQueue(items, {
+    startPlaying,
+    source: {
+      type: entry.type,
+      label: entry.label,
+      entity_id: entry.entity_id,
+      image: entry.image,
+    },
+  });
+  startHistoryArtworkRefresh(items);
+}
+
 export async function resumeHistoryEntry(entry: QueueHistoryEntry): Promise<void> {
   if (entry.songs.length === 0) return;
 
   const requestedIndex = Math.min(entry.current_song_index || 0, entry.songs.length - 1);
-  const items = entry.songs.map(songToMediaItem);
+  const items = newHistoryQueueItems(entry.songs.map(songToMediaItem));
   const resumeIndex = findAvailableMediaIndex(items, requestedIndex);
   if (resumeIndex < 0) {
     toast.error("no available media at or after the saved position", { title: "media offline" });
@@ -852,6 +881,7 @@ export async function resumeHistoryEntry(entry: QueueHistoryEntry): Promise<void
   }
   const resumePosition = resumeIndex === requestedIndex ? entry.current_song_position || 0 : 0;
   await setQueue(items);
+  startHistoryArtworkRefresh(items);
 
   // play the song at the resume index
   const song = entry.songs[resumeIndex];

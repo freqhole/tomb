@@ -187,7 +187,7 @@ import {
   clearQueueHistory,
   addRadioStationHistoryEntry,
 } from "../music/services/queue/queueHistory";
-import { addToQueue, resumeHistoryEntry } from "../music/services/queue/queue";
+import { queueHistorySongs, resumeHistoryEntry } from "../music/services/queue/queue";
 import { loadProgressFromStorage, progressMap } from "../music/services/queue/queueProgress";
 import { startAnalyticsSync, stopAnalyticsSync } from "../music/services/analytics/analyticsQueue";
 import { reconnectProgressTracking } from "../music/services/queue/listenProgress";
@@ -1485,7 +1485,7 @@ export function AppLayout(props: AppLayoutProps) {
             label: entry.label,
             entity_id: entry.entity_id,
             image: entry.image,
-          }),
+          }, undefined, { refreshHistoryArtwork: true }),
       });
       actions.push({ type: "separator" });
       actions.push({
@@ -1541,15 +1541,7 @@ export function AppLayout(props: AppLayoutProps) {
       label: "play again",
       icon: hasProgress ? IconNames.recent : IconNames.play,
       onClick: () => {
-        void addToQueue(entry.songs, {
-          startPlaying: true,
-          source: {
-            type: entry.type,
-            label: entry.label,
-            entity_id: entry.entity_id,
-            image: entry.image,
-          },
-        });
+        void queueHistorySongs(entry, true);
       },
     });
 
@@ -1557,14 +1549,7 @@ export function AppLayout(props: AppLayoutProps) {
       label: "add to queue",
       icon: IconNames.queue,
       onClick: () => {
-        void addToQueue(entry.songs, {
-          source: {
-            type: entry.type,
-            label: entry.label,
-            entity_id: entry.entity_id,
-            image: entry.image,
-          },
-        });
+        void queueHistorySongs(entry, false);
       },
     });
 
@@ -2006,7 +1991,7 @@ export function AppLayout(props: AppLayoutProps) {
                       label: entry.label,
                       entity_id: entry.entity_id,
                       image: entry.image,
-                    });
+                    }, undefined, { refreshHistoryArtwork: true });
                   }
                   return;
                 }
@@ -2026,15 +2011,7 @@ export function AppLayout(props: AppLayoutProps) {
                   void resumeHistoryEntry(entry);
                 } else {
                   // play from the beginning
-                  void addToQueue(entry.songs, {
-                    startPlaying: true,
-                    source: {
-                      type: entry.type,
-                      label: entry.label,
-                      entity_id: entry.entity_id,
-                      image: entry.image,
-                    },
-                  });
+                  void queueHistorySongs(entry, true);
                 }
               }}
               onRemoveHistoryEntry={(entry) => {

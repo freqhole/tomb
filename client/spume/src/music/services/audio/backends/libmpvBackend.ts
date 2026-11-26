@@ -97,6 +97,7 @@ export class LibmpvBackend implements PlayerBackend {
     if (cmd.kind === "seek" && (await this.handleSeekBeforeAnythingLoaded(cmd.ms))) {
       return;
     }
+    if (cmd.kind === "stop") this.loadedSongKey = null;
     debug("player.libmpv", `send: ${cmd.kind}`);
     // eslint-disable-next-line no-restricted-syntax -- tauri-only api, avoid bundling into web builds
     const { invoke } = await import("@tauri-apps/api/core");
@@ -261,6 +262,9 @@ export class LibmpvBackend implements PlayerBackend {
           debug("player.libmpv", `load: "${song.title}" (${songKey.slice(0, 8)}) -> ${path}`);
           bridgeClearExternal();
           await setCurrentSong(songKey);
+          if (!isMediaLoadCurrent(songKey, options?.loadGeneration)) {
+            return;
+          }
           await this.sendLoadAndPlay(path, options);
           return;
         } catch {
@@ -683,15 +687,8 @@ export class LibmpvBackend implements PlayerBackend {
         this.currentLoadingSha256 = null;
       }
     }
-    // mpv reported this load as a genuine failure - don't leave
-    // `loadedSongKey` claiming it's loaded (see that field's own doc
-    // comment); a subsequent seek should retry the "nothing loaded"
-    // recovery path, not send mpv a raw seek it'll fail again. not
-    // conditioned on matching `sha` (that only tracks a specific
-    // in-flight *load*) - any mpv-reported error, including a mid-
-    // playback decode failure, means the same "may not be safely
-    // seekable without reloading" uncertainty applies.
-    if (event.kind === "error") {
+    // a failed or completed file may no longer be seekable in mpv.
+    if (event.kind === "error" || event.kind === "ended") {
       this.loadedSongKey = null;
     }
     for (const l of this.listeners) {

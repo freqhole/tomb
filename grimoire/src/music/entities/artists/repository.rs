@@ -554,33 +554,49 @@ pub async fn add_artist_image(
     };
 
     // check if this exact image already exists for this artist
-    let existing = sqlx::query_scalar!(
+    let existing = match sqlx::query_scalar!(
         "SELECT COUNT(*) FROM artist_imagez WHERE artist_id = ? AND media_blob_id = ?",
         artist_id,
         media_blob_id
     )
     .fetch_one(&pool)
     .await
-    .unwrap_or(0);
+    {
+        Ok(existing) => existing,
+        Err(e) => {
+            return GrimoireResponse::failure(
+                "failed to check artist image",
+                vec![ErrorDetail::from(e)],
+            )
+        }
+    };
 
     if existing > 0 {
         // image already exists - if we want it to be primary, update it
         if is_primary {
             // demote other images and promote this one
-            let _ = sqlx::query!(
+            if let Err(e) = sqlx::query!(
                 "UPDATE artist_imagez SET is_primary = 0 WHERE artist_id = ? AND media_blob_id != ?",
                 artist_id,
                 media_blob_id
             )
             .execute(&pool)
-            .await;
-            let _ = sqlx::query!(
+            .await {
+                return GrimoireResponse::failure("failed to unset existing primary images", vec![ErrorDetail::from(e)]);
+            }
+            if let Err(e) = sqlx::query!(
                 "UPDATE artist_imagez SET is_primary = 1 WHERE artist_id = ? AND media_blob_id = ?",
                 artist_id,
                 media_blob_id
             )
             .execute(&pool)
-            .await;
+            .await
+            {
+                return GrimoireResponse::failure(
+                    "failed to set primary artist image",
+                    vec![ErrorDetail::from(e)],
+                );
+            }
         }
         return GrimoireResponse::success("Image already exists on artist", ());
     }

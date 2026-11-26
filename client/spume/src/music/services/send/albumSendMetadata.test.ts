@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Transport } from "@freqhole/api-client";
 import type { Remote } from "../../../app/services/storage/schemas/remote";
+import type { RemoteSong } from "../../data/remote/adapters";
+import type { ImageMetadata } from "../storage/types";
 
 const mocks = vi.hoisted(() => ({
   getAlbum: vi.fn(),
@@ -36,7 +38,7 @@ vi.mock("../sync/syncImages", () => ({
 }));
 
 import { loadAlbumSendMetadata } from "./albumSendMetadata";
-import { buildSyncAlbumRequest } from "./buildSyncRequests";
+import { buildSyncAlbumRequest, buildSyncSongByBlake3Request } from "./buildSyncRequests";
 
 const source = { remote_id: "source" } as Remote;
 const transport = {} as Transport;
@@ -111,7 +113,8 @@ describe("album transfer metadata", () => {
       [{ remote_blob_id: "cover", is_primary: true, blob_type: "original" }],
       transport,
       context.imageCache,
-      '[album "fresh title"]'
+      '[album "fresh title"]',
+      undefined
     );
   });
 
@@ -174,5 +177,40 @@ describe("album transfer metadata", () => {
       mb_release_id: "release",
       mb_release_group_id: "group",
     });
+  });
+
+  it("includes artist image references in album and song sync requests", async () => {
+    const artistImages: ImageMetadata[] = [
+      { remote_blob_id: "artist-image", blob_type: "original", is_primary: true },
+    ];
+    const ref = {
+      blake3: "artist-hash",
+      mime_type: "image/webp",
+      is_primary: true,
+      blob_type: "original",
+    };
+    mocks.inlineImagesForSync.mockImplementation(async (images) =>
+      images === artistImages ? [ref] : []
+    );
+    const album = await buildSyncAlbumRequest({
+      ...context,
+      title: "album",
+      artistImages,
+    });
+    const song = await buildSyncSongByBlake3Request({
+      ...context,
+      song: {
+        id: "song",
+        title: "song",
+        artist_name: "artist",
+        album_title: "album",
+        blake3: "audio",
+        sha256: "sha",
+        artist_images: artistImages,
+      } as RemoteSong,
+    });
+    expect(album.artist_images).toEqual([ref]);
+    expect(song?.artist_images).toEqual([ref]);
+    expect(JSON.stringify({ album, song })).not.toContain("artist-image");
   });
 });

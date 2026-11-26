@@ -118,6 +118,50 @@ export async function upsertLocalPlaylistWithSongs(
   await tx.done;
 }
 
+/** replace a synced playlist's complete mixed membership in one transaction. */
+export async function upsertLocalPlaylistWithItems(
+  db: IDBPDatabase,
+  playlist: {
+    playlist_id: string;
+    title: string;
+    description?: string | null;
+    images?: ImageMetadata[];
+  },
+  refs: Array<{ entity_type: "song" | "video"; entity_id: string }>
+): Promise<void> {
+  const now = Date.now();
+  const tx = db.transaction([STORE_PLAYLISTS, STORE_PLAYLIST_ITEMS], "readwrite");
+  const playlists = tx.objectStore(STORE_PLAYLISTS);
+  const items = tx.objectStore(STORE_PLAYLIST_ITEMS);
+  const existing: Playlist | undefined = await playlists.get(playlist.playlist_id);
+  await playlists.put({
+    playlist_id: playlist.playlist_id,
+    title: playlist.title,
+    description: playlist.description ?? existing?.description ?? null,
+    is_public: existing?.is_public ?? false,
+    images: unwrapImages(playlist.images) ?? existing?.images,
+    created_at: existing?.created_at ?? now,
+    updated_at: now,
+  } satisfies Playlist);
+  const oldItems = await items.index("by_playlist_id").getAll(playlist.playlist_id) as PlaylistItem[];
+  for (const item of oldItems) {
+    await items.delete([item.playlist_id, item.entity_type, item.entity_id]);
+  }
+  const seen = new Set<string>();
+  for (const ref of refs) {
+    const key = `${ref.entity_type}:${ref.entity_id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    await items.put({
+      playlist_id: playlist.playlist_id,
+      ...ref,
+      position: seen.size,
+      added_at: now,
+    } satisfies PlaylistItem);
+  }
+  await tx.done;
+}
+
 /**
  * check if a playlist is editable
  */

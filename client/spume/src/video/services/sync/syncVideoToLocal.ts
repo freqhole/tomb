@@ -282,10 +282,7 @@ async function dedupByBlake3(
  * fire-and-forget callers; the play path uses it to build a url. */
 export interface VideoSyncOutcome {
   success: boolean;
-  /** charnel only — the real grimoire db row id of the synced video (NOT
-   * a content hash - see /memories/repo/tomb-sha256-vs-blake3-vs-id.md).
-   * lets a caller with no local IDB (cenotaph's charnel resolve path) read
-   * the persisted row back via `client.video.getVideo({ id })`. */
+  /** id of the destination library's video row. */
   videoId?: string;
   /** charnel only — absolute fs path of the local copy. */
   localPath?: string;
@@ -297,7 +294,8 @@ export interface VideoSyncOutcome {
  * so the queue row's indicator behaves the same as the browser path. */
 async function syncVideoViaCharnel(
   video: QueuedVideo,
-  remoteOverride?: Remote
+  remoteOverride?: Remote,
+  originalOnly = false
 ): Promise<VideoSyncOutcome> {
   const remoteId = video.remote_server_id!;
   const remote = remoteOverride ?? (await getRemoteById(remoteId));
@@ -306,7 +304,7 @@ async function syncVideoViaCharnel(
     return { success: false, error: `remote ${remoteId} not found` };
   }
 
-  const blobId = resolvePlaybackTarget(video, useVideoWindow()).blobId;
+  const blobId = originalOnly ? video.media_blob_id : resolvePlaybackTarget(video, useVideoWindow()).blobId;
 
   // resolves+pulls a specific blob id - factored out so a rendition
   // attempt can fall back to the original (or vice versa) below without
@@ -360,7 +358,7 @@ async function syncVideoViaCharnel(
       `rendition ${blobId} unavailable for video ${video.id} (${result.error}), falling back to original ${video.media_blob_id}`
     );
     result = await attemptSync(video.media_blob_id);
-  } else if (!result.success && blobId === video.media_blob_id) {
+  } else if (!result.success && blobId === video.media_blob_id && !originalOnly) {
     // symmetric case (experimental player prefers the original): if
     // THAT'S unavailable but a rendition exists, it's still a better bet
     // than failing outright.
@@ -400,7 +398,8 @@ async function syncVideoViaCharnel(
  *   see syncSongToLocal.ts's identical param for the full rationale. */
 export async function syncVideoToLocal(
   video: QueuedVideo,
-  remoteOverride?: Remote
+  remoteOverride?: Remote,
+  options?: { force?: boolean; originalOnly?: boolean }
 ): Promise<VideoSyncOutcome> {
   if (video.source_type !== "remote") return { success: false, error: "not a remote video" };
   if (!video.remote_server_id || !video.media_blob_id) {
@@ -419,13 +418,18 @@ export async function syncVideoToLocal(
   // the toggle is enforced at call sites instead, see videoBlobAccess.ts's
   // own `getSyncQueueToLocal() && canSyncVideo(video)` check).
   if (isCharnelMode()) {
-    return syncVideoViaCharnel(video, remoteOverride);
+    return syncVideoViaCharnel(video, remoteOverride, options?.originalOnly);
   }
-  if (!getSyncQueueToLocal()) return { success: false, error: "sync-to-local is off" };
+  if (!options?.force && !getSyncQueueToLocal()) {
+    return { success: false, error: "sync-to-local is off" };
+  }
 
   try {
     const existing = await getLocalVideoById(video.id);
     if (existing) {
+      if (options?.originalOnly && video.blake3 && existing.blake3 !== video.blake3) {
+        return { success: false, error: "local video has different content from the original" };
+      }
       // the video itself is already local, but the queued item is remote
       // (guarded above), so the source can still tell us about series
       // artwork/description changes - and about a series link this video
@@ -435,7 +439,7 @@ export async function syncVideoToLocal(
         await updateLocalVideo(existing.id, { series_id: seriesId, season_id: seasonId });
       }
       invalidateVideoLibraryQueries();
-      return { success: true };
+      return { success: true, videoId: existing.id };
     }
 
     // content-based dedup, before spending any bandwidth: a video already
@@ -452,10 +456,12 @@ export async function syncVideoToLocal(
         "videoSync",
         `video "${video.title}" (${video.id}) already synced locally as ${dedupedId} (same blake3) - skipped download`
       );
-      return { success: true };
+      return { success: true, videoId: dedupedId };
     }
 
-    const blobId = resolvePlaybackTarget(video, useVideoWindow()).blobId;
+    const blobId = options?.originalOnly
+      ? video.media_blob_id
+      : resolvePlaybackTarget(video, useVideoWindow()).blobId;
 
     // fetches bytes for a specific blob id into OPFS - factored out so a
     // rendition attempt can fall back to the original below. keyed by
@@ -545,7 +551,7 @@ export async function syncVideoToLocal(
         `rendition ${blobId} unavailable for video ${video.id} (${fetched.error}), falling back to original ${video.media_blob_id}`
       );
       fetched = await fetchVideoBytes(video.media_blob_id);
-    } else if (!fetched.ok && blobId === video.media_blob_id) {
+    } else if (!fetched.ok && blobId === video.media_blob_id && !options?.originalOnly) {
       // symmetric case (experimental player prefers the original): if
       // THAT'S unavailable but a rendition exists, it's still a better
       // bet than failing outright.
@@ -588,7 +594,7 @@ export async function syncVideoToLocal(
         "videoSync",
         `video "${video.title}" (${video.id}) matched existing local video ${dedupedIdAfterFetch} by blake3 after download - discarded duplicate bytes`
       );
-      return { success: true };
+      return { success: true, videoId: dedupedIdAfterFetch };
     }
 
     let posterOpfsPath: string | null = null;
@@ -656,7 +662,7 @@ export async function syncVideoToLocal(
     invalidateVideoLibraryQueries();
 
     debug("videoSync", `synced video "${video.title}" (${video.id}) to local library`);
-    return { success: true };
+    return { success: true, videoId: video.id };
   } catch (err) {
     warn("videoSync", `sync-to-local failed for video ${video.id}:`, err);
     return { success: false, error: err instanceof Error ? err.message : String(err) };

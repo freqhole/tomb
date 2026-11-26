@@ -1,37 +1,5 @@
-// orchestrator: send an album or playlist from a source remote to a
-// destination remote.
-//
-// two-channel design:
-//
-// 1. audio moves via iroh-blobs verified streaming. the client never
-//    carries audio bytes. dest receives `POST /api/sync/song-by-blake3`
-//    and pulls directly from the source peer (`source_node_id` + blake3).
-//
-// 2. images move via the normal `/api/upload/image` multipart endpoint.
-//    after each sync/* call returns a dest entity id, we walk the
-//    source-side `ImageMetadata[]`, pull bytes via the source transport's
-//    `fetchBlob`, and re-upload to dest with `associate_with` pointing
-//    at the freshly-created entity id. this reuses the same dedupe +
-//    conversion + association machinery used everywhere else.
-//
-// this module only ships json envelopes (and a small image FormData
-// per image); audio never touches the client.
-//
-// flow for an album:
-//   1. validate dest is a p2p transport and source has an iroh node id.
-//   2. POST `/api/sync/album` to dest -> capture dest `album_id`.
-//   3. upload album images to dest (associated with `album_id`).
-//   4. for each song with a blake3, POST `/api/sync/song-by-blake3`
-//      (concurrency-limited, default 2). dest pulls the audio via iroh.
-//      capture dest `song_id` and upload song images to dest.
-//   5. emit progress after every song result.
-//
-// flow for a playlist:
-//   1. validate dest and source as above.
-//   2. for each song with a blake3, POST `/api/sync/song-by-blake3`,
-//      then upload song images.
-//   3. POST `/api/sync/playlist` -> capture dest `playlist_id`, upload
-//      playlist images.
+// orchestrator for sending media between remotes. audio, video, and
+// image references use verified hash-based sync.
 
 import { schema } from "@freqhole/api-client";
 import type {
@@ -50,6 +18,7 @@ const {
   SyncAlbumResponseSchema,
   SyncJobQueuedResponseSchema,
   SyncPlaylistResponseSchema,
+  SyncSongByBlake3ResponseSchema,
 } = schema;
 import { getTransportForRemote } from "../../../app/api/client";
 import { waitForJobResult } from "../../../app/services/jobs/jobService";
@@ -75,9 +44,10 @@ import {
   type BuildSyncAlbumOptions,
   type BuildSyncPlaylistOptions,
 } from "./buildSyncRequests";
-import { uploadImagesToDest, createImageBlobCache } from "./uploadImagesToDest";
 import type { InlineImageCache } from "../sync/syncImages";
 import { loadAlbumSendMetadata } from "./albumSendMetadata";
+import { isLocalBrowserSourceRemote } from "./localBrowserSource";
+import { getArtistById } from "../storage/db/artists";
 
 const TAG = "sendToRemote";
 
@@ -131,7 +101,7 @@ export interface SendAlbumPayload {
   tags?: string[];
   mbReleaseId?: string | null;
   mbReleaseGroupId?: string | null;
-  /** album-level images. pushed to dest via /api/upload/image. */
+  /** album-level images, transferred by hash with the album. */
   images?: ImageMetadata[];
   songs: RemoteSong[];
 }
@@ -141,7 +111,7 @@ export interface SendPlaylistPayload {
   playlistId: string;
   title: string;
   description?: string | null;
-  /** playlist-level images. pushed to dest via /api/upload/image. */
+  /** playlist-level images, transferred by hash with the playlist. */
   images?: ImageMetadata[];
   songs: RemoteSong[];
   /** video members, if any - playlists are mixed song+video (see
@@ -169,8 +139,8 @@ export interface SendOptions {
   /** progress callback fired after each phase change and each song result. */
   onProgress?: (progress: SendProgress) => void;
   /**
-   * if set, restrict the song-pull loop to these blake3s and skip the
-   * album/playlist envelope phases. used by the retry-failed affordance.
+   * if set, restrict the media-pull loops to these blake3s and skip the
+   * album envelope. playlist retries still update the full membership.
    */
   retryBlake3s?: string[];
 }
@@ -319,6 +289,13 @@ export async function sendToRemote(
     failedVideoBlake3s: [],
   };
   const emit = () => opts.onProgress?.({ ...progress });
+  const reportMissingImages = (label: string, hashes: string[]) => {
+    if (hashes.length === 0) return;
+    const message = `${label}: ${hashes.length} image(s) could not be synced`;
+    progress.errors.push(message);
+    warn(TAG, `${lp} ${message}: ${hashes.join(", ")}`);
+    emit();
+  };
   emit();
 
   // validate transports + node id up front.
@@ -350,6 +327,7 @@ export async function sendToRemote(
   const sourceTransport = await getTransportForRemote(source);
   const remoteName = source.name ?? source.remote_id;
   const sourceRemoteId = source.remote_id;
+  const localBrowserSource = isLocalBrowserSourceRemote(source);
 
   // collect songs that have a blake3; non-blake3 songs cannot be pulled.
   let eligibleSongs = songs.filter((s) => !!s.blake3 && !!s.sha256);
@@ -390,7 +368,17 @@ export async function sendToRemote(
   // it works regardless of what source/dest actually are underneath.
   // only `images`/`album_images`/`artist_images` are overwritten - other
   // song fields (e.g. `opfs_path`, local-only) are left untouched.
-  if (eligibleSongs.length > 0) {
+  if (eligibleSongs.length > 0 && localBrowserSource) {
+    const artistIds = [...new Set(eligibleSongs.map((song) => song.artist_id).filter(Boolean))];
+    const artists = await Promise.all(artistIds.map((id) => getArtistById(id)));
+    const imagesByArtist = new Map(
+      artists.filter((artist) => artist != null).map((artist) => [artist.artist_id, artist.images])
+    );
+    eligibleSongs = eligibleSongs.map((song) => ({
+      ...song,
+      artist_images: imagesByArtist.get(song.artist_id) ?? song.artist_images,
+    }));
+  } else if (eligibleSongs.length > 0) {
     try {
       const sourceDataSource = new RemoteMusicDataSource(source);
       const fresh = await sourceDataSource.getSongsByIds(eligibleSongs.map((s) => s.id));
@@ -417,19 +405,8 @@ export async function sendToRemote(
     }
   }
 
-  // shared per-send cache: source-image bytes are fetched once and reused
-  // across album / song / playlist uploads. dramatically cuts redundant
-  // source-bandwidth when embedded artwork is repeated across N tracks.
-  const imageCache = createImageBlobCache();
-  // separate cache for the newer blake3-ref inline path (song/album images
-  // riding in the sync request itself) - keyed/shaped differently than
-  // `imageCache` above, which backs the older post-hoc artist-image upload.
+  // shared per-send cache for image hash and MIME metadata.
   const inlineImageCache: InlineImageCache = new Map();
-
-  // artist images are keyed by dest artist_id, not by song/album - the same
-  // artist usually shows up across many songs (and the album itself), so
-  // this avoids re-uploading the same photo once per song.
-  const uploadedArtistIds = new Set<string>();
 
   // optional pre-check: ask dest which blobs it already has.
   let alreadyPresent: Set<string> = new Set();
@@ -441,7 +418,6 @@ export async function sendToRemote(
   }
 
   // ---- ALBUM envelope + images ----
-  let destArtistIdFromAlbum: string | null = null;
   if (payload.kind === "album" && !retrySet) {
     progress.phase = "syncing-album";
     emit();
@@ -454,6 +430,7 @@ export async function sendToRemote(
       remoteName,
       sourceRemoteId,
       sourceNodeId,
+      localBrowserSource,
       albumId: payload.albumId,
       title: albumMetadata.title,
       artistName: payload.artistName,
@@ -473,6 +450,9 @@ export async function sendToRemote(
       mbReleaseGroupId: payload.mbReleaseGroupId,
       expectedSongBlake3s: expected,
       images: albumMetadata.images,
+      artistImages: eligibleSongs.find(
+        (song) => song.artist_name.toLowerCase() === payload.artistName.toLowerCase()
+      )?.artist_images,
       sourceTransport,
       imageCache: inlineImageCache,
     };
@@ -488,59 +468,17 @@ export async function sendToRemote(
       const data = unwrapEnvelope<SyncAlbumResponse>("sync_album", resp.body, resp.status, (v) =>
         SyncAlbumResponseSchema.safeParse(v)
       );
-      destArtistIdFromAlbum = data.artist_id;
       info(
         TAG,
         `${lp} sync_album ok: album_id=${data.album_id} artist_id=${data.artist_id} existing=${data.existing}`
       );
+      reportMissingImages(`album ${payload.title}`, data.missing_image_blake3s);
     } catch (e) {
       progress.phase = "failed";
       progress.errors.unshift(`sync_album failed: ${String(e)}`);
       emit();
       logError(TAG, `${lp} sync_album failed: ${String(e)}`);
       throw new SendToRemoteError(`sync_album failed: ${String(e)}`, progress);
-    }
-
-    // album images now ride inline in the sync/album request itself (see
-    // buildSyncAlbumRequest) - no post-hoc upload needed.
-
-    // upload artist images too, keyed off the artist_id sync_album already
-    // resolved/created - representative artist images come from the first
-    // eligible song (all songs on an album share the same primary artist).
-    const albumArtistId = destArtistIdFromAlbum;
-    const albumArtistImages = eligibleSongs[0]?.artist_images;
-    if (
-      albumArtistId &&
-      !uploadedArtistIds.has(albumArtistId) &&
-      albumArtistImages &&
-      albumArtistImages.length > 0
-    ) {
-      uploadedArtistIds.add(albumArtistId);
-      await uploadImagesToDest({
-        sourceTransport,
-        destTransport,
-        entityType: "artist",
-        entityId: albumArtistId,
-        images: albumArtistImages,
-        logPrefix: lp,
-        imageCache,
-        destRemote: dest,
-      }).catch((e) => {
-        warn(TAG, `${lp} artist image upload threw: ${String(e)}`);
-        return { attempted: 0, uploaded: 0, skipped: 0, failed: 0 };
-      });
-    }
-  }
-
-  // collect album-image source blob_ids so per-song image uploads can skip
-  // them: embedded artwork extracted from audio tags is normally tagged on
-  // BOTH the album and every song that came from the album, leading to N+1
-  // duplicate uploads of the same JPEG. one upload at the album level is
-  // canonical; per-song associations of the same blob are noise.
-  const albumImageBlobIds = new Set<string>();
-  if (payload.kind === "album") {
-    for (const img of payload.images ?? []) {
-      if (img.remote_blob_id) albumImageBlobIds.add(img.remote_blob_id);
     }
   }
 
@@ -568,7 +506,7 @@ export async function sendToRemote(
     const blake3 = song.blake3 as string;
     const shortHash = blake3.slice(0, 16);
 
-    if (alreadyPresent.has(blake3) && !reconcileEvenIfPresent) {
+    if (alreadyPresent.has(blake3) && !reconcileEvenIfPresent && !song.artist_images?.length) {
       progress.syncedSongs += 1;
       progress.syncedBlake3s.push(blake3);
       info(TAG, `${lp} song "${song.title}" (${shortHash}) already on dest, skipping pull`);
@@ -597,6 +535,7 @@ export async function sendToRemote(
       remoteName,
       sourceRemoteId,
       sourceNodeId,
+      localBrowserSource,
       song,
       isCompilation: songIsCompilation,
       sourceTransport,
@@ -613,7 +552,6 @@ export async function sendToRemote(
       return;
     }
 
-    let destArtistId: string | null = null;
     try {
       info(
         TAG,
@@ -626,17 +564,14 @@ export async function sendToRemote(
       );
       debug(TAG, `${lp} /api/sync/song-by-blake3 -> http ${resp.status}`);
       // dest enqueues a background job and returns immediately (see
-      // SyncJobQueuedResponse's doc comment) - song/album images ride
-      // inline in `req` itself, resolved by the job unattended. artist_id
-      // IS still available synchronously though (resolved/created before
-      // the job was even enqueued), so artist images can upload right away.
+      // SyncJobQueuedResponse's doc comment) - image refs are resolved by
+      // the job without sending image bytes in the request.
       const data = unwrapEnvelope<SyncJobQueuedResponse>(
         "sync_song_by_blake3",
         resp.body,
         resp.status,
         (v) => SyncJobQueuedResponseSchema.safeParse(v)
       );
-      destArtistId = data.artist_id ?? null;
       info(TAG, `${lp} sync_song queued: "${song.title}" job_id=${data.job_id}`);
       // the dest only QUEUES the job here - audio hasn't actually moved
       // yet. await its real completion (same JobPoller/waitForJobResult
@@ -648,6 +583,12 @@ export async function sendToRemote(
       const polled = await waitForJobResult(dest, data.job_id, SYNC_JOB_TIMEOUT_MS);
       if (polled.status !== "completed") {
         throw new Error(`dest sync job did not complete: ${polled.errorMessage ?? polled.status}`);
+      }
+      const result = SyncSongByBlake3ResponseSchema.safeParse(polled.result);
+      if (result.success) {
+        reportMissingImages(`song ${song.title}`, result.data.missing_image_blake3s);
+      } else if (req.artist_images.length > 0) {
+        warn(TAG, `${lp} could not check artist image sync result for "${song.title}"`);
       }
       progress.syncedSongs += 1;
       progress.syncedBlake3s.push(blake3);
@@ -667,35 +608,6 @@ export async function sendToRemote(
       }
     } finally {
       emit();
-    }
-
-    // song/album images now ride inline in the sync request itself (see
-    // buildSyncSongByBlake3Request) - no post-hoc upload needed.
-
-    // upload this song's artist images too, keyed off the dest artist_id
-    // (resolved synchronously before the sync job was even enqueued - see
-    // song.rs's sync_song_by_blake3) - deduped per run since many songs
-    // (and the album itself) typically share one artist.
-    if (
-      destArtistId &&
-      !uploadedArtistIds.has(destArtistId) &&
-      song.artist_images &&
-      song.artist_images.length > 0
-    ) {
-      uploadedArtistIds.add(destArtistId);
-      await uploadImagesToDest({
-        sourceTransport,
-        destTransport,
-        entityType: "artist",
-        entityId: destArtistId,
-        images: song.artist_images,
-        logPrefix: `${lp} "${song.title}"`,
-        imageCache,
-        destRemote: dest,
-      }).catch((e) => {
-        warn(TAG, `${lp} artist image upload threw for "${song.title}": ${String(e)}`);
-        return { attempted: 0, uploaded: 0, skipped: 0, failed: 0 };
-      });
     }
   });
 
@@ -750,38 +662,58 @@ export async function sendToRemote(
   });
 
   // ---- PLAYLIST envelope + images ----
-  if (payload.kind === "playlist" && !retrySet) {
+  const syncPlaylist = async () => {
+    if (payload.kind !== "playlist") return;
     progress.phase = "syncing-playlist";
     emit();
 
-    // the playlist's TRUE member order (one shared position space across
-    // song+video) - falls back to song-only order for a caller that hasn't
-    // been updated to supply `memberOrder` yet.
-    const members: Array<{ kind: "song" | "video"; blake3: string }> =
-      payload.memberOrder ??
-      songs
-        .map((s) => ({ kind: "song" as const, blake3: s.blake3 as string }))
-        .filter((m) => !!m.blake3);
-
-    const playlistOpts: BuildSyncPlaylistOptions = {
-      remoteName,
-      sourceRemoteId,
-      sourceNodeId,
-      playlistId: payload.playlistId,
-      title: payload.title,
-      description: payload.description,
-      images: payload.images,
-      members,
-      sourceTransport,
-      imageCache: inlineImageCache,
-    };
-    const playlistReq: SyncPlaylistRequest = await buildSyncPlaylistRequest(playlistOpts);
-
-    info(
-      TAG,
-      `${lp} POST /api/sync/playlist title="${payload.title}" members=${playlistOpts.members.length}`
-    );
     try {
+      // preserve the shared song/video order, or use song order for older callers.
+      const members: Array<{ kind: "song" | "video"; blake3: string }> =
+        payload.memberOrder ??
+        songs
+          .map((s) => ({ kind: "song" as const, blake3: s.blake3 as string }))
+          .filter((m) => !!m.blake3);
+
+      const expected = [
+        ...songs.map((song) => ({ kind: "song", blake3: song.blake3 })),
+        ...videos.map((video) => ({ kind: "video", blake3: video.blake3 })),
+      ];
+      const counts = new Map<string, number>();
+      for (const member of expected) {
+        if (!member.blake3) {
+          throw new Error("playlist has members without a blake3 hash");
+        }
+        const key = `${member.kind}:${member.blake3}`;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+      for (const member of members) {
+        const key = `${member.kind}:${member.blake3}`;
+        counts.set(key, (counts.get(key) ?? 0) - 1);
+      }
+      if ([...counts.values()].some((count) => count !== 0)) {
+        throw new Error("playlist membership could not be resolved in source order");
+      }
+
+      const playlistOpts: BuildSyncPlaylistOptions = {
+        remoteName,
+        sourceRemoteId,
+        sourceNodeId,
+        localBrowserSource,
+        playlistId: payload.playlistId,
+        title: payload.title,
+        description: payload.description,
+        images: payload.images,
+        members,
+        sourceTransport,
+        imageCache: inlineImageCache,
+      };
+      const playlistReq: SyncPlaylistRequest = await buildSyncPlaylistRequest(playlistOpts);
+
+      info(
+        TAG,
+        `${lp} POST /api/sync/playlist title="${payload.title}" members=${playlistOpts.members.length}`
+      );
       const resp = await destTransport.request(
         "POST",
         "/api/sync/playlist",
@@ -808,6 +740,9 @@ export async function sendToRemote(
           TAG,
           `${lp} playlist missing ${data.missing_member_blake3s.length} member(s) on dest: ${head}${tail}`
         );
+        throw new Error(
+          `playlist is missing ${data.missing_member_blake3s.length} member(s) on destination`
+        );
       }
     } catch (e) {
       progress.phase = "failed";
@@ -819,7 +754,7 @@ export async function sendToRemote(
 
     // playlist images now ride inline in the sync request itself (see
     // buildSyncPlaylistRequest) - no post-hoc upload needed.
-  }
+  };
 
   // ---- VERIFY pass (single retry, never loops) ----
   //
@@ -875,6 +810,7 @@ export async function sendToRemote(
                 remoteName,
                 sourceRemoteId,
                 sourceNodeId,
+                localBrowserSource,
                 song,
                 isCompilation: songIsCompilation,
                 sourceTransport,
@@ -939,6 +875,8 @@ export async function sendToRemote(
       warn(TAG, `${lp} verify pass failed: ${String(e)}`);
     }
   }
+
+  await syncPlaylist();
 
   progress.phase = "done";
   emit();

@@ -5,6 +5,7 @@ import { persistIdentity, resolveIdentity, type IdentityStore } from "@freqhole/
 import { clearInProgressTracking } from "../../../music/services/cache/inProgressTracking";
 import type { ImageMetadata, Song } from "../../../music/services/storage/types";
 import {
+  mediaItemQueueEntryId,
   withQueueEntryId,
   type MediaItem,
   type QueuedVideo,
@@ -380,6 +381,48 @@ async function updateQueueAvailability(
     return item.kind === "song"
       ? { kind: "song", song: { ...item.song, is_offline: offline } }
       : { kind: "video", video: { ...item.video, is_offline: offline } };
+  });
+  if (queue.every((item, index) => item === current.queue[index])) return;
+  const updated = { ...current, queue, last_updated: Date.now() };
+  setAppState(updated);
+  await db.put(STORE_APP_STATE, { ...updated, queue: toPlainQueueItems(queue) });
+}
+
+// apply only to the same queue entries whose artwork has not changed since
+// the lookup began; never restore a stale queue snapshot after an async fetch.
+async function applyHistoryArtwork(
+  updates: ReadonlyMap<string, { before: MediaItem; after: MediaItem }>
+): Promise<void> {
+  const db = await initAppDB();
+  const current = appState();
+  if (!current) return;
+  const queue = current.queue.map((item): MediaItem => {
+    const id = mediaItemQueueEntryId(item);
+    const update = id ? updates.get(id) : undefined;
+    if (!update || item.kind !== update.before.kind || item.kind !== update.after.kind) return item;
+    if (item.kind === "song" && update.before.kind === "song" && update.after.kind === "song") {
+      if (item.song.images !== update.before.song.images ||
+          item.song.album_images !== update.before.song.album_images ||
+          item.song.artist_images !== update.before.song.artist_images) return item;
+      return { kind: "song", song: {
+        ...item.song,
+        images: update.after.song.images,
+        album_images: update.after.song.album_images,
+        artist_images: update.after.song.artist_images,
+      } };
+    }
+    if (item.kind === "video" && update.before.kind === "video" && update.after.kind === "video") {
+      if (item.video.images !== update.before.video.images ||
+          item.video.poster_blob_id !== update.before.video.poster_blob_id ||
+          item.video.poster_opfs_path !== update.before.video.poster_opfs_path) return item;
+      return { kind: "video", video: {
+        ...item.video,
+        images: update.after.video.images,
+        poster_blob_id: update.after.video.poster_blob_id,
+        poster_opfs_path: update.after.video.poster_opfs_path,
+      } };
+    }
+    return item;
   });
   if (queue.every((item, index) => item === current.queue[index])) return;
   const updated = { ...current, queue, last_updated: Date.now() };
@@ -824,5 +867,6 @@ export {
   updatePendingRemote,
   updateSongInQueue,
   updateQueueAvailability,
+  applyHistoryArtwork,
   updateVideoRenditionsInQueue,
 };

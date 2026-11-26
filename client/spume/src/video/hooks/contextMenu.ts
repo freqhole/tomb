@@ -15,6 +15,7 @@ import { showTagSelector } from "../../music/hooks/modals";
 import { createVideoTagAdapter } from "../../components/modals/tagAdapters/videoTagAdapter";
 import { buildRoute } from "../../music/utils/routing";
 import { confirm } from "../../app/services/confirmState";
+import { getRemoteById } from "../../app/services/remotes/remoteManager";
 import { toast } from "../../components/feedback/Toast";
 import { showEditVideo, showEditVideoSeries, showBulkEditVideos } from "./modals";
 import { canUpdateVideo } from "../data/permissions";
@@ -181,8 +182,13 @@ export function useVideoContextMenu(
   actions.push({
     label: "add to playlist...",
     icon: IconNames.playlist,
-    onClick: () => {
-      void showPlaylistSelectorForVideos([video.id]);
+    onClick: async () => {
+      const remote = video.remote_server_id ? await getRemoteById(video.remote_server_id) : undefined;
+      if (video.remote_server_id && !remote) {
+        console.error(`remote not found for video ${video.id}: ${video.remote_server_id}`);
+        return;
+      }
+      void showPlaylistSelectorForVideos([video.id], remote);
     },
   });
 

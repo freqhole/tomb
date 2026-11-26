@@ -31,6 +31,7 @@ import {
 } from "../../../music/services/queue/serverSession";
 import { getRemoteById } from "../../../app/services/remotes/remoteManager";
 import { toast } from "../../../components/feedback/Toast";
+import { newHistoryQueueItems, startHistoryArtworkRefresh } from "../../../app/services/media/historyArtwork";
 
 export async function playVideoQueue(
   videos: (VideoSummary | QueuedVideo)[],
@@ -41,10 +42,11 @@ export async function playVideoQueue(
    *  resumeVideoHistoryEntry's identical use of playMediaItem's
    *  initialPosition). omit/0 for a plain from-the-start play. */
   startPositionSeconds?: number,
-  options?: { skipServerSession?: boolean }
+  options?: { skipServerSession?: boolean; refreshHistoryArtwork?: boolean }
 ): Promise<void> {
   if (videos.length === 0) return;
-  const items = videos.map((v) => videoToMediaItem({ ...v, queue_entry_id: undefined }));
+  const inputItems = videos.map((v) => videoToMediaItem({ ...v, queue_entry_id: undefined }));
+  const items = options?.refreshHistoryArtwork ? newHistoryQueueItems(inputItems) : inputItems;
   startIndex = findAvailableMediaIndex(items, startIndex);
   if (startIndex < 0) {
     toast.error("no available videos at or after this position", { title: "media offline" });
@@ -57,6 +59,7 @@ export async function playVideoQueue(
   // its own instant optimistic overlay) isn't serialized behind it.
   mirrorReplaceVideosToQueue(videosOnly(items));
   await setQueue(items);
+  if (options?.refreshHistoryArtwork) startHistoryArtworkRefresh(items);
   try {
     await playMediaItem(items[startIndex], {
       userInitiated: true,
@@ -106,7 +109,7 @@ export async function resumeVideoHistoryEntry(entry: VideoQueueHistoryEntry): Pr
   if (entry.videos.length === 0) return;
 
   const requestedIndex = Math.min(entry.current_video_index || 0, entry.videos.length - 1);
-  const items = entry.videos.map(videoToMediaItem);
+  const items = newHistoryQueueItems(entry.videos.map(videoToMediaItem));
   const resumeIndex = findAvailableMediaIndex(items, requestedIndex);
   if (resumeIndex < 0) {
     toast.error("no available videos at or after the saved position", { title: "media offline" });
@@ -115,6 +118,7 @@ export async function resumeVideoHistoryEntry(entry: VideoQueueHistoryEntry): Pr
   const resumePosition = resumeIndex === requestedIndex ? entry.current_video_position || 0 : 0;
 
   await setQueue(items);
+  startHistoryArtworkRefresh(items);
   // video's playMediaItem supports seeking to an initial position directly
   // (unlike the song player, which needs a post-load setTimeout+seek).
   await playMediaItem(items[resumeIndex], {

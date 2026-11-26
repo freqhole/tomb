@@ -944,6 +944,7 @@ export function App() {
         const token = extractDeepLinkShareToken(event.data.url);
         if (token) {
           debug("App", `deep link share token: ${token.slice(0, 16)}...`);
+          void recordSharedItemFromToken(token);
           setShareToken(token);
         } else {
           debug("App", `deep link without share token: ${event.data.url}`);

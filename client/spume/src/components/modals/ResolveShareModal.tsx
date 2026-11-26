@@ -17,7 +17,7 @@
 
 import { createResource, createSignal, Show, type Component } from "solid-js";
 import { Modal } from "./Modal";
-import { decodeShareToken, type SharePayloadV1 } from "../../utils/permalink";
+import { DEFAULT_SHARE_WEB_HOST, decodeShareToken, type SharePayloadV1 } from "../../utils/permalink";
 import {
   getRemoteByPeerAddr,
   getTauriManagedRemote,
@@ -31,6 +31,7 @@ import {
   startSharedRadioStation,
 } from "../share/startSharedRadioStation";
 import Button from "../buttons/Button";
+import { CopyButton } from "../buttons/CopyButton";
 import { Icon } from "../icons/registry";
 
 export interface ResolveShareModalProps {
@@ -217,6 +218,13 @@ export const ResolveShareModal: Component<ResolveShareModalProps> = (props) => {
               </>
             );
           }}
+        </Show>
+        <Show when={state()?.kind === "matched" || state()?.kind === "unmatched"}>
+          <CopyButton
+            text={`${DEFAULT_SHARE_WEB_HOST}/?share=${encodeURIComponent(props.token ?? "")}#`}
+            label="copy link"
+            title="copy share link"
+          />
         </Show>
         <Show when={!isCharnelMode() && (state()?.kind === "matched" || state()?.kind === "unmatched")}>
           <p class="text-sm text-[var(--color-text-primary)] mt-6 p-2">

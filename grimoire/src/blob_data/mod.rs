@@ -9,9 +9,10 @@ mod service;
 mod thumbnails;
 
 pub use helpers::{
-    clear_scan_cache, collect_song_images, convert_to_jpeg, convert_to_webp,
-    create_audio_thumbnail_blob, create_audio_waveform_blob, create_image_blob_from_webp_data,
-    create_media_blob_from_file, CollectedImages,
+    artwork_needs_normalization, clear_scan_cache, collect_song_images, convert_artwork_to_webp,
+    convert_to_jpeg, convert_to_webp, create_audio_thumbnail_blob, create_audio_waveform_blob,
+    create_image_blob_from_webp_data, create_media_blob_from_file, CollectedImages,
+    MAX_ARTWORK_BYTES,
 };
 pub use purge::{
     cleanup_contentless_media_blobs, cleanup_orphaned_media_blobs, find_contentless_media_blobs,

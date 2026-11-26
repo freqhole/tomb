@@ -667,7 +667,7 @@ export function useAlbumContextMenu(
       const dataSource = dataSourceFor();
       if (!dataSource.getAlbumSongs) return;
       const response = await dataSource.getAlbumSongs(album.id);
-      showPlaylistSelector(response.items.map((s) => s.id));
+      showPlaylistSelector(response.items.map((s) => s.id), remote);
     },
   });
 

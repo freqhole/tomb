@@ -70,6 +70,7 @@ import {
 import {
   canGoNext,
   hasPlaybackEnded,
+  isQueueClearing,
   markPlaybackEnded,
   resetPlaybackEnded,
 } from "../queue/queueState";
@@ -291,7 +292,7 @@ let networkRetriedKey: string | null = null;
  * playing again a moment later despite having been cleared from the
  * queue in the meantime. */
 function isStillQueued(key: string): boolean {
-  return (appState()?.queue ?? []).some((i) => mediaItemKey(i) === key);
+  return !isQueueClearing() && (appState()?.queue ?? []).some((i) => mediaItemKey(i) === key);
 }
 
 function bindAutoAdvance(backend: PlayerBackend): void {
@@ -304,6 +305,13 @@ function bindAutoAdvance(backend: PlayerBackend): void {
     autoAdvanceUnsubscribe = null;
   }
   autoAdvanceUnsubscribe = backend.subscribe((event) => {
+    if (isQueueClearing() && (event.kind === "ended" || event.kind === "error")) {
+      if (event.kind === "error") {
+        const reason = event.detail?.detail ?? event.detail?.title ?? "unknown";
+        warn("player", `backend "${backend.kind}" error while clearing queue: ${reason}`);
+      }
+      return;
+    }
     if (event.kind === "ended") {
       debug("player", `backend "${backend.kind}" ended — advancing queue`);
       const endedKey = appState()?.current_item_key ?? null;

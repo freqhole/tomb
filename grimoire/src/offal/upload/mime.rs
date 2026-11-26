@@ -43,6 +43,67 @@ pub fn detect_image_mime_type(filename: &str, data: &[u8]) -> String {
     .to_string()
 }
 
+/// decode raster images before publishing their bytes; SVG remains supported
+/// separately because the image crate does not decode it.
+pub async fn validate_image_bytes(data: Vec<u8>, mime: &str) -> crate::GrimoireResult<Vec<u8>> {
+    if mime == "image/svg+xml" {
+        return Ok(data);
+    }
+    let mime = mime.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let format =
+            image::guess_format(&data).map_err(|e| crate::GrimoireError::ImageDecodeFailed {
+                reason: e.to_string(),
+            })?;
+        if format.to_mime_type() != mime {
+            return Err(crate::GrimoireError::ImageDecodeFailed {
+                reason: format!("image format does not match declared MIME type {mime}"),
+            });
+        }
+        image::load_from_memory_with_format(&data, format).map_err(|e| {
+            crate::GrimoireError::ImageDecodeFailed {
+                reason: e.to_string(),
+            }
+        })?;
+        Ok(data)
+    })
+    .await
+    .map_err(|e| crate::GrimoireError::ProcessingFailed {
+        message: format!("image validation task failed: {e}"),
+    })?
+}
+
+pub const MAX_IMAGE_INPUT_BYTES: usize = 64 * 1024 * 1024;
+
+pub async fn normalize_image_upload(
+    data: Vec<u8>,
+    mime: &str,
+) -> crate::GrimoireResult<(Vec<u8>, String)> {
+    if data.len() > MAX_IMAGE_INPUT_BYTES {
+        return Err(crate::GrimoireError::Validation {
+            field: "image".into(),
+            message: format!("image exceeds {MAX_IMAGE_INPUT_BYTES} input bytes"),
+        });
+    }
+    let data = validate_image_bytes(data, mime).await?;
+    if mime == "image/svg+xml" {
+        if data.len() > crate::blob_data::MAX_ARTWORK_BYTES {
+            return Err(crate::GrimoireError::Validation {
+                field: "image".into(),
+                message: "SVG exceeds the artwork size limit".into(),
+            });
+        }
+        return Ok((data, mime.to_owned()));
+    }
+    if crate::blob_data::artwork_needs_normalization(&data)? {
+        return Ok((
+            crate::blob_data::convert_artwork_to_webp(data).await?,
+            "image/webp".into(),
+        ));
+    }
+    Ok((data, mime.to_owned()))
+}
+
 /// sniff audio mime type from filename extension and magic bytes only -
 /// `None` if neither recognizes the file, with no assumed default. shared
 /// by `detect_audio_mime_type` (which adds the mp3 last-resort default
@@ -256,6 +317,65 @@ pub fn detect_extension(mime_type: &str, filename: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn image_validation_rejects_truncated_and_mismatched_rasters() {
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgb8(2, 2)
+            .write_to(&mut png, image::ImageOutputFormat::Png)
+            .unwrap();
+        let png = png.into_inner();
+        assert_eq!(
+            validate_image_bytes(png.clone(), "image/png")
+                .await
+                .unwrap(),
+            png
+        );
+        assert!(validate_image_bytes(png[..8].to_vec(), "image/png")
+            .await
+            .is_err());
+        assert!(validate_image_bytes(png, "image/jpeg").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn image_validation_preserves_svg_support() {
+        let svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>".to_vec();
+        assert_eq!(
+            validate_image_bytes(svg.clone(), "image/svg+xml")
+                .await
+                .unwrap(),
+            svg
+        );
+    }
+
+    #[tokio::test]
+    async fn image_upload_normalizes_oversized_artwork() {
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgb8(2, 2)
+            .write_to(&mut png, image::ImageOutputFormat::Png)
+            .unwrap();
+        let mut bytes = png.into_inner();
+        bytes.resize(crate::blob_data::MAX_ARTWORK_BYTES + 1, 0);
+        let (bytes, mime) = normalize_image_upload(bytes, "image/png").await.unwrap();
+        assert_eq!(mime, "image/webp");
+        assert!(bytes.len() <= crate::blob_data::MAX_ARTWORK_BYTES);
+        let image = image::load_from_memory(&bytes).unwrap();
+        assert_eq!((image.width(), image.height()), (2, 2));
+    }
+
+    #[tokio::test]
+    async fn image_upload_normalizes_over_4k_even_when_small() {
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgb8(4097, 1)
+            .write_to(&mut png, image::ImageOutputFormat::Png)
+            .unwrap();
+        let (bytes, mime) = normalize_image_upload(png.into_inner(), "image/png")
+            .await
+            .unwrap();
+        assert_eq!(mime, "image/webp");
+        let image = image::load_from_memory(&bytes).unwrap();
+        assert_eq!((image.width(), image.height()), (4096, 1));
+    }
 
     // a minimal ftyp box: size(4) + "ftyp" + major_brand(4) + minor_version(4)
     fn ftyp_box(major_brand: &[u8; 4]) -> Vec<u8> {

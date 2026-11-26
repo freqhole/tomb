@@ -205,7 +205,8 @@ export function songIdentityKey(song: Pick<Song, "sha256" | "id">): string {
  *    content-hash-dedup fix - see `findExistingSongByContentHash`), so
  *    there's no row-keypath constraint to honor either way; sha256-first
  *    just matches the HTTP-remote cache's own sha256-keyed convention
- *    (`blobCache.ts`) for the common case where a song has both hashes.
+ *    (`blobCache.ts`) for the common case where a song has both hashes;
+ *    blake3 is used when sha256 is unavailable.
  *  - charnel mode: sync delegates entirely to grimoire, no local IDB row
  *    is ever created for a synced song, so there's no key constraint to
  *    honor - prefer `blake3` (also correctly handles the charnel-only
@@ -224,7 +225,7 @@ export function syncTrackingKey(song: {
   media_blob_id?: string | null;
 }): string {
   if (isCharnelMode()) return song.blake3 || song.sha256 || song.id || song.media_blob_id || "";
-  return song.sha256 || song.id || song.media_blob_id || "";
+  return song.sha256 || song.blake3 || song.id || song.media_blob_id || "";
 }
 
 // ===== GENRES TABLE =====

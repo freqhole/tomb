@@ -486,9 +486,30 @@ impl BlobStore for SqliteBlobStore {
         let dir = self.blob_dir.join(prefix);
         tokio::fs::create_dir_all(&dir).await?;
         let abs_path = dir.join(rest);
-        // same content -> same bytes at the same content-addressed path, so
-        // a second concurrent writer clobbering this file is harmless.
-        tokio::fs::write(&abs_path, bytes).await?;
+        // readers and concurrent inserts must never see a partially written
+        // canonical file, even when both writers have identical content.
+        let temp_path = dir.join(format!(".{rest}.{}.tmp", uuid::Uuid::new_v4()));
+        let data = bytes.to_vec();
+        tokio::task::spawn_blocking(move || -> std::io::Result<()> {
+            use std::io::Write;
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temp_path)?;
+            let written = file.write_all(&data);
+            drop(file);
+            let result = written.and_then(|()| std::fs::rename(&temp_path, &abs_path));
+            if result.is_err() {
+                if let Err(e) = std::fs::remove_file(&temp_path) {
+                    if e.kind() != std::io::ErrorKind::NotFound {
+                        tracing::warn!(path = %temp_path.display(), error = %e, "failed to remove temporary blob");
+                    }
+                }
+            }
+            result
+        })
+        .await
+        .map_err(|e| BlobStoreError::Storage(format!("blob write task failed: {e}")))??;
 
         let rel_path = format!("{prefix}/{rest}");
         self.insert_row(&blake3, &blake3, &rel_path, bytes.len() as i64, false, meta)
@@ -1344,6 +1365,38 @@ mod tests {
         let got = store.get(&blob.blake3).await.unwrap().expect("found");
         assert_eq!(got.blake3, blob.blake3);
         assert_eq!(got.filename.as_deref(), Some("hello.txt"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn concurrent_inserts_never_expose_partial_canonical_bytes() {
+        let (store, _pool, _tmp) = make_store().await;
+        let bytes = vec![42; 16 * 1024 * 1024];
+        let hash = blake3::hash(&bytes).to_hex().to_string();
+        let canonical = store.prepare_canonical_path(&hash).await.unwrap();
+        tokio::fs::write(&canonical, &bytes).await.unwrap();
+
+        let first_store = store.clone();
+        let second_store = store.clone();
+        let first_bytes = bytes.clone();
+        let second_bytes = bytes.clone();
+        let first = tokio::spawn(async move {
+            first_store
+                .insert(&first_bytes, NewBlobMeta::default())
+                .await
+        });
+        let second = tokio::spawn(async move {
+            second_store
+                .insert(&second_bytes, NewBlobMeta::default())
+                .await
+        });
+        while !first.is_finished() || !second.is_finished() {
+            let size = tokio::fs::metadata(&canonical).await.unwrap().len();
+            assert_eq!(size, bytes.len() as u64);
+            tokio::task::yield_now().await;
+        }
+        first.await.unwrap().unwrap();
+        second.await.unwrap().unwrap();
+        assert_eq!(tokio::fs::read(canonical).await.unwrap(), bytes);
     }
 
     #[tokio::test]

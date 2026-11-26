@@ -6,7 +6,7 @@ import {
   useQueryClient,
 } from "@tanstack/solid-query";
 import type { Accessor } from "solid-js";
-import { getDataSource } from "../data";
+import { getCurrentRemote, getDataSource } from "../data";
 import { RemoteMusicDataSource } from "../data/remote/remoteSource";
 import type { MusicDataSource } from "../data/types";
 import type { Remote } from "../../app/services/storage/schemas/remote";
@@ -34,7 +34,7 @@ export function useRecentPlaylistsQuery(
   return createQuery(() => ({
     queryKey: [
       ...queryKeys.playlists.recent(limit),
-      remote?.()?.remote_id ?? null,
+      remote?.()?.remote_id ?? getCurrentRemote()?.remote_id ?? null,
       ownedOrCollaborativeOnly,
     ] as const,
     queryFn: async () => {
@@ -82,7 +82,7 @@ export function usePlaylistsQuery(options?: UsePlaylistsQueryOptions) {
       ...queryKeys.playlists.all(),
       "infinite",
       search?.(),
-      remote?.()?.remote_id ?? null,
+      remote?.()?.remote_id ?? getCurrentRemote()?.remote_id ?? null,
       ownedOrCollaborativeOnly?.() ?? false,
     ],
     queryFn: async ({ pageParam }: { pageParam: number }) => {

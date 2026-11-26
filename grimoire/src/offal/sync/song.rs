@@ -12,7 +12,7 @@ use crate::offal::caller::Caller;
 use crate::offal::upload::pull_audio_blob_to_local_storage_with_progress;
 use crate::response::GrimoireResponse;
 
-use super::images::resolve_sync_image_ref;
+use super::images::{resolve_sync_image_ref, sync_artist_images};
 use super::models::{SyncSongByBlake3Request, SyncSongByBlake3Response};
 use super::waveform::waveform_or_spawn;
 use crate::events::WaveformEntityKind;
@@ -60,12 +60,7 @@ pub async fn sync_song_by_blake3(caller: &Caller, body: JsonValue) -> GrimoireRe
         }
     };
 
-    // resolve (or create) the artist synchronously, before enqueuing the
-    // slow part - idempotent (the job's own later pull+import resolves the
-    // same artist by name again, just finds this same row) and cheap (a
-    // local-only db write, no network). this is what lets the caller
-    // upload artist images immediately instead of needing to wait for the
-    // background job to finish and report back - see `SyncJobQueuedResponse`.
+    // resolve the artist before queueing so the response can include its id.
     use crate::music::crud::create_or_update::find_or_create_artist;
     use crate::music::crud::ArtistImportRequest;
     let artist_resp = find_or_create_artist(ArtistImportRequest {
@@ -167,14 +162,19 @@ pub async fn sync_song_by_blake3_impl(
             existing_song_id
         );
 
-        if let Err(e) = reconcile_existing_song_links(&existing_song_id, &req, caller).await {
-            tracing::warn!(
-                "sync_song_by_blake3: reconcile failed for song {} (blake3 {}): {}",
-                existing_song_id,
-                &req.blake3[..16.min(req.blake3.len())],
-                e,
-            );
-        }
+        let reconciled_artist =
+            match reconcile_existing_song_links(&existing_song_id, &req, caller).await {
+                Ok(artist_id) => Some(artist_id),
+                Err(e) => {
+                    tracing::warn!(
+                        "sync_song_by_blake3: reconcile failed for song {} (blake3 {}): {}",
+                        existing_song_id,
+                        &req.blake3[..16.min(req.blake3.len())],
+                        e,
+                    );
+                    None
+                }
+            };
 
         // single lookup for both id and local_path
         let opt_blob = crate::media_blobz::get_media_blob_by_blake3(&req.blake3)
@@ -212,7 +212,22 @@ pub async fn sync_song_by_blake3_impl(
                 &caller.user_id,
             )
             .await;
-            let artist_id = song_artist_id(&existing_song_id).await;
+            let (images_linked, missing_image_blake3s) = match &reconciled_artist {
+                Some(artist_id) => {
+                    sync_artist_images(artist_id, &req.artist_images, &req.source_node_id).await
+                }
+                None => (
+                    0,
+                    req.artist_images
+                        .iter()
+                        .map(|img| img.blake3.clone())
+                        .collect(),
+                ),
+            };
+            let artist_id = match reconciled_artist {
+                Some(id) => id,
+                None => song_artist_id(&existing_song_id).await,
+            };
             let response = SyncSongByBlake3Response {
                 song_id: existing_song_id,
                 media_blob_id,
@@ -220,8 +235,8 @@ pub async fn sync_song_by_blake3_impl(
                 file_path: local_path,
                 blake3: req.blake3.clone(),
                 existing: true,
-                images_linked: 0,
-                missing_image_blake3s: Vec::new(),
+                images_linked,
+                missing_image_blake3s,
                 waveform_blob_id,
             };
             return GrimoireResponse::success(
@@ -415,6 +430,7 @@ pub async fn sync_song_by_blake3_impl(
                     song_id,
                     e
                 );
+                missing_image_blake3s.push(img.blake3.clone());
                 None
             }
         };
@@ -425,6 +441,13 @@ pub async fn sync_song_by_blake3_impl(
                     .await;
             if add_result.success {
                 images_linked += 1;
+            } else {
+                tracing::warn!(
+                    "sync_song_by_blake3: failed to link image {}: {}",
+                    img.blake3,
+                    add_result.message
+                );
+                missing_image_blake3s.push(img.blake3.clone());
             }
         }
     }
@@ -471,6 +494,7 @@ pub async fn sync_song_by_blake3_impl(
                             album_id,
                             e
                         );
+                        missing_image_blake3s.push(img.blake3.clone());
                         None
                     }
                 };
@@ -482,6 +506,13 @@ pub async fn sync_song_by_blake3_impl(
                     .await;
                     if add_result.success {
                         images_linked += 1;
+                    } else {
+                        tracing::warn!(
+                            "sync_song_by_blake3: failed to link album image {}: {}",
+                            img.blake3,
+                            add_result.message
+                        );
+                        missing_image_blake3s.push(img.blake3.clone());
                     }
                 }
             }
@@ -504,8 +535,31 @@ pub async fn sync_song_by_blake3_impl(
     )
     .await;
 
-    let artist_id = match import_result.artist {
-        Some(a) => a.id,
+    let image_artist_id = if import_existing {
+        match reconcile_existing_song_links(&song_id, &req, caller).await {
+            Ok(id) => Some(id),
+            Err(error) => {
+                tracing::warn!(song_id, %error, "cannot reconcile artist for image sync");
+                None
+            }
+        }
+    } else {
+        import_result
+            .artist
+            .filter(|artist| artist.name.eq_ignore_ascii_case(&req.artist_name))
+            .map(|artist| artist.id)
+    };
+    if let Some(id) = &image_artist_id {
+        let (linked, missing) =
+            sync_artist_images(id, &req.artist_images, &req.source_node_id).await;
+        images_linked += linked;
+        missing_image_blake3s.extend(missing);
+    } else if !req.artist_images.is_empty() {
+        tracing::warn!(song_id, "cannot link artist images: song artist not found");
+        missing_image_blake3s.extend(req.artist_images.iter().map(|img| img.blake3.clone()));
+    }
+    let artist_id = match image_artist_id {
+        Some(id) => id,
         None => song_artist_id(&song_id).await,
     };
 
@@ -568,7 +622,7 @@ async fn reconcile_existing_song_links(
     song_id: &str,
     req: &SyncSongByBlake3Request,
     caller: &Caller,
-) -> Result<(), String> {
+) -> Result<String, String> {
     use crate::music::crud::create_or_update::{
         find_or_create_album_for_artist, find_or_create_artist,
     };
@@ -674,5 +728,5 @@ async fn reconcile_existing_song_links(
         genre_ids.len(),
     );
 
-    Ok(())
+    Ok(artist_id)
 }
