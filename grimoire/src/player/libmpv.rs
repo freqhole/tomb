@@ -17,7 +17,7 @@
 //!
 //! two threads, mirroring charnel's `video_window/libmpv_backend.rs`
 //! split: one owns an `Mpv` handle and just applies `PlayerCommand`s to
-//! mpv's own native playlist (`loadfile ... replace`/`append(-play)`,
+//! mpv's own playlist (`loadfile ... replace`/`append(-play)`,
 //! `playlist-next`/`playlist-prev` for `Next`/`Previous` - no
 //! hand-rolled queue/index bookkeeping); the other reads mpv's event
 //! stream and translates property changes into `PlayerEvent`s.
@@ -115,28 +115,7 @@ pub fn spawn_libmpv_player() -> GrimoireResult<LibmpvController> {
     unsafe {
         libc::setlocale(libc::LC_NUMERIC, c"C".as_ptr());
     }
-    // mpv's own verbose diagnostic log (open/demux/codec/AO progress) is
-    // only written when explicitly asked for, via debug logging for this
-    // module (e.g. `RUST_LOG=grimoire::player::libmpv=debug`): it's a
-    // large per-launch file most users never need. `log-file` is used
-    // instead of `request_log_messages` + the `LogMessage` event, which
-    // produced zero lines for an embedded libmpv context (confirmed
-    // 2026-10-07); "v" rather than "warn" because routine progress is
-    // logged below warn severity, which is what makes a silent failure
-    // visible.
-    let verbose_log_path = tracing::enabled!(tracing::Level::DEBUG).then(|| {
-        crate::config::get_config()
-            .data_dir
-            .join("libmpv-audio.log")
-    });
-    let mpv = Mpv::with_initializer(|init| {
-        if let Some(path) = &verbose_log_path {
-            init.set_option("msg-level", "all=v")?;
-            init.set_option("log-file", path.to_string_lossy().as_ref())?;
-        }
-        Ok(())
-    })
-    .map_err(|e| GrimoireError::ProcessingFailed {
+    let mpv = Mpv::new().map_err(|e| GrimoireError::ProcessingFailed {
         message: format!("failed to start libmpv: {e}"),
     })?;
     // audio-only - never render/select a video track even if a loaded
@@ -152,6 +131,30 @@ pub fn spawn_libmpv_player() -> GrimoireResult<LibmpvController> {
         .map_err(|e| GrimoireError::ProcessingFailed {
             message: format!("failed to create libmpv event client: {e}"),
         })?;
+    let verbose_log = if tracing::enabled!(tracing::Level::DEBUG) {
+        let config = crate::config::get_config();
+        let path = config.data_dir.join("libmpv-audio.log");
+        match crate::log_file::LogFile::open(&path, config.logging.max_lines) {
+            Ok(file) => {
+                // log subscriptions belong to the handle that reads the events.
+                let result = unsafe {
+                    libmpv2_sys::mpv_request_log_messages(events_client.ctx.as_ptr(), c"v".as_ptr())
+                };
+                if result < 0 {
+                    tracing::warn!(result, "failed to request libmpv log messages");
+                    None
+                } else {
+                    Some(file)
+                }
+            }
+            Err(e) => {
+                tracing::warn!(path = %path.display(), error = %e, "failed to open libmpv log");
+                None
+            }
+        }
+    } else {
+        None
+    };
     events_client.disable_deprecated_events().ok();
     for (name, format) in [
         ("time-pos", Format::Double),
@@ -178,7 +181,7 @@ pub fn spawn_libmpv_player() -> GrimoireResult<LibmpvController> {
     let events_for_reader = events_tx.clone();
     let event_thread = thread::Builder::new()
         .name("freqhole-libmpv-events".into())
-        .spawn(move || read_libmpv_events(events_client, events_for_reader))
+        .spawn(move || read_libmpv_events(events_client, events_for_reader, verbose_log))
         .map_err(|e| GrimoireError::ProcessingFailed {
             message: format!("failed to spawn libmpv event thread: {e}"),
         })?;
@@ -532,7 +535,11 @@ fn mpv_err(operation: &str, e: libmpv2::Error) -> String {
     format!("libmpv {operation} failed: {e}")
 }
 
-fn read_libmpv_events(events_client: Mpv, events: broadcast::Sender<PlayerEvent>) {
+fn read_libmpv_events(
+    events_client: Mpv,
+    events: broadcast::Sender<PlayerEvent>,
+    mut verbose_log: Option<crate::log_file::LogFile>,
+) {
     // mpv_observe_property delivers one notification carrying the
     // CURRENT value immediately upon starting observation, for every
     // property - a fresh Mpv (idle, nothing ever loaded) reports
@@ -547,6 +554,20 @@ fn read_libmpv_events(events_client: Mpv, events: broadcast::Sender<PlayerEvent>
 
     loop {
         match events_client.wait_event(1.0) {
+            Some(Ok(MpvEvent::LogMessage {
+                prefix,
+                level,
+                text,
+                ..
+            })) => {
+                if let Some(file) = &mut verbose_log {
+                    use std::io::Write;
+                    if let Err(e) = file.write_all(format!("[{prefix}] {level}: {text}").as_bytes())
+                    {
+                        tracing::error!(error = %e, "failed to write libmpv log");
+                    }
+                }
+            }
             Some(Ok(MpvEvent::PropertyChange {
                 name: "time-pos",
                 change: PropertyData::Double(position),

@@ -34,12 +34,16 @@ async fn main() -> color_eyre::Result<()> {
 
     // route logs to a file — stdout is owned by ratatui and writing to it
     // would scribble over the rendered ui.
-    init_file_logging();
+    let log_file = init_file_logging();
     // and route raw stderr (CoreAudio / symphonia / iroh-blobs C
     // shims that bypass tracing and `fprintf` straight to fd 2)
     // into the same log file. without this, audio-driver warnings
     // emitted on first playback corrupt the ratatui alt-screen.
-    redirect_stderr_to_log();
+    if let Some(log_file) = log_file {
+        if let Err(e) = redirect_stderr_to_log(log_file) {
+            eprintln!("failed to redirect stderr to rathole log: {e}");
+        }
+    }
 
     rathole::run(rathole::LaunchOpts {
         config,
@@ -49,7 +53,7 @@ async fn main() -> color_eyre::Result<()> {
     .await
 }
 
-fn init_file_logging() {
+fn init_file_logging() -> Option<grimoire::log_file::LogFile> {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
@@ -57,17 +61,13 @@ fn init_file_logging() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(level));
     let log_path = grimoire::config::get_config().data_dir.join("rathole.log");
-    if let Some(parent) = log_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    match std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-    {
+    match grimoire::log_file::LogFile::open(
+        &log_path,
+        grimoire::config::get_config().logging.max_lines,
+    ) {
         Ok(file) => {
             let file_layer = tracing_subscriber::fmt::layer()
-                .with_writer(std::sync::Mutex::new(file))
+                .with_writer(file.clone())
                 .with_ansi(false);
             // also mirror everything into a process-wide ring
             // buffer so the `/logs` slash command can dump recent
@@ -82,8 +82,10 @@ fn init_file_logging() {
                 .with(file_layer)
                 .with(ring_layer)
                 .try_init();
+            Some(file)
         }
-        Err(_) => {
+        Err(e) => {
+            eprintln!("failed to open rathole log {}: {e}", log_path.display());
             // even without a file, install the ring buffer so
             // /logs still works in-memory.
             let ring = rathole::log_buffer::install();
@@ -94,39 +96,93 @@ fn init_file_logging() {
                 .with(filter)
                 .with(ring_layer)
                 .try_init();
+            None
         }
     }
 }
 
-/// dup file descriptor 2 (stderr) to the rathole log file so any
-/// raw `fprintf(stderr, ...)` from C audio shims (CoreAudio,
-/// symphonia's underlying decoders, iroh-relay bits) lands
-/// in the log instead of scribbling over the ratatui alt-screen.
-/// best-effort: failures here just leave stderr alone, which is no
-/// worse than the previous behaviour.
-fn redirect_stderr_to_log() {
-    use std::os::fd::AsRawFd;
-    let log_path = grimoire::config::get_config().data_dir.join("rathole.log");
-    let Ok(file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-    else {
-        return;
-    };
-    // SAFETY: dup2 is async-signal-safe and only touches fd 2 in
-    // this process. failure is ignored — we don't want a missing
-    // libc symbol to take down the binary.
-    #[cfg(unix)]
-    unsafe {
-        let target_fd = file.as_raw_fd();
-        if target_fd >= 0 {
-            let _ = libc::dup2(target_fd, 2);
-        }
+#[cfg(unix)]
+fn redirect_stderr_to_log(mut log_file: grimoire::log_file::LogFile) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::net::UnixStream;
+
+    let (mut reader, writer) = UnixStream::pair()?;
+    let original_fd = unsafe { libc::fcntl(2, libc::F_DUPFD_CLOEXEC, 0) };
+    if original_fd < 0 {
+        return Err(std::io::Error::last_os_error());
     }
-    // keep `file` alive for the program lifetime so the dup'd fd
-    // remains valid (closing `file` would close the underlying
-    // description shared with fd 2 but only after the last
-    // reference; leaking it is the safest path).
-    std::mem::forget(file);
+    let mut original_stderr = unsafe { std::fs::File::from_raw_fd(original_fd) };
+    std::thread::Builder::new()
+        .name("rathole-stderr-log".into())
+        .spawn(move || {
+            if let Err(e) = std::io::copy(&mut reader, &mut log_file) {
+                let _ = writeln!(original_stderr, "failed to write rathole stderr log: {e}");
+                if let Err(e) = std::io::copy(&mut reader, &mut original_stderr) {
+                    let _ = writeln!(original_stderr, "failed to forward stderr: {e}");
+                }
+            }
+        })?;
+    if unsafe { libc::dup2(writer.as_raw_fd(), 2) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn redirect_stderr_to_log(_log_file: grimoire::log_file::LogFile) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "stderr redirection is not supported",
+    ))
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stderr_is_bounded() {
+        const CHILD_PATH: &str = "RATHOLE_STDERR_TEST_PATH";
+        if let Some(path) = std::env::var_os(CHILD_PATH) {
+            let path = PathBuf::from(path);
+            redirect_stderr_to_log(grimoire::log_file::LogFile::open(&path, 10).unwrap()).unwrap();
+            let input = (0..100).map(|i| format!("{i}\n")).collect::<String>();
+            let written = unsafe { libc::write(2, input.as_ptr().cast(), input.len()) };
+            assert_eq!(written, input.len() as isize);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while !std::fs::read_to_string(&path).unwrap().ends_with("99\n") {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "stderr was not captured"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            return;
+        }
+
+        let path = std::env::temp_dir().join(format!(
+            "rathole-stderr-test-{}-{}.log",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "tests::stderr_is_bounded", "--nocapture"])
+            .env(CHILD_PATH, &path)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "child failed: {} {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.lines().count() <= 10);
+        assert_eq!(content.lines().last(), Some("99"));
+        std::fs::remove_file(path).unwrap();
+    }
 }

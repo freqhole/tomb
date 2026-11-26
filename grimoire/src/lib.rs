@@ -30,6 +30,7 @@ pub mod federation;
 pub mod fetch_cookies;
 pub mod health;
 pub mod jobs;
+pub mod log_file;
 pub mod maintenance;
 pub mod media_blobz;
 pub mod media_domain;

@@ -230,10 +230,6 @@ impl ShutdownToken {
 
 /// app identifier for computing data directory
 const APP_IDENTIFIER: &str = "net.freqhole.charnel";
-/// default log file name
-const DEFAULT_LOG_FILE: &str = "charnel.log";
-/// max log lines before truncation
-const DEFAULT_MAX_LOG_LINES: usize = 10000;
 
 /// get the app data directory path (without needing an AppHandle)
 /// this is needed because tracing setup happens before tauri::Builder is run
@@ -278,32 +274,6 @@ fn get_app_data_dir() -> Option<PathBuf> {
     }
 }
 
-/// truncate log file if it exceeds max_lines (keeps the newest lines)
-fn truncate_log_file_if_needed(path: &std::path::Path, max_lines: usize) {
-    use std::io::{BufRead, BufReader, Write};
-
-    let file = match std::fs::File::open(path) {
-        Ok(f) => f,
-        Err(_) => return,
-    };
-
-    let reader = BufReader::new(file);
-    let lines: Vec<String> = reader.lines().map_while(Result::ok).collect();
-
-    if lines.len() <= max_lines {
-        return;
-    }
-
-    let keep_from = lines.len() - max_lines;
-    let truncated: Vec<&str> = lines[keep_from..].iter().map(|s| s.as_str()).collect();
-
-    if let Ok(mut file) = std::fs::File::create(path) {
-        for line in truncated {
-            let _ = writeln!(file, "{}", line);
-        }
-    }
-}
-
 /// set up tracing with file output
 fn setup_tracing() {
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -324,24 +294,30 @@ fn setup_tracing() {
 
     // try to set up file logging
     if let Some(app_dir) = get_app_data_dir() {
-        // ensure app data dir exists
-        let _ = std::fs::create_dir_all(&app_dir);
-
-        let log_path = app_dir.join(DEFAULT_LOG_FILE);
-
-        // truncate if too large
-        truncate_log_file_if_needed(&log_path, DEFAULT_MAX_LOG_LINES);
-
-        // open log file
-        let file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path);
+        let config_path = app_dir.join(app_config::APP_CONFIG_FILENAME);
+        let logging = match std::fs::read_to_string(&config_path) {
+            Ok(content) => match toml::from_str::<FreqholeAppConfig>(&content) {
+                Ok(config) => config.logging,
+                Err(e) => {
+                    eprintln!("failed to parse {}: {e}", config_path.display());
+                    app_config::LoggingConfig::default()
+                }
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                app_config::LoggingConfig::default()
+            }
+            Err(e) => {
+                eprintln!("failed to read {}: {e}", config_path.display());
+                app_config::LoggingConfig::default()
+            }
+        };
+        let log_path = app_dir.join(&logging.file);
+        let file = grimoire::log_file::LogFile::open(&log_path, logging.max_lines);
 
         if let Ok(file) = file {
             // both file and stdout logging
             let file_layer = tracing_subscriber::fmt::layer()
-                .with_writer(std::sync::Mutex::new(file))
+                .with_writer(file)
                 .with_ansi(false);
 
             let stdout_layer = tracing_subscriber::fmt::layer();
@@ -353,6 +329,9 @@ fn setup_tracing() {
                 .init();
 
             return;
+        }
+        if let Err(e) = file {
+            eprintln!("failed to open log {}: {e}", log_path.display());
         }
     }
 
